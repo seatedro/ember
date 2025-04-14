@@ -1,0 +1,16 @@
+.{
+    .name = .ember,
+    .version = "0.0.0",
+    .fingerprint = 0xb36eb042d1621ded,
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{
+        .cimgui = .{ .path = "vendor/cimgui" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        //"LICENSE",
+        //"README.md",
+    },
+}
