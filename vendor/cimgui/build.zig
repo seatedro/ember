@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) !void {
     sdl_mod.linkLibrary(sdl_lib);
     sdl_mod.addIncludePath(sdl_include_path);
 
-    const mod_cimgui = b.addModule("cimgui", .{
+    const cimgui_mod = b.addModule("cimgui", .{
         .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
@@ -30,9 +30,9 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "sdl", .module = sdl_mod },
         },
     });
-    mod_cimgui.addIncludePath(b.path("dist"));
-    mod_cimgui.addIncludePath(imgui_source_path);
-    mod_cimgui.addIncludePath(sdl_include_path);
+    cimgui_mod.addIncludePath(b.path("dist"));
+    cimgui_mod.addIncludePath(imgui_source_path);
+    cimgui_mod.addIncludePath(sdl_include_path);
 
     const lib_cimgui = b.addStaticLibrary(.{
         .name = "cimgui_impl",
@@ -86,7 +86,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib_cimgui);
 
     const test_exe = b.addTest(.{
-        .root_module = mod_cimgui,
+        .root_module = cimgui_mod,
         .target = target,
         .optimize = optimize,
     });

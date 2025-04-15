@@ -8,11 +8,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const sdl_dep = b.dependency("sdl", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const sdl_lib = sdl_dep.artifact("SDL3");
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -23,7 +18,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sdl", .module = cimgui_dep.module("sdl") },
         },
     });
-    exe_mod.linkLibrary(sdl_lib);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
 
     const exe = b.addExecutable(.{

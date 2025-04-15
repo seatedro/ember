@@ -67,9 +67,10 @@ pub fn main() !void {
     defer cimgui.c.igDestroyContext(null);
 
     const io = cimgui.c.igGetIO();
-    // io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableKeyboard;
-    // io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableGamepad;
-    // io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_DockingEnable;
+    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableKeyboard;
+    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableGamepad;
+    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_DockingEnable;
+    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_ViewportsEnable;
 
     cimgui.c.igStyleColorsDark(null);
 
@@ -78,7 +79,6 @@ pub fn main() !void {
         std.log.err("ImGui_ImplSDL3_InitForSDLRenderer failed", .{});
         return error.ImGuiBackendInitFailed;
     }
-    defer cimgui.ImGui_ImplSDL3_Shutdown();
 
     if (!cimgui.ImGui_ImplSDLRenderer3_Init(renderer)) {
         std.log.err("ImGui_ImplSDLRenderer3_Init failed", .{});
@@ -118,11 +118,11 @@ pub fn main() !void {
         // Start the Dear ImGui frame
         cimgui.ImGui_ImplSDL3_NewFrame();
         cimgui.ImGui_ImplSDLRenderer3_NewFrame();
-        cimgui.c.igNewFrame();
+        cimgui.igNewFrame();
 
         // 1. Show the big demo window
         if (show_demo_window) {
-            cimgui.c.igShowDemoWindow(&show_demo_window);
+            cimgui.igShowDemoWindow(&show_demo_window);
         }
 
         // 2. Show a simple window we create ourselves
@@ -164,8 +164,10 @@ pub fn main() !void {
         }
 
         // Rendering
-        cimgui.c.igRender();
-        // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
+        cimgui.igRender();
+        const draw_data = cimgui.igGetDrawData();
+
+        // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y); // Still commented out, good.
         try errify(sdl.c.SDL_SetRenderDrawColor(
             renderer,
             @intFromFloat(clear_color.x * 255.0),
@@ -174,7 +176,20 @@ pub fn main() !void {
             @intFromFloat(clear_color.w * 255.0),
         ));
         try errify(sdl.c.SDL_RenderClear(renderer));
-        cimgui.ImGui_ImplSDLRenderer3_RenderDrawData(cimgui.c.igGetDrawData());
+
+        // Only call the render function if draw_data is valid and has commands
+        if (draw_data) |data| {
+            if (data.Valid and data.CmdListsCount > 0) {
+                cimgui.ImGui_ImplSDLRenderer3_RenderDrawData(draw_data);
+            }
+        }
+
+        if (io != null and (io.*.ConfigFlags & cimgui.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
+            std.log.debug("Multi viewports....\n", .{});
+            cimgui.c.igUpdatePlatformWindows();
+            cimgui.c.igRenderPlatformWindowsDefault();
+        }
+
         try errify(sdl.c.SDL_RenderPresent(renderer));
     }
 }
