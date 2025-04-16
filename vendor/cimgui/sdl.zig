@@ -10,13 +10,6 @@ pub const c = @cImport({
     // @cInclude("SDL3/SDL_main.h"),
 });
 
-// Optional: Add Zig helper functions for SDL if desired, e.g., errify
-const SdlError = error{
-    SdlError, // Generic SDL error
-};
-
-/// Converts the return value of an SDL function to an error union.
-/// Handles common SDL return patterns (int < 0, null pointers, bool false).
 pub inline fn errify(value: anytype) error{SdlError}!switch (@typeInfo(@TypeOf(value))) {
     .bool => void,
     .pointer, .optional => @TypeOf(value.?),
@@ -35,13 +28,4 @@ pub inline fn errify(value: anytype) error{SdlError}!switch (@typeInfo(@TypeOf(v
         },
         else => comptime unreachable,
     };
-}
-
-fn logSdlError() void {
-    const err_msg = c.SDL_GetError();
-    if (std.mem.len(err_msg) > 0) {
-        std.log.err("SDL Error: {s}", .{err_msg});
-    } else {
-        std.log.err("SDL Error: (No specific message)", .{});
-    }
 }

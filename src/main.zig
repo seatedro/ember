@@ -1,41 +1,36 @@
 const std = @import("std");
-
 const cimgui = @import("cimgui");
 const sdl = @import("sdl");
+
+const rendering = @import("rendering/renderer.zig");
 
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
 
-/// Converts the return value of an SDL function to an error union.
-inline fn errify(value: anytype) error{SdlError}!switch (@typeInfo(@TypeOf(value))) {
-    .bool => void,
-    .pointer, .optional => @TypeOf(value.?),
-    .int => |info| switch (info.signedness) {
-        .signed => @TypeOf(@max(0, value)),
-        .unsigned => @TypeOf(value),
-    },
-    else => @compileError("unerrifiable type: " ++ @typeName(@TypeOf(value))),
-} {
-    return switch (@typeInfo(@TypeOf(value))) {
-        .bool => if (!value) error.SdlError,
-        .pointer, .optional => value orelse error.SdlError,
-        .int => |info| switch (info.signedness) {
-            .signed => if (value >= 0) @max(0, value) else error.SdlError,
-            .unsigned => if (value != 0) value else error.SdlError,
-        },
-        else => comptime unreachable,
-    };
-}
-
 pub fn main() !void {
-    // Initialize SDL
-    try errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
+    try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
     defer sdl.c.SDL_Quit();
 
-    // Create window
-    const window_flags = sdl.c.SDL_WINDOW_RESIZABLE | sdl.c.SDL_WINDOW_HIDDEN;
+    const backend = rendering.BackendType.SDL;
+
+    var window_flags = sdl.c.SDL_WINDOW_RESIZABLE | sdl.c.SDL_WINDOW_HIDDEN;
+    if (backend == .OpenGL) {
+        // Example: Add OpenGL flag if needed by that backend's init
+        window_flags |= sdl.c.SDL_WINDOW_OPENGL;
+        // --- TODO: Set SDL_GL_SetAttribute BEFORE CreateWindow for OpenGL ---
+        // Example:
+        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
+        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MINOR_VERSION, 3));
+        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_PROFILE_MASK, sdl.c.SDL_GL_CONTEXT_PROFILE_CORE));
+        std.log.warn("OpenGL backend selected - Ensure necessary SDL_GL attributes are set BEFORE window creation if required.", .{});
+    }
+
     const window = sdl.c.SDL_CreateWindow(
-        "Dear ImGui SDL3+SDL_Renderer example",
+        "Ember Engine",
         WIN_WIDTH,
         WIN_HEIGHT,
         window_flags,
@@ -46,25 +41,23 @@ pub fn main() !void {
     }
     defer sdl.c.SDL_DestroyWindow(window);
 
-    // Create renderer
-    const renderer = sdl.c.SDL_CreateRenderer(window, null);
-    if (renderer == null) {
-        std.log.err("SDL_CreateRenderer failed: {s}", .{sdl.c.SDL_GetError()});
-        return error.SDLRendererCreationFailed;
-    }
-    defer sdl.c.SDL_DestroyRenderer(renderer);
-
-    try errify(sdl.c.SDL_SetRenderVSync(renderer, 1));
-    try errify(sdl.c.SDL_SetWindowPosition(
+    try sdl.errify(sdl.c.SDL_SetWindowPosition(
         window,
         sdl.c.SDL_WINDOWPOS_CENTERED,
         sdl.c.SDL_WINDOWPOS_CENTERED,
     ));
-    try errify(sdl.c.SDL_ShowWindow(window));
+    try sdl.errify(sdl.c.SDL_ShowWindow(window));
 
     // Setup Dear ImGui context
-    _ = cimgui.c.igCreateContext(null);
-    defer cimgui.c.igDestroyContext(null);
+    const ig_context = cimgui.c.igCreateContext(null); // Store the returned context pointer
+    if (ig_context == null) {
+        // Check if context creation failed
+        std.log.err("Failed to create ImGui context!", .{});
+        sdl.c.SDL_DestroyWindow(window);
+        sdl.c.SDL_Quit();
+        return error.ImGuiContextCreationFailed;
+    }
+    defer cimgui.c.igDestroyContext(ig_context);
 
     const io = cimgui.c.igGetIO();
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableKeyboard;
@@ -74,17 +67,21 @@ pub fn main() !void {
 
     cimgui.c.igStyleColorsDark(null);
 
-    // Setup Platform/Renderer backends
-    if (!cimgui.ImGui_ImplSDL3_InitForSDLRenderer(window, renderer)) {
-        std.log.err("ImGui_ImplSDL3_InitForSDLRenderer failed", .{});
-        return error.ImGuiBackendInitFailed;
-    }
+    defer cimgui.ImGui_ImplSDL3_Shutdown();
+    // Create renderer
+    var renderer_ctx = rendering.createRenderer(backend, window.?, allocator) catch {
+        cimgui.c.igDestroyContext(ig_context);
+        sdl.c.SDL_DestroyWindow(window);
+        sdl.c.SDL_Quit();
+        return error.InitializationFailed;
+    };
 
-    if (!cimgui.ImGui_ImplSDLRenderer3_Init(renderer)) {
-        std.log.err("ImGui_ImplSDLRenderer3_Init failed", .{});
-        return error.ImGuiRendererInitFailed;
-    }
-    defer cimgui.ImGui_ImplSDLRenderer3_Shutdown();
+    defer renderer_ctx.deinit();
+
+    try renderer_ctx.initImGuiBackend();
+    defer renderer_ctx.deinitImGuiBackend();
+
+    try renderer_ctx.setVSync(true);
 
     // State
     var show_demo_window: bool = true;
@@ -95,7 +92,6 @@ pub fn main() !void {
     var event: sdl.c.SDL_Event = undefined;
 
     while (!done) {
-        // Poll and handle events
         while (sdl.c.SDL_PollEvent(&event)) {
             _ = cimgui.ImGui_ImplSDL3_ProcessEvent(&event);
             switch (event.type) {
@@ -115,17 +111,14 @@ pub fn main() !void {
             continue;
         }
 
-        // Start the Dear ImGui frame
         cimgui.ImGui_ImplSDL3_NewFrame();
-        cimgui.ImGui_ImplSDLRenderer3_NewFrame();
-        cimgui.igNewFrame();
+        renderer_ctx.newImGuiFrame();
+        cimgui.c.igNewFrame();
 
-        // 1. Show the big demo window
         if (show_demo_window) {
             cimgui.igShowDemoWindow(&show_demo_window);
         }
 
-        // 2. Show a simple window we create ourselves
         {
             var f: f32 = 0.0;
             var counter: i32 = 0;
@@ -152,7 +145,6 @@ pub fn main() !void {
             cimgui.c.igEnd();
         }
 
-        // 3. Show another simple window
         if (show_another_window) {
             if (cimgui.c.igBegin("Another Window", &show_another_window, 0)) {
                 cimgui.c.igText("Hello from another window!");
@@ -164,32 +156,26 @@ pub fn main() !void {
         }
 
         // Rendering
-        cimgui.igRender();
+        cimgui.c.igRender();
         const draw_data = cimgui.igGetDrawData();
+        // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
+        try renderer_ctx.beginFrame(clear_color);
 
-        // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y); // Still commented out, good.
-        try errify(sdl.c.SDL_SetRenderDrawColor(
-            renderer,
-            @intFromFloat(clear_color.x * 255.0),
-            @intFromFloat(clear_color.y * 255.0),
-            @intFromFloat(clear_color.z * 255.0),
-            @intFromFloat(clear_color.w * 255.0),
-        ));
-        try errify(sdl.c.SDL_RenderClear(renderer));
-
-        // Only call the render function if draw_data is valid and has commands
-        if (draw_data) |data| {
+        if (draw_data) |data| { // Check draw_data is not null
             if (data.Valid and data.CmdListsCount > 0) {
-                cimgui.ImGui_ImplSDLRenderer3_RenderDrawData(draw_data);
+                renderer_ctx.renderImGui(data);
             }
+        } else {
+            std.log.warn("ImGui draw data was null!", .{});
         }
 
-        if (io != null and (io.*.ConfigFlags & cimgui.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
-            std.log.debug("Multi viewports....\n", .{});
+        // This does nothing if the backend doesn't support it.
+        // So far sdlrenderer3 does not support multi-viewports.
+        if ((io.*.ConfigFlags & cimgui.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
             cimgui.c.igUpdatePlatformWindows();
             cimgui.c.igRenderPlatformWindowsDefault();
         }
 
-        try errify(sdl.c.SDL_RenderPresent(renderer));
+        try renderer_ctx.endFrame();
     }
 }

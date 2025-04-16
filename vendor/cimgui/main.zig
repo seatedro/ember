@@ -56,4 +56,5 @@ pub extern fn ImGui_ImplSDLRenderer3_Shutdown() callconv(.C) void;
 pub extern fn ImGui_ImplSDLRenderer3_NewFrame() callconv(.C) void;
 pub extern fn ImGui_ImplSDLRenderer3_RenderDrawData(
     draw_data: ?*c.ImDrawData,
+    renderer: ?*sdl.c.SDL_Renderer,
 ) callconv(.C) void;
