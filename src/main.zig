@@ -1,16 +1,32 @@
 const std = @import("std");
 const cimgui = @import("cimgui");
 const sdl = @import("sdl");
+const math = std.math;
 
 const rendering = @import("rendering/renderer.zig");
+const sdlrenderer = @import("rendering/backend/sdl.zig");
 
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
+const SPRITE_W = 32;
+const SPRITE_H = 32;
+const MOVE_SPEED = 50.0;
+const SPRITES_PER_CLICK = 100;
+
+const Sprite = struct {
+    rect: sdl.c.SDL_FRect,
+    vx: f32,
+    vy: f32,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+    const perf_file = try std.fs.cwd().createFile("perf.csv", .{ .truncate = true });
+    defer perf_file.close();
+
+    try perf_file.writer().print("sprite_count,fps\n", .{});
 
     try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
     defer sdl.c.SDL_Quit();
@@ -84,14 +100,38 @@ pub fn main() !void {
     try renderer_ctx.setVSync(true);
 
     // State
-    var show_demo_window: bool = true;
-    var show_another_window: bool = false;
-    var clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
+    const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
+
+    const context: *sdlrenderer.SdlContext = @ptrCast(@alignCast(renderer_ctx.context));
+    const sprite_path = "assets/amogus.png";
+    const stress_texture = try sdl.errify(sdl.c.IMG_LoadTexture(context.renderer, sprite_path));
+    defer sdl.c.SDL_DestroyTexture(stress_texture);
+
+    var prng = std.Random.DefaultPrng.init(blk: {
+        var seed: u64 = 49;
+        try std.posix.getrandom(std.mem.asBytes(&seed));
+        break :blk seed;
+    });
+    const rand = prng.random();
+
+    var sprites = std.ArrayList(Sprite).init(allocator);
+    defer sprites.deinit();
 
     var done = false;
+    var left_down: bool = false;
     var event: sdl.c.SDL_Event = undefined;
+    var win_w: c_int = 0;
+    var win_h: c_int = 0;
+    var last_ticks = sdl.c.SDL_GetTicks();
+    var last_log_time: u64 = 0;
+
+    try sdl.errify(sdl.c.SDL_GetWindowSize(window, &win_w, &win_h));
 
     while (!done) {
+        const now = sdl.c.SDL_GetTicks();
+        const dt: f32 = @as(f32, @floatFromInt(now - last_ticks)) / 1000.0;
+        last_ticks = now;
+
         while (sdl.c.SDL_PollEvent(&event)) {
             _ = cimgui.ImGui_ImplSDL3_ProcessEvent(&event);
             switch (event.type) {
@@ -101,8 +141,39 @@ pub fn main() !void {
                         done = true;
                     }
                 },
+                sdl.c.SDL_EVENT_MOUSE_BUTTON_DOWN => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
+                    left_down = true;
+                    for (0..SPRITES_PER_CLICK) |_| {
+                        try spawnSprite(&sprites, rand.float(f32), event.button.x, event.button.y);
+                    }
+                    // try sprites.append(sdl.c.SDL_FRect{
+                    //     .x = event.button.x,
+                    //     .y = event.button.y,
+                    //     .w = SPRITE_W,
+                    //     .h = SPRITE_H,
+                    // });
+                },
+                sdl.c.SDL_EVENT_MOUSE_BUTTON_UP => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
+                    left_down = false;
+                },
+                sdl.c.SDL_EVENT_MOUSE_MOTION => if (left_down) {
+                    // try sprites.append(sdl.c.SDL_FRect{
+                    //     .x = event.motion.x,
+                    //     .y = event.motion.y,
+                    //     .w = SPRITE_W,
+                    //     .h = SPRITE_H,
+                    // });
+                    for (0..SPRITES_PER_CLICK) |_| {
+                        try spawnSprite(&sprites, rand.float(f32), event.motion.x, event.motion.y);
+                    }
+                },
                 else => {},
             }
+        }
+
+        for (sprites.items) |*sp| {
+            sp.rect.x += sp.vx * dt;
+            sp.rect.y += sp.vy * dt;
         }
 
         // Minimized? Sleep and skip frame
@@ -115,42 +186,21 @@ pub fn main() !void {
         renderer_ctx.newImGuiFrame();
         cimgui.c.igNewFrame();
 
-        if (show_demo_window) {
-            cimgui.igShowDemoWindow(&show_demo_window);
-        }
-
         {
-            var f: f32 = 0.0;
-            var counter: i32 = 0;
-
-            if (cimgui.c.igBegin("Hello, world!", null, 0)) {
-                cimgui.c.igText("This is some useful text.");
-                _ = cimgui.c.igCheckbox("Demo Window", &show_demo_window);
-                _ = cimgui.c.igCheckbox("Another Window", &show_another_window);
-                _ = cimgui.c.igSliderFloat("float", &f, 0.0, 1.0);
-                _ = cimgui.c.igColorEdit3("clear color", &clear_color.x, 0);
-
-                if (cimgui.c.igButton("Button")) {
-                    counter += 1;
-                }
-                cimgui.c.igSameLine();
-                cimgui.c.igText("counter = %d", counter);
-
+            if (cimgui.c.igBegin("Ember Debug Console", null, 0)) {
+                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.items.len)));
                 cimgui.c.igText(
-                    "Application average %.3f ms/frame (%.1f FPS)",
+                    "Perf: %.3f ms/frame (%.1f FPS)",
                     1000.0 / io.*.Framerate,
                     io.*.Framerate,
                 );
             }
-            cimgui.c.igEnd();
-        }
-
-        if (show_another_window) {
-            if (cimgui.c.igBegin("Another Window", &show_another_window, 0)) {
-                cimgui.c.igText("Hello from another window!");
-                if (cimgui.c.igButton("Close Me")) {
-                    show_another_window = false;
-                }
+            if (now - last_log_time >= 500) { // log every 500ms
+                try perf_file.writer().print("{d},{d:.2}\n", .{
+                    sprites.items.len,
+                    io.*.Framerate,
+                });
+                last_log_time = now;
             }
             cimgui.c.igEnd();
         }
@@ -160,6 +210,10 @@ pub fn main() !void {
         const draw_data = cimgui.igGetDrawData();
         // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
         try renderer_ctx.beginFrame(clear_color);
+
+        for (sprites.items) |s| {
+            try renderer_ctx.drawTexture(stress_texture, null, &s.rect);
+        }
 
         if (draw_data) |data| { // Check draw_data is not null
             if (data.Valid and data.CmdListsCount > 0) {
@@ -178,4 +232,20 @@ pub fn main() !void {
 
         try renderer_ctx.endFrame();
     }
+}
+
+fn spawnSprite(sprites: *std.ArrayList(Sprite), r: f32, mx: f32, my: f32) !void {
+    const angle = r * math.pi * 2.0;
+    const vx = math.cos(angle) * MOVE_SPEED;
+    const vy = math.sin(angle) * MOVE_SPEED;
+    try sprites.append(Sprite{
+        .rect = sdl.c.SDL_FRect{
+            .x = mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
+            .y = my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
+            .w = SPRITE_W,
+            .h = SPRITE_H,
+        },
+        .vx = vx,
+        .vy = vy,
+    });
 }
