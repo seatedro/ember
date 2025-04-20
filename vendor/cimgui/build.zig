@@ -12,6 +12,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    const sdl_image_dep = b.dependency("SDL_image", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const sdl_include_path = sdl_dep.path("include");
     const sdl_mod = b.addModule("sdl", .{
         .root_source_file = b.path("sdl.zig"),
@@ -20,6 +24,7 @@ pub fn build(b: *std.Build) !void {
     });
     const sdl_lib = sdl_dep.artifact("SDL3");
     sdl_mod.linkLibrary(sdl_lib);
+    sdl_mod.linkLibrary(sdl_image_dep.artifact("SDL3_image"));
     sdl_mod.addIncludePath(sdl_include_path);
 
     const cimgui_mod = b.addModule("cimgui", .{

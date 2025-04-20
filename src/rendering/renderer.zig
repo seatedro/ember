@@ -50,6 +50,14 @@ pub const Renderer = struct {
 
     /// Set VSync
     setVSyncFn: *const fn (context: *anyopaque, enabled: bool) Error!void,
+
+    /// Draw Texture
+    drawTextureFn: *const fn (
+        context: *anyopaque,
+        texture: *sdl.c.SDL_Texture,
+        src: ?*const sdl.c.SDL_FRect,
+        dst: *const sdl.c.SDL_FRect,
+    ) Error!void,
 };
 
 pub const RendererContext = struct {
@@ -91,6 +99,15 @@ pub const RendererContext = struct {
 
     pub fn setVSync(self: *RendererContext, enabled: bool) Error!void { // Add this method
         try self.vtable.setVSyncFn(self.context, enabled);
+    }
+
+    pub fn drawTexture(
+        self: *RendererContext,
+        texture: *sdl.c.SDL_Texture,
+        src: ?*const sdl.c.SDL_FRect,
+        dst: *const sdl.c.SDL_FRect,
+    ) Error!void {
+        try self.vtable.drawTextureFn(self.context, texture, src, dst);
     }
 };
 

@@ -5,6 +5,7 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .cimgui = .{ .path = "vendor/cimgui" },
+        .sdl_image = .{ .path = "vendor/sdl_image" },
     },
     .paths = .{
         "build.zig",

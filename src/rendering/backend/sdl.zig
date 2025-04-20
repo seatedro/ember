@@ -3,7 +3,7 @@ const ig = @import("cimgui");
 const sdl = @import("sdl");
 const RendererInterface = @import("../renderer.zig");
 
-const SdlContext = struct {
+pub const SdlContext = struct {
     renderer: ?*sdl.c.SDL_Renderer,
     window: *sdl.c.SDL_Window,
 };
@@ -143,6 +143,33 @@ fn sdlSetVSync(context_opaque: *anyopaque, enabled: bool) RendererInterface.Erro
     std.log.info("SDL Renderer VSync set to: {}", .{enabled});
 }
 
+fn sdlDrawTexture(
+    context_opaque: *anyopaque,
+    texture: *sdl.c.SDL_Texture,
+    src: ?*const sdl.c.SDL_FRect,
+    dst: *const sdl.c.SDL_FRect,
+) RendererInterface.Error!void {
+    const ctx: *SdlContext = @ptrCast(@alignCast(context_opaque));
+
+    // unwrap the renderer pointer safely
+    var renderer_raw: *sdl.c.SDL_Renderer = undefined;
+    if (ctx.renderer) |r| {
+        renderer_raw = r;
+    } else {
+        return RendererInterface.Error.InitializationFailed;
+    }
+
+    // if src is null, pass a null-pointer; otherwise pass the real rect
+    var result: bool = undefined;
+    if (src) |s| {
+        result = sdl.c.SDL_RenderTexture(renderer_raw, texture, s, dst);
+    } else {
+        result = sdl.c.SDL_RenderTexture(renderer_raw, texture, null, dst);
+    }
+
+    try sdl.errify(result);
+}
+
 // --- VTable Definition ---
 pub const vtable = RendererInterface.Renderer{
     .initFn = sdlInit,
@@ -155,6 +182,7 @@ pub const vtable = RendererInterface.Renderer{
     .renderImGuiFn = sdlRenderImGui,
     .resizeFn = sdlResize,
     .setVSyncFn = sdlSetVSync,
+    .drawTextureFn = sdlDrawTexture,
 };
 
 pub const init = sdlInit;
