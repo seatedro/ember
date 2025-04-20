@@ -1,23 +1,27 @@
 const std = @import("std");
+const Config = @import("src/build/Config.zig");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const config = try Config.init(b);
 
     const cimgui_dep = b.dependency("cimgui", .{
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
     });
+
+    const options = b.addOptions();
+    try config.addOptions(options);
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = config.target,
+        .optimize = config.optimize,
         .imports = &.{
             .{ .name = "cimgui", .module = cimgui_dep.module("cimgui") },
             .{ .name = "sdl", .module = cimgui_dep.module("sdl") },
         },
     });
+    exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
 
     const exe = b.addExecutable(.{

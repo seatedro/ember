@@ -3,34 +3,33 @@ const ig = @import("cimgui");
 const sdl = @import("sdl");
 const RendererInterface = @import("../renderer.zig");
 
-pub const SdlContext = struct {
+pub const Context = struct {
     renderer: ?*sdl.c.SDL_Renderer,
     window: *sdl.c.SDL_Window,
 };
 
-fn sdlInit(window: *sdl.c.SDL_Window, allocator: std.mem.Allocator) RendererInterface.Error!*anyopaque {
+pub fn init(window: *sdl.c.SDL_Window, allocator: std.mem.Allocator) RendererInterface.Error!*Context {
     const sdl_renderer_handle = sdl.c.SDL_CreateRenderer(window, null);
     if (sdl_renderer_handle == null) {
         std.log.err("SDL_CreateRenderer failed: {s}", .{sdl.c.SDL_GetError()});
         return RendererInterface.Error.InitializationFailed;
     }
 
-    const ctx = try allocator.create(SdlContext);
+    const ctx = try allocator.create(Context);
     errdefer allocator.destroy(ctx);
 
     std.log.info("Renderer pointer from SDL_CreateRenderer: {?p}", .{sdl_renderer_handle});
-    ctx.* = SdlContext{
+    ctx.* = Context{
         .renderer = sdl_renderer_handle,
         .window = window,
     };
-    std.log.info("Stored SdlContext.renderer: {?p}", .{ctx.renderer.?});
+    std.log.info("Stored Context.renderer: {?p}", .{ctx.renderer.?});
 
     std.log.info("SDL Renderer Initialized successfully", .{});
-    return @ptrCast(ctx);
+    return ctx;
 }
 
-fn sdlDeinit(context_opaque: *anyopaque, allocator: std.mem.Allocator) void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
+pub fn deinit(context: *Context, allocator: std.mem.Allocator) void {
     std.log.info("Deinitializing SDL Renderer...", .{});
 
     if (context.renderer) |r| {
@@ -42,8 +41,7 @@ fn sdlDeinit(context_opaque: *anyopaque, allocator: std.mem.Allocator) void {
     std.log.info("SDL Renderer Deinitialized.", .{});
 }
 
-fn sdlBeginFrame(context_opaque: *anyopaque, clear_color: ig.c.ImVec4) RendererInterface.Error!void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
+pub fn beginFrame(context: *Context, clear_color: ig.c.ImVec4) RendererInterface.Error!void {
     const r = context.renderer;
 
     try sdl.errify(sdl.c.SDL_SetRenderDrawColor(
@@ -57,9 +55,7 @@ fn sdlBeginFrame(context_opaque: *anyopaque, clear_color: ig.c.ImVec4) RendererI
     try sdl.errify(sdl.c.SDL_RenderClear(r));
 }
 
-fn sdlEndFrame(context_opaque: *anyopaque) RendererInterface.Error!void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
-
+pub fn endFrame(context: *Context) RendererInterface.Error!void {
     // Note: SDL_RenderPresent is implicitly called by ImGui's platform window handling
     // when viewports are enabled. However, for the main window or when viewports are off,
     // we might need it here. ImGui's SDL backend handles this. Let's keep it simple for now.
@@ -74,8 +70,7 @@ fn sdlEndFrame(context_opaque: *anyopaque) RendererInterface.Error!void {
     }
 }
 
-fn sdlInitImGuiBackend(context_opaque: *anyopaque) RendererInterface.Error!void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
+pub fn initImGuiBackend(context: *Context) RendererInterface.Error!void {
     const r = context.renderer;
 
     if (!ig.ImGui_ImplSDL3_InitForSDLRenderer(context.window, r)) {
@@ -95,20 +90,18 @@ fn sdlInitImGuiBackend(context_opaque: *anyopaque) RendererInterface.Error!void 
     std.log.info("ImGui SDL Renderer Backend Initialized.", .{});
 }
 
-fn sdlDeinitImGuiBackend() void {
+pub fn deinitImGuiBackend() void {
     ig.ImGui_ImplSDLRenderer3_Shutdown();
 }
 
-fn sdlNewImGuiFrame() void {
+pub fn newImGuiFrame() void {
     ig.ImGui_ImplSDLRenderer3_NewFrame();
 }
 
-fn sdlRenderImGui(
-    context_opaque: *anyopaque,
+pub fn renderImGui(
+    context: *Context,
     draw_data: *ig.c.ImDrawData,
 ) void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
-
     ig.ImGui_ImplSDLRenderer3_RenderDrawData(draw_data, context.renderer);
 
     // **** Check for SDL errors IMMEDIATELY after the call ****
@@ -122,17 +115,15 @@ fn sdlRenderImGui(
     }
 }
 
-fn sdlResize(context_opaque: *anyopaque, width: i32, height: i32) RendererInterface.Error!void {
+pub fn resize(_: *Context, width: i32, height: i32) RendererInterface.Error!void {
     // SDL_Renderer usually handles resizing automatically with the window.
     // We might need viewport adjustments if not using ImGui viewports,
     // but for now, this can often be a no-op for basic SDL_Renderer.
-    _ = context_opaque;
     std.log.info("SDL Renderer Resize event (width: {}, height: {}) - usually no-op", .{ width, height });
     return;
 }
 
-fn sdlSetVSync(context_opaque: *anyopaque, enabled: bool) RendererInterface.Error!void {
-    const context: *SdlContext = @ptrCast(@alignCast(context_opaque));
+pub fn setVSync(context: *Context, enabled: bool) RendererInterface.Error!void {
     const r = context.renderer orelse {
         std.log.err("SDL_Renderer handle is null when attempting to set VSync.", .{});
         return RendererInterface.Error.InitializationFailed; // Or VSyncFailed
@@ -143,17 +134,15 @@ fn sdlSetVSync(context_opaque: *anyopaque, enabled: bool) RendererInterface.Erro
     std.log.info("SDL Renderer VSync set to: {}", .{enabled});
 }
 
-fn sdlDrawTexture(
-    context_opaque: *anyopaque,
+pub fn drawTexture(
+    context: *Context,
     texture: *sdl.c.SDL_Texture,
     src: ?*const sdl.c.SDL_FRect,
     dst: *const sdl.c.SDL_FRect,
 ) RendererInterface.Error!void {
-    const ctx: *SdlContext = @ptrCast(@alignCast(context_opaque));
-
     // unwrap the renderer pointer safely
     var renderer_raw: *sdl.c.SDL_Renderer = undefined;
-    if (ctx.renderer) |r| {
+    if (context.renderer) |r| {
         renderer_raw = r;
     } else {
         return RendererInterface.Error.InitializationFailed;
@@ -169,20 +158,3 @@ fn sdlDrawTexture(
 
     try sdl.errify(result);
 }
-
-// --- VTable Definition ---
-pub const vtable = RendererInterface.Renderer{
-    .initFn = sdlInit,
-    .deinitFn = sdlDeinit,
-    .beginFrameFn = sdlBeginFrame,
-    .endFrameFn = sdlEndFrame,
-    .initImGuiBackendFn = sdlInitImGuiBackend,
-    .deinitImGuiBackendFn = sdlDeinitImGuiBackend,
-    .newImGuiFrameFn = sdlNewImGuiFrame,
-    .renderImGuiFn = sdlRenderImGui,
-    .resizeFn = sdlResize,
-    .setVSyncFn = sdlSetVSync,
-    .drawTextureFn = sdlDrawTexture,
-};
-
-pub const init = sdlInit;

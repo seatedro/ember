@@ -4,7 +4,6 @@ const sdl = @import("sdl");
 const math = std.math;
 
 const rendering = @import("rendering/renderer.zig");
-const sdlrenderer = @import("rendering/backend/sdl.zig");
 
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
@@ -85,26 +84,25 @@ pub fn main() !void {
 
     defer cimgui.ImGui_ImplSDL3_Shutdown();
     // Create renderer
-    var renderer_ctx = rendering.createRenderer(backend, window.?, allocator) catch {
+    const renderer_ctx = rendering.init(allocator, window.?) catch {
         cimgui.c.igDestroyContext(ig_context);
         sdl.c.SDL_DestroyWindow(window);
         sdl.c.SDL_Quit();
         return error.InitializationFailed;
     };
 
-    defer renderer_ctx.deinit();
+    defer rendering.deinit(allocator, renderer_ctx);
 
-    try renderer_ctx.initImGuiBackend();
-    defer renderer_ctx.deinitImGuiBackend();
+    try rendering.initImGuiBackend(renderer_ctx);
+    defer rendering.deinitImGuiBackend();
 
-    try renderer_ctx.setVSync(true);
+    try rendering.setVSync(renderer_ctx, true);
 
     // State
     const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
 
-    const context: *sdlrenderer.SdlContext = @ptrCast(@alignCast(renderer_ctx.context));
     const sprite_path = "assets/amogus.png";
-    const stress_texture = try sdl.errify(sdl.c.IMG_LoadTexture(context.renderer, sprite_path));
+    const stress_texture = try sdl.errify(sdl.c.IMG_LoadTexture(renderer_ctx.renderer, sprite_path));
     defer sdl.c.SDL_DestroyTexture(stress_texture);
 
     var prng = std.Random.DefaultPrng.init(blk: {
@@ -183,7 +181,7 @@ pub fn main() !void {
         }
 
         cimgui.ImGui_ImplSDL3_NewFrame();
-        renderer_ctx.newImGuiFrame();
+        rendering.newImGuiFrame();
         cimgui.c.igNewFrame();
 
         {
@@ -209,15 +207,15 @@ pub fn main() !void {
         cimgui.c.igRender();
         const draw_data = cimgui.igGetDrawData();
         // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
-        try renderer_ctx.beginFrame(clear_color);
+        try rendering.beginFrame(renderer_ctx, clear_color);
 
         for (sprites.items) |s| {
-            try renderer_ctx.drawTexture(stress_texture, null, &s.rect);
+            try rendering.drawTexture(renderer_ctx, stress_texture, null, &s.rect);
         }
 
         if (draw_data) |data| { // Check draw_data is not null
             if (data.Valid and data.CmdListsCount > 0) {
-                renderer_ctx.renderImGui(data);
+                rendering.renderImGui(renderer_ctx, data);
             }
         } else {
             std.log.warn("ImGui draw data was null!", .{});
@@ -230,7 +228,7 @@ pub fn main() !void {
             cimgui.c.igRenderPlatformWindowsDefault();
         }
 
-        try renderer_ctx.endFrame();
+        try rendering.endFrame(renderer_ctx);
     }
 }
 
