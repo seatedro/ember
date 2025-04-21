@@ -1,6 +1,13 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
+    const renderer_opt = b.option(
+        enum { SDL, OpenGL, Metal },
+        "renderer",
+        "Renderer backend: sdl | opengl | metal (default: sdl)",
+    );
+    const renderer = renderer_opt orelse .SDL;
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -79,10 +86,21 @@ pub fn build(b: *std.Build) !void {
         .file = imgui_dep.path("backends/imgui_impl_sdl3.cpp"),
         .flags = common_cpp_flags.items,
     });
-    lib_cimgui.addCSourceFile(.{
-        .file = imgui_dep.path("backends/imgui_impl_sdlrenderer3.cpp"),
-        .flags = common_cpp_flags.items,
-    });
+    switch (renderer) {
+        .SDL => {
+            lib_cimgui.addCSourceFile(.{
+                .file = imgui_dep.path("backends/imgui_impl_sdlrenderer3.cpp"),
+                .flags = common_cpp_flags.items,
+            });
+        },
+        .OpenGL => {
+            lib_cimgui.addCSourceFile(.{
+                .file = imgui_dep.path("backends/imgui_impl_opengl3.cpp"),
+                .flags = common_cpp_flags.items,
+            });
+        },
+        else => unreachable,
+    }
 
     if (target.result.os.tag == .windows) {
         lib_cimgui.linkSystemLibrary("imm32");

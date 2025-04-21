@@ -31,18 +31,18 @@ pub const Error = error{
 
 pub const Backend = switch (build_config.renderer) {
     .SDL => @import("backend/sdl.zig"),
-    .OpenGL => unreachable,
+    .OpenGL => @import("backend/opengl.zig"),
     .Metal => unreachable,
 };
 pub const Context = Backend.Context;
 
 pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
-    const ctx = try Backend.init(window, allocator);
+    const ctx = try Backend.init(allocator, window);
     return ctx;
 }
 
 pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
-    Backend.deinit(ctx, allocator);
+    Backend.deinit(allocator, ctx);
 }
 
 pub fn beginFrame(ctx: *Context, clear_color: ig.c.ImVec4) Error!void {
@@ -77,11 +77,22 @@ pub fn setVSync(ctx: *Context, enabled: bool) Error!void { // Add this method
     try Backend.setVSync(ctx, enabled);
 }
 
+pub const Texture = Backend.Texture;
+pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
+
+pub fn loadTexture(ctx: *Context, path: []const u8) !Texture {
+    return Backend.loadTexture(ctx, path);
+}
+
+pub fn destroyTexture(tex: Texture) void {
+    Backend.destroyTexture(tex);
+}
+
 pub fn drawTexture(
     ctx: *Context,
-    texture: *sdl.c.SDL_Texture,
-    src: ?*const sdl.c.SDL_FRect,
-    dst: *const sdl.c.SDL_FRect,
-) Error!void {
+    texture: Texture,
+    src: ?Rect,
+    dst: Rect,
+) !void {
     try Backend.drawTexture(ctx, texture, src, dst);
 }

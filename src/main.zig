@@ -13,7 +13,7 @@ const MOVE_SPEED = 50.0;
 const SPRITES_PER_CLICK = 100;
 
 const Sprite = struct {
-    rect: sdl.c.SDL_FRect,
+    rect: rendering.Rect,
     vx: f32,
     vy: f32,
 };
@@ -102,8 +102,8 @@ pub fn main() !void {
     const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
 
     const sprite_path = "assets/amogus.png";
-    const stress_texture = try sdl.errify(sdl.c.IMG_LoadTexture(renderer_ctx.renderer, sprite_path));
-    defer sdl.c.SDL_DestroyTexture(stress_texture);
+    const stress_texture = try rendering.loadTexture(renderer_ctx, sprite_path);
+    defer rendering.destroyTexture(stress_texture);
 
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = 49;
@@ -210,7 +210,7 @@ pub fn main() !void {
         try rendering.beginFrame(renderer_ctx, clear_color);
 
         for (sprites.items) |s| {
-            try rendering.drawTexture(renderer_ctx, stress_texture, null, &s.rect);
+            try rendering.drawTexture(renderer_ctx, stress_texture, null, s.rect);
         }
 
         if (draw_data) |data| { // Check draw_data is not null
@@ -237,7 +237,7 @@ fn spawnSprite(sprites: *std.ArrayList(Sprite), r: f32, mx: f32, my: f32) !void 
     const vx = math.cos(angle) * MOVE_SPEED;
     const vy = math.sin(angle) * MOVE_SPEED;
     try sprites.append(Sprite{
-        .rect = sdl.c.SDL_FRect{
+        .rect = rendering.Rect{
             .x = mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
             .y = my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
             .w = SPRITE_W,
