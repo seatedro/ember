@@ -1,0 +1,12 @@
+.{
+    .name = .opengl,
+    .fingerprint = 0x91bbcdeb92999420,
+    .version = "3.3.0", // opengl-3.3
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
+}

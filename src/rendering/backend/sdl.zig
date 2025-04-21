@@ -8,7 +8,7 @@ pub const Context = struct {
     window: *sdl.c.SDL_Window,
 };
 
-pub fn init(window: *sdl.c.SDL_Window, allocator: std.mem.Allocator) RendererInterface.Error!*Context {
+pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInterface.Error!*Context {
     const sdl_renderer_handle = sdl.c.SDL_CreateRenderer(window, null);
     if (sdl_renderer_handle == null) {
         std.log.err("SDL_CreateRenderer failed: {s}", .{sdl.c.SDL_GetError()});
@@ -29,7 +29,7 @@ pub fn init(window: *sdl.c.SDL_Window, allocator: std.mem.Allocator) RendererInt
     return ctx;
 }
 
-pub fn deinit(context: *Context, allocator: std.mem.Allocator) void {
+pub fn deinit(allocator: std.mem.Allocator, context: *Context) void {
     std.log.info("Deinitializing SDL Renderer...", .{});
 
     if (context.renderer) |r| {
@@ -38,7 +38,7 @@ pub fn deinit(context: *Context, allocator: std.mem.Allocator) void {
     }
 
     allocator.destroy(context);
-    std.log.info("SDL Renderer Deinitialized.", .{});
+    std.log.info("Deinitialized SDL Renderer.", .{});
 }
 
 pub fn beginFrame(context: *Context, clear_color: ig.c.ImVec4) RendererInterface.Error!void {
@@ -134,27 +134,49 @@ pub fn setVSync(context: *Context, enabled: bool) RendererInterface.Error!void {
     std.log.info("SDL Renderer VSync set to: {}", .{enabled});
 }
 
+pub const Texture = *sdl.c.SDL_Texture;
+
 pub fn drawTexture(
     context: *Context,
-    texture: *sdl.c.SDL_Texture,
-    src: ?*const sdl.c.SDL_FRect,
-    dst: *const sdl.c.SDL_FRect,
+    texture: Texture,
+    src: ?RendererInterface.Rect,
+    dst: RendererInterface.Rect,
 ) RendererInterface.Error!void {
     // unwrap the renderer pointer safely
-    var renderer_raw: *sdl.c.SDL_Renderer = undefined;
-    if (context.renderer) |r| {
-        renderer_raw = r;
-    } else {
+    const r = context.renderer orelse
         return RendererInterface.Error.InitializationFailed;
-    }
 
+    const sdlDst = sdl.c.SDL_FRect{
+        .x = dst.x,
+        .y = dst.y,
+        .w = dst.w,
+        .h = dst.h,
+    };
+
+    var sdlSrc: ?sdl.c.SDL_FRect = null;
+    if (src) |rect| {
+        sdlSrc = .{
+            .x = rect.x,
+            .y = rect.y,
+            .w = rect.w,
+            .h = rect.h,
+        };
+    }
     // if src is null, pass a null-pointer; otherwise pass the real rect
     var result: bool = undefined;
-    if (src) |s| {
-        result = sdl.c.SDL_RenderTexture(renderer_raw, texture, s, dst);
+    if (sdlSrc) |s| {
+        result = sdl.c.SDL_RenderTexture(r, texture, &s, &sdlDst);
     } else {
-        result = sdl.c.SDL_RenderTexture(renderer_raw, texture, null, dst);
+        result = sdl.c.SDL_RenderTexture(r, texture, null, &sdlDst);
     }
 
     try sdl.errify(result);
+}
+
+pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Texture {
+    return try sdl.errify(sdl.c.IMG_LoadTexture(ctx.renderer.?, path.ptr));
+}
+
+pub fn destroyTexture(tex: Texture) void {
+    sdl.c.SDL_DestroyTexture(tex);
 }

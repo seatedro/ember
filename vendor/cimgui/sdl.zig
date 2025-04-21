@@ -5,7 +5,7 @@ pub const c = @cImport({
     @cDefine("SDL_MAIN_HANDLED", {});
     @cInclude("SDL3/SDL.h");
     @cInclude("SDL3_image/SDL_image.h");
-    // @cInclude("SDL3/SDL_video.h"),
+    @cInclude("SDL3/SDL_video.h");
     // @cInclude("SDL3/SDL_render.h"),
     // @cInclude("SDL3/SDL_events.h"),
     // @cInclude("SDL3/SDL_main.h"),
