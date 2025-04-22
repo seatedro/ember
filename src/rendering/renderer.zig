@@ -45,7 +45,7 @@ pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
     Backend.deinit(allocator, ctx);
 }
 
-pub fn beginFrame(ctx: *Context, clear_color: ig.c.ImVec4) Error!void {
+pub fn beginFrame(ctx: *Context, clear_color: ig.c.ImVec4) !void {
     try Backend.beginFrame(ctx, clear_color);
 }
 
@@ -95,4 +95,13 @@ pub fn drawTexture(
     dst: Rect,
 ) !void {
     try Backend.drawTexture(ctx, texture, src, dst);
+}
+
+pub fn drawTextureBatch(
+    ctx: *Context,
+    texture: Texture,
+    src: ?Rect,
+    dst: []Rect,
+) !void {
+    try Backend.drawTextureBatch(ctx, texture, src, dst);
 }

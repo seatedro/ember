@@ -173,6 +173,44 @@ pub fn drawTexture(
     try sdl.errify(result);
 }
 
+pub fn drawTextureBatch(
+    context: *Context,
+    texture: Texture,
+    src: ?RendererInterface.Rect,
+    dst: []RendererInterface.Rect,
+) RendererInterface.Error!void {
+    const r = context.renderer orelse
+        return RendererInterface.Error.InitializationFailed;
+
+    var sdlSrc: ?sdl.c.SDL_FRect = null;
+    if (src) |rect| {
+        sdlSrc = .{
+            .x = rect.x,
+            .y = rect.y,
+            .w = rect.w,
+            .h = rect.h,
+        };
+    }
+
+    for (dst) |rect| {
+        const sdlDst = sdl.c.SDL_FRect{
+            .x = rect.x,
+            .y = rect.y,
+            .w = rect.w,
+            .h = rect.h,
+        };
+
+        // if src is null, pass a null-pointer; otherwise pass the real rect
+        var result: bool = undefined;
+        if (sdlSrc) |s| {
+            result = sdl.c.SDL_RenderTexture(r, texture, &s, &sdlDst);
+        } else {
+            result = sdl.c.SDL_RenderTexture(r, texture, null, &sdlDst);
+        }
+        try sdl.errify(result);
+    }
+}
+
 pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Texture {
     return try sdl.errify(sdl.c.IMG_LoadTexture(ctx.renderer.?, path.ptr));
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const cimgui = @import("cimgui");
 const sdl = @import("sdl");
 const math = std.math;
+const build_config = @import("build_config.zig");
 
 const rendering = @import("rendering/renderer.zig");
 
@@ -12,10 +13,24 @@ const SPRITE_H = 32;
 const MOVE_SPEED = 50.0;
 const SPRITES_PER_CLICK = 100;
 
-const Sprite = struct {
-    rect: rendering.Rect,
-    vx: f32,
-    vy: f32,
+pub const Sprite = struct {
+    rects: std.ArrayList(rendering.Rect),
+    vx: std.ArrayList(f32),
+    vy: std.ArrayList(f32),
+
+    pub fn init(allocator: std.mem.Allocator) !Sprite {
+        return Sprite{
+            .rects = std.ArrayList(rendering.Rect).init(allocator),
+            .vx = std.ArrayList(f32).init(allocator),
+            .vy = std.ArrayList(f32).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Sprite) void {
+        self.rects.deinit();
+        self.vx.deinit();
+        self.vy.deinit();
+    }
 };
 
 pub fn main() !void {
@@ -30,17 +45,15 @@ pub fn main() !void {
     try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
     defer sdl.c.SDL_Quit();
 
-    const backend = rendering.BackendType.SDL;
+    const backend = build_config.renderer;
 
     var window_flags = sdl.c.SDL_WINDOW_RESIZABLE | sdl.c.SDL_WINDOW_HIDDEN;
     if (backend == .OpenGL) {
         // Example: Add OpenGL flag if needed by that backend's init
         window_flags |= sdl.c.SDL_WINDOW_OPENGL;
-        // --- TODO: Set SDL_GL_SetAttribute BEFORE CreateWindow for OpenGL ---
-        // Example:
-        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
-        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MINOR_VERSION, 3));
-        // try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_PROFILE_MASK, sdl.c.SDL_GL_CONTEXT_PROFILE_CORE));
+        try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_DOUBLEBUFFER, 1));
+        try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_DEPTH_SIZE, 24));
+        try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_STENCIL_SIZE, 8));
         std.log.warn("OpenGL backend selected - Ensure necessary SDL_GL attributes are set BEFORE window creation if required.", .{});
     }
 
@@ -61,7 +74,6 @@ pub fn main() !void {
         sdl.c.SDL_WINDOWPOS_CENTERED,
         sdl.c.SDL_WINDOWPOS_CENTERED,
     ));
-    try sdl.errify(sdl.c.SDL_ShowWindow(window));
 
     // Setup Dear ImGui context
     const ig_context = cimgui.c.igCreateContext(null); // Store the returned context pointer
@@ -78,7 +90,7 @@ pub fn main() !void {
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableKeyboard;
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableGamepad;
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_DockingEnable;
-    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_ViewportsEnable;
+    // io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_ViewportsEnable;
 
     cimgui.c.igStyleColorsDark(null);
 
@@ -90,13 +102,12 @@ pub fn main() !void {
         sdl.c.SDL_Quit();
         return error.InitializationFailed;
     };
-
     defer rendering.deinit(allocator, renderer_ctx);
+    try sdl.errify(sdl.c.SDL_ShowWindow(window));
+    try rendering.setVSync(renderer_ctx, true);
 
     try rendering.initImGuiBackend(renderer_ctx);
     defer rendering.deinitImGuiBackend();
-
-    try rendering.setVSync(renderer_ctx, true);
 
     // State
     const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
@@ -112,8 +123,10 @@ pub fn main() !void {
     });
     const rand = prng.random();
 
-    var sprites = std.ArrayList(Sprite).init(allocator);
+    var sprites = try allocator.create(Sprite);
     defer sprites.deinit();
+    defer allocator.destroy(sprites);
+    sprites.* = try Sprite.init(allocator);
 
     var done = false;
     var left_down: bool = false;
@@ -121,10 +134,13 @@ pub fn main() !void {
     var win_w: c_int = 0;
     var win_h: c_int = 0;
     var last_ticks = sdl.c.SDL_GetTicks();
-    var last_log_time: u64 = 0;
+    // var last_log_time: u64 = 0;
 
     try sdl.errify(sdl.c.SDL_GetWindowSize(window, &win_w, &win_h));
 
+    std.log.debug("Window size: {}x{}", .{ win_w, win_h });
+
+    var interval: c_int = 1;
     while (!done) {
         const now = sdl.c.SDL_GetTicks();
         const dt: f32 = @as(f32, @floatFromInt(now - last_ticks)) / 1000.0;
@@ -142,7 +158,7 @@ pub fn main() !void {
                 sdl.c.SDL_EVENT_MOUSE_BUTTON_DOWN => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
                     left_down = true;
                     for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(&sprites, rand.float(f32), event.button.x, event.button.y);
+                        try spawnSprite(sprites, rand.float(f32), event.button.x, event.button.y);
                     }
                     // try sprites.append(sdl.c.SDL_FRect{
                     //     .x = event.button.x,
@@ -162,16 +178,16 @@ pub fn main() !void {
                     //     .h = SPRITE_H,
                     // });
                     for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(&sprites, rand.float(f32), event.motion.x, event.motion.y);
+                        try spawnSprite(sprites, rand.float(f32), event.motion.x, event.motion.y);
                     }
                 },
                 else => {},
             }
         }
 
-        for (sprites.items) |*sp| {
-            sp.rect.x += sp.vx * dt;
-            sp.rect.y += sp.vy * dt;
+        for (0..sprites.rects.items.len) |i| {
+            sprites.rects.items[i].x += sprites.vx.items[i] * dt;
+            sprites.rects.items[i].y += sprites.vy.items[i] * dt;
         }
 
         // Minimized? Sleep and skip frame
@@ -186,20 +202,20 @@ pub fn main() !void {
 
         {
             if (cimgui.c.igBegin("Ember Debug Console", null, 0)) {
-                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.items.len)));
+                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.rects.items.len)));
                 cimgui.c.igText(
                     "Perf: %.3f ms/frame (%.1f FPS)",
                     1000.0 / io.*.Framerate,
                     io.*.Framerate,
                 );
             }
-            if (now - last_log_time >= 500) { // log every 500ms
-                try perf_file.writer().print("{d},{d:.2}\n", .{
-                    sprites.items.len,
-                    io.*.Framerate,
-                });
-                last_log_time = now;
-            }
+            // if (now - last_log_time >= 500) { // log every 500ms
+            //     try perf_file.writer().print("{d},{d:.2}\n", .{
+            //         sprites.rects.items.len,
+            //         io.*.Framerate,
+            //     });
+            //     last_log_time = now;
+            // }
             cimgui.c.igEnd();
         }
 
@@ -209,9 +225,12 @@ pub fn main() !void {
         // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
         try rendering.beginFrame(renderer_ctx, clear_color);
 
-        for (sprites.items) |s| {
-            try rendering.drawTexture(renderer_ctx, stress_texture, null, s.rect);
-        }
+        // old
+        // for (sprites.items) |s| {
+        //     try rendering.drawTexture(renderer_ctx, stress_texture, null, s.rect);
+        // }
+
+        try rendering.drawTextureBatch(renderer_ctx, stress_texture, null, sprites.rects.items);
 
         if (draw_data) |data| { // Check draw_data is not null
             if (data.Valid and data.CmdListsCount > 0) {
@@ -229,21 +248,21 @@ pub fn main() !void {
         }
 
         try rendering.endFrame(renderer_ctx);
+        const vsync = sdl.c.SDL_GL_GetSwapInterval(@ptrCast(&interval));
+        std.log.info("Current swap interval = {}, success: {}", .{ interval, vsync });
     }
 }
 
-fn spawnSprite(sprites: *std.ArrayList(Sprite), r: f32, mx: f32, my: f32) !void {
+fn spawnSprite(sprites: *Sprite, r: f32, mx: f32, my: f32) !void {
     const angle = r * math.pi * 2.0;
     const vx = math.cos(angle) * MOVE_SPEED;
     const vy = math.sin(angle) * MOVE_SPEED;
-    try sprites.append(Sprite{
-        .rect = rendering.Rect{
-            .x = mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
-            .y = my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
-            .w = SPRITE_W,
-            .h = SPRITE_H,
-        },
-        .vx = vx,
-        .vy = vy,
+    try sprites.rects.append(rendering.Rect{
+        .x = mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
+        .y = my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
+        .w = SPRITE_W,
+        .h = SPRITE_H,
     });
+    try sprites.vx.append(vx);
+    try sprites.vy.append(vy);
 }

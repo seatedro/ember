@@ -10,12 +10,14 @@ const Program = gl.Program;
 const VertexArray = gl.VertexArray;
 pub const Texture = gl.Texture;
 
+pub const BatchedVertex = [4]f32; // Vertex data layout: [x, y, u, v]
 pub const Context = struct {
     renderer: sdl.c.SDL_GLContext,
     window: *sdl.c.SDL_Window,
     shader_program: Program,
     quad_vao: VertexArray,
     quad_vbo: Buffer,
+    vertices: std.ArrayList(BatchedVertex),
 };
 
 pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
@@ -36,9 +38,6 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
     });
 
     try sdl.errify(sdl.c.SDL_GL_MakeCurrent(window, gl_ctx));
-
-    // Enable VSYNC by default (overwrite via setVSync later)
-    _ = sdl.c.SDL_GL_SetSwapInterval(1);
 
     const vert_src =
         \\#version 330 core
@@ -65,6 +64,9 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
 
     const vao = try VertexArray.create();
     errdefer vao.destroy();
+
+    const vertices = std.ArrayList(BatchedVertex).init(allocator);
+    errdefer vertices.deinit();
 
     const vbo = try Buffer.create();
     errdefer vbo.destroy();
@@ -93,6 +95,7 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
         .shader_program = program,
         .quad_vao = vao,
         .quad_vbo = vbo,
+        .vertices = vertices,
     };
 
     return ctx;
@@ -103,18 +106,20 @@ pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
     if (ctx.renderer) |r| {
         _ = sdl.c.SDL_GL_DestroyContext(r);
     }
-    ig.ImGui_ImplOpenGL3_Shutdown();
+    ctx.vertices.deinit();
     allocator.destroy(ctx);
     std.log.info("Deinitialized GL Renderer.", .{});
 }
 
-pub fn beginFrame(_: *Context, clr: ig.c.ImVec4) Renderer.Error!void {
+pub fn beginFrame(_: *Context, clr: ig.c.ImVec4) !void {
     gl.clearColor(clr.x, clr.y, clr.z, clr.w);
     gl.clear(gl.c.GL_COLOR_BUFFER_BIT);
+    try gl.enable(gl.c.GL_BLEND);
+    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
 }
 
 pub fn endFrame(ctx: *Context) Renderer.Error!void {
-    _ = sdl.c.SDL_GL_SwapWindow(ctx.window);
+    try sdl.errify(sdl.c.SDL_GL_SwapWindow(ctx.window));
 }
 
 pub fn initImGuiBackend(ctx: *Context) Renderer.Error!void {
@@ -148,8 +153,8 @@ pub fn resize(_: *anyopaque, w: i32, h: i32) Renderer.Error!void {
     gl.viewport(0, 0, w, h);
 }
 
-pub fn setVSync(_: *anyopaque, on: bool) Renderer.Error!void {
-    _ = sdl.c.SDL_GL_SetSwapInterval(if (on) 1 else 0);
+pub fn setVSync(_: *Context, on: bool) !void {
+    try sdl.errify(sdl.c.SDL_GL_SetSwapInterval(if (on) 1 else 0));
 }
 
 pub fn loadTexture(_: *Context, path: []const u8) !Texture {
@@ -167,10 +172,21 @@ pub fn loadTexture(_: *Context, path: []const u8) !Texture {
     try binding.parameter(.WrapT, gl.c.GL_CLAMP_TO_EDGE);
 
     const format = switch (surface.*.format) {
-        sdl.c.SDL_PIXELFORMAT_RGB24 => gl.Texture.Format.rgb,
-        sdl.c.SDL_PIXELFORMAT_RGBA32 => gl.Texture.Format.rgba,
-        else => gl.Texture.Format.rgba, // Default
+        sdl.c.SDL_PIXELFORMAT_RGB24 => blk: {
+            std.log.debug("RGB24", .{});
+            break :blk gl.Texture.Format.rgb;
+        },
+        sdl.c.SDL_PIXELFORMAT_RGBA32 => blk: {
+            std.log.debug("RGBA32", .{});
+            break :blk gl.Texture.Format.rgba;
+        },
+        else => blk: {
+            std.log.debug("default", .{});
+            break :blk gl.Texture.Format.bgra;
+        }, // Default
     };
+
+    std.log.debug("Format: {d}", .{format});
 
     try binding.image2D(
         0, // level (0 = base)
@@ -186,10 +202,6 @@ pub fn loadTexture(_: *Context, path: []const u8) !Texture {
     binding.generateMipmap();
 
     return texture;
-}
-
-pub fn destroyTexture(tex: Texture) void {
-    tex.destroy();
 }
 
 pub fn drawTexture(
@@ -250,4 +262,65 @@ pub fn drawTexture(
     try gl.drawArrays(gl.c.GL_TRIANGLES, 0, 6);
 
     return;
+}
+
+pub fn drawTextureBatch(
+    ctx: *Context,
+    tex: Texture,
+    _: ?Renderer.Rect,
+    dstRect: []Renderer.Rect,
+) !void {
+    const pbind = try ctx.shader_program.use();
+    defer pbind.unbind();
+
+    const vbind = try ctx.quad_vao.bind();
+    defer vbind.unbind();
+
+    try Texture.active(gl.c.GL_TEXTURE0);
+    const tbind = try tex.bind(.@"2D");
+    defer tbind.unbind();
+
+    try ctx.shader_program.setUniform("tex", 0);
+
+    var w: c_int = 0;
+    var h: c_int = 0;
+    _ = sdl.c.SDL_GetWindowSizeInPixels(ctx.window, &w, &h);
+    const fw = @as(f32, @floatFromInt(w));
+    const fh = @as(f32, @floatFromInt(h));
+
+    const n = dstRect.len;
+    try ctx.vertices.ensureTotalCapacity(n * 6);
+    ctx.vertices.clearRetainingCapacity();
+    for (dstRect) |rect| {
+        const x0 = rect.x / fw * 2.0 - 1.0;
+        const y0 = 1.0 - rect.y / fh * 2.0;
+        const x1 = (rect.x + rect.w) / fw * 2.0 - 1.0;
+        const y1 = 1.0 - (rect.y + rect.h) / fh * 2.0;
+
+        const u_0 = 0.0;
+        const v_0 = 0.0;
+        const u_1 = 1.0;
+        const v_1 = 1.0;
+
+        try ctx.vertices.append(.{ x0, y0, u_0, v_0 });
+        try ctx.vertices.append(.{ x1, y0, u_1, v_0 });
+        try ctx.vertices.append(.{ x1, y1, u_1, v_1 });
+        try ctx.vertices.append(.{ x0, y0, u_0, v_0 });
+        try ctx.vertices.append(.{ x1, y1, u_1, v_1 });
+        try ctx.vertices.append(.{ x0, y1, u_0, v_1 });
+    }
+
+    // upload & draw
+    const b = try ctx.quad_vbo.bind(.array);
+    defer b.unbind();
+
+    const required_size = @sizeOf(BatchedVertex) * ctx.vertices.items.len;
+    try b.setDataNullManual(required_size, .dynamic_draw);
+
+    try b.setSubData(0, ctx.vertices.items);
+    try gl.drawArrays(gl.c.GL_TRIANGLES, 0, @intCast(ctx.vertices.items.len));
+}
+
+pub fn destroyTexture(tex: Texture) void {
+    tex.destroy();
 }
