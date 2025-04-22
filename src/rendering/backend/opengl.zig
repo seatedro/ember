@@ -119,7 +119,17 @@ pub fn beginFrame(_: *Context, clr: ig.c.ImVec4) !void {
 }
 
 pub fn endFrame(ctx: *Context) Renderer.Error!void {
-    try sdl.errify(sdl.c.SDL_GL_SwapWindow(ctx.window));
+    _ = sdl.c.SDL_GL_SwapWindow(ctx.window);
+
+    const io = ig.c.igGetIO().?;
+    if ((io.*.ConfigFlags & ig.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
+        const backup_win = sdl.c.SDL_GL_GetCurrentWindow();
+        const backup_ctx = sdl.c.SDL_GL_GetCurrentContext();
+        ig.c.igUpdatePlatformWindows();
+        ig.c.igRenderPlatformWindowsDefault();
+
+        _ = sdl.c.SDL_GL_MakeCurrent(backup_win, backup_ctx);
+    }
 }
 
 pub fn initImGuiBackend(ctx: *Context) Renderer.Error!void {

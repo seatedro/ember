@@ -90,7 +90,7 @@ pub fn main() !void {
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableKeyboard;
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_NavEnableGamepad;
     io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_DockingEnable;
-    // io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_ViewportsEnable;
+    io.*.ConfigFlags |= cimgui.c.ImGuiConfigFlags_ViewportsEnable;
 
     cimgui.c.igStyleColorsDark(null);
 
@@ -140,7 +140,6 @@ pub fn main() !void {
 
     std.log.debug("Window size: {}x{}", .{ win_w, win_h });
 
-    var interval: c_int = 1;
     while (!done) {
         const now = sdl.c.SDL_GetTicks();
         const dt: f32 = @as(f32, @floatFromInt(now - last_ticks)) / 1000.0;
@@ -148,6 +147,10 @@ pub fn main() !void {
 
         while (sdl.c.SDL_PollEvent(&event)) {
             _ = cimgui.ImGui_ImplSDL3_ProcessEvent(&event);
+            if (io.*.WantCaptureMouse) {
+                continue;
+            }
+
             switch (event.type) {
                 sdl.c.SDL_EVENT_QUIT => done = true,
                 sdl.c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
@@ -242,14 +245,8 @@ pub fn main() !void {
 
         // This does nothing if the backend doesn't support it.
         // So far sdlrenderer3 does not support multi-viewports.
-        if ((io.*.ConfigFlags & cimgui.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
-            cimgui.c.igUpdatePlatformWindows();
-            cimgui.c.igRenderPlatformWindowsDefault();
-        }
 
         try rendering.endFrame(renderer_ctx);
-        const vsync = sdl.c.SDL_GL_GetSwapInterval(@ptrCast(&interval));
-        std.log.info("Current swap interval = {}, success: {}", .{ interval, vsync });
     }
 }
 
