@@ -150,9 +150,8 @@ pub fn deinitImGuiBackend() void {
     ig.ImGui_ImplOpenGL3_Shutdown();
 }
 
-pub fn newImGuiFrame() void {
+pub fn newImGuiFrame(_: *Context) void {
     ig.ImGui_ImplOpenGL3_NewFrame();
-    ig.ImGui_ImplSDL3_NewFrame();
 }
 
 pub fn renderImGui(_: *Context, draw: *ig.c.ImDrawData) void {

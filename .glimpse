@@ -1,0 +1,13 @@
+exclude = [
+    "*.h",
+    "*.c*",
+    "**/.git/**",
+    "**/target/**",
+    "**/node_modules/**",
+]
+max_size = 10485760
+max_depth = 20
+output = "both"
+file = "GLIMPSE.md"
+hidden = false
+no_ignore = false

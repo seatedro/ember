@@ -57,3 +57,10 @@ pub extern fn ImGui_ImplOpenGL3_Init(glsl_version: [*:0]const u8) bool;
 pub extern fn ImGui_ImplOpenGL3_Shutdown() void;
 pub extern fn ImGui_ImplOpenGL3_NewFrame() void;
 pub extern fn ImGui_ImplOpenGL3_RenderDrawData(draw_data: ?*c.ImDrawData) void;
+
+// Metal
+pub extern fn ImGui_ImplSDL3_InitForMetal(window: ?*sdl.c.SDL_Window) callconv(.C) bool;
+pub extern fn ImGui_ImplMetal_Init(*anyopaque) callconv(.c) bool;
+pub extern fn ImGui_ImplMetal_Shutdown() callconv(.c) void;
+pub extern fn ImGui_ImplMetal_NewFrame(*anyopaque) callconv(.c) void;
+pub extern fn ImGui_ImplMetal_RenderDrawData(*c.ImDrawData, *anyopaque, *anyopaque) callconv(.c) void;

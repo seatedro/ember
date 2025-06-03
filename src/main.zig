@@ -3,6 +3,7 @@ const cimgui = @import("cimgui");
 const sdl = @import("sdl");
 const math = std.math;
 const build_config = @import("build_config.zig");
+const objc = @import("objc");
 
 const rendering = @import("rendering/renderer.zig");
 
@@ -55,6 +56,9 @@ pub fn main() !void {
         try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_DEPTH_SIZE, 24));
         try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_STENCIL_SIZE, 8));
         std.log.warn("OpenGL backend selected - Ensure necessary SDL_GL attributes are set BEFORE window creation if required.", .{});
+    } else if (backend == .Metal) {
+        window_flags |= sdl.c.SDL_WINDOW_METAL;
+        std.log.warn("Metal backend selected - Ensure necessary SDL_METAL attributes are set BEFORE window creation if required.", .{});
     }
 
     const window = sdl.c.SDL_CreateWindow(
@@ -199,8 +203,9 @@ pub fn main() !void {
             continue;
         }
 
+        // Start ImGui frame
+        rendering.newImGuiFrame(renderer_ctx);
         cimgui.ImGui_ImplSDL3_NewFrame();
-        rendering.newImGuiFrame();
         cimgui.c.igNewFrame();
 
         {
@@ -243,9 +248,7 @@ pub fn main() !void {
             std.log.warn("ImGui draw data was null!", .{});
         }
 
-        // This does nothing if the backend doesn't support it.
-        // So far sdlrenderer3 does not support multi-viewports.
-
+        // End rendering
         try rendering.endFrame(renderer_ctx);
     }
 }

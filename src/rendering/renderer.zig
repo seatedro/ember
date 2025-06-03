@@ -9,10 +9,9 @@ pub const BackendType = enum {
     Metal,
 
     pub fn default(
-        _: std.Target,
+        target: std.Target,
     ) BackendType {
-        // TODO: Uncomment this once we add metal as a backend
-        // if (target.os.tag.isDarwin()) return .Metal;
+        if (target.os.tag.isDarwin()) return .Metal;
         return .SDL;
     }
 };
@@ -32,7 +31,7 @@ pub const Error = error{
 pub const Backend = switch (build_config.renderer) {
     .SDL => @import("backend/sdl.zig"),
     .OpenGL => @import("backend/opengl.zig"),
-    .Metal => unreachable,
+    .Metal => @import("backend/metal.zig"),
 };
 pub const Context = Backend.Context;
 
@@ -61,8 +60,8 @@ pub fn deinitImGuiBackend() void {
     Backend.deinitImGuiBackend();
 }
 
-pub fn newImGuiFrame() void {
-    Backend.newImGuiFrame();
+pub fn newImGuiFrame(ctx: *Context) void {
+    Backend.newImGuiFrame(ctx);
 }
 
 pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData) void {

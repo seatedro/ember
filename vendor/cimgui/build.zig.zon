@@ -16,10 +16,7 @@
             .url = "git+https://github.com/allyourcodebase/SDL_image#45a1701cff2bee5c6b00d5937e9a158c26a834c9",
             .hash = "SDL_image-3.2.0--aJoHa0VAADeiIBoPYI3tyYE1OPF9t_C1cuCU1n7P5TG",
         },
+        .apple_sdk = .{ .path = "../apple-sdk" },
     },
-    .paths = .{
-        "build.zig",
-        "build.zig.zon",
-        "dist",
-    },
+    .paths = .{""},
 }

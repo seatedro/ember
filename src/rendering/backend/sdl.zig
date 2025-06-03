@@ -94,7 +94,7 @@ pub fn deinitImGuiBackend() void {
     ig.ImGui_ImplSDLRenderer3_Shutdown();
 }
 
-pub fn newImGuiFrame() void {
+pub fn newImGuiFrame(_: *Context) void {
     ig.ImGui_ImplSDLRenderer3_NewFrame();
 }
 

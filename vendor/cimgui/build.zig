@@ -99,11 +99,36 @@ pub fn build(b: *std.Build) !void {
                 .flags = common_cpp_flags.items,
             });
         },
-        else => unreachable,
+        .Metal => {
+            lib_cimgui.addCSourceFile(.{
+                .file = imgui_dep.path("backends/imgui_impl_metal.mm"),
+                .flags = common_cpp_flags.items,
+            });
+        },
     }
 
     if (target.result.os.tag == .windows) {
         lib_cimgui.linkSystemLibrary("imm32");
+    }
+    if (target.result.os.tag.isDarwin()) {
+        if (!target.query.isNative()) {
+            std.log.warn("Cross-compiling for Darwin detected, but apple_sdk not available", .{});
+            try @import("apple_sdk").addPaths(b, lib_cimgui);
+        }
+        lib_cimgui.linkFramework("CoreFoundation");
+        lib_cimgui.linkFramework("CoreGraphics");
+        lib_cimgui.linkFramework("CoreText");
+        lib_cimgui.linkFramework("CoreVideo");
+        lib_cimgui.linkFramework("QuartzCore");
+        if (target.result.os.tag == .macos) {
+            lib_cimgui.linkFramework("Carbon");
+        }
+        if (target.result.os.tag == .macos) {
+            lib_cimgui.addCSourceFile(.{
+                .file = imgui_dep.path("backends/imgui_impl_osx.mm"),
+                .flags = common_cpp_flags.items,
+            });
+        }
     }
 
     b.installArtifact(lib_cimgui);

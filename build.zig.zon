@@ -7,6 +7,10 @@
         .cimgui = .{ .path = "vendor/cimgui" },
         .opengl = .{ .path = "vendor/opengl", .lazy = true },
         .sdl_image = .{ .path = "vendor/sdl_image" },
+        .zig_objc = .{
+            .url = "git+https://github.com/mitchellh/zig-objc#3ab0d37c7d6b933d6ded1b3a35b6b60f05590a98",
+            .hash = "zig_objc-0.0.0-Ir_Sp3TyAADEVRTxXlScq3t_uKAM91MYNerZkHfbD0yt",
+        },
     },
     .paths = .{
         "build.zig",

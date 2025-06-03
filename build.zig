@@ -12,6 +12,10 @@ pub fn build(b: *std.Build) void {
         .renderer = config.renderer,
     });
     const cimgui_mod = cimgui_dep.module("cimgui");
+    const objc_dep = b.dependency("zig_objc", .{
+        .target = config.target,
+        .optimize = config.optimize,
+    });
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -20,18 +24,17 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "cimgui", .module = cimgui_mod },
             .{ .name = "sdl", .module = cimgui_dep.module("sdl") },
+            .{ .name = "objc", .module = objc_dep.module("objc") },
         },
     });
-    if (config.renderer == .OpenGL) {
-        if (b.lazyDependency("opengl", .{})) |dep| {
-            exe_mod.addImport("opengl", dep.module("opengl"));
-        }
-        exe_mod.addIncludePath(b.path("vendor/glad/include"));
-        exe_mod.addCSourceFile(.{
-            .file = b.path("vendor/glad/src/gl.c"),
-            .flags = &.{},
-        });
+    if (b.lazyDependency("opengl", .{})) |dep| {
+        exe_mod.addImport("opengl", dep.module("opengl"));
     }
+    exe_mod.addIncludePath(b.path("vendor/glad/include"));
+    exe_mod.addCSourceFile(.{
+        .file = b.path("vendor/glad/src/gl.c"),
+        .flags = &.{},
+    });
     exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
 
