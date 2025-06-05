@@ -14,6 +14,17 @@ pub const Texture = struct {
     height: u32,
 };
 
+// Vertex structure for texture rendering
+const TextureVertex = struct {
+    position: [2]f32,
+    texCoord: [2]f32,
+};
+
+// Uniforms structure for texture rendering
+const TextureUniforms = struct {
+    projectionMatrix: [16]f32,
+};
+
 pub const Context = struct {
     allocator: std.mem.Allocator,
     device: objc.Object, // MTLDevice
@@ -30,6 +41,13 @@ pub const Context = struct {
 
     pipeline_state: ?objc.Object = null, // MTLRenderPipelineState
     vertex_buffer: ?objc.Object = null, // MTLBuffer
+
+    // Texture rendering support
+    texture_library: ?objc.Object = null, // MTLLibrary for texture shaders
+    texture_pipeline_state: ?objc.Object = null, // MTLRenderPipelineState for textures
+    texture_vertex_buffer: ?objc.Object = null, // MTLBuffer for texture vertices
+    texture_uniform_buffer: ?objc.Object = null, // MTLBuffer for uniforms
+    texture_sampler: ?objc.Object = null, // MTLSamplerState
 
     // ImGui state
     imgui_initialized: bool = false,
@@ -116,7 +134,196 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
         .render_pass_descriptor = pass_descriptor,
     };
 
+    // Initialize texture rendering components
+    try initTextureRendering(ctx);
+
     return ctx;
+}
+
+fn initTextureRendering(ctx: *Context) !void {
+    // Load the compiled texture shader library
+    const texture_lib_data = @embedFile("metal/compiled/texture_shaders.metallib");
+    const data = objc.Object.fromId(
+        @as(*anyopaque, @ptrCast(objc.c.objc_msgSend(
+            objc.getClass("NSData").?.value,
+            objc.sel("dataWithBytes:length:"),
+            texture_lib_data.ptr,
+            texture_lib_data.len,
+        ))),
+    );
+
+    var err: ?*anyopaque = null;
+    const texture_library = ctx.device.msgSend(
+        objc.Object,
+        objc.sel("newLibraryWithData:error:"),
+        .{ data.value, &err },
+    );
+    if (err != null) {
+        log.err("Failed to create texture shader library", .{});
+        return error.InitializationFailed;
+    }
+    ctx.texture_library = texture_library;
+
+    // Create texture pipeline state
+    try createTexturePipeline(ctx);
+
+    // Create texture vertex buffer (for a quad)
+    try createTextureVertexBuffer(ctx);
+
+    // Create uniform buffer
+    try createTextureUniformBuffer(ctx);
+
+    // Create sampler state
+    try createTextureSampler(ctx);
+}
+
+fn createTexturePipeline(ctx: *Context) !void {
+    const texture_library = ctx.texture_library.?;
+
+    // Get vertex and fragment functions
+    const vertex_func_name = objc.Object.fromId(
+        @as(*anyopaque, @ptrCast(objc.c.objc_msgSend(
+            objc.getClass("NSString").?.value,
+            objc.sel("stringWithUTF8String:"),
+            "texture_vertex",
+        ))),
+    );
+    defer vertex_func_name.release();
+
+    const fragment_func_name = objc.Object.fromId(
+        @as(*anyopaque, @ptrCast(objc.c.objc_msgSend(
+            objc.getClass("NSString").?.value,
+            objc.sel("stringWithUTF8String:"),
+            "texture_fragment",
+        ))),
+    );
+    defer fragment_func_name.release();
+
+    const vertex_func = texture_library.msgSend(objc.Object, objc.sel("newFunctionWithName:"), .{vertex_func_name.value});
+    const fragment_func = texture_library.msgSend(objc.Object, objc.sel("newFunctionWithName:"), .{fragment_func_name.value});
+
+    if (vertex_func.value == null or fragment_func.value == null) {
+        log.err("Failed to load texture shader functions", .{});
+        return error.InitializationFailed;
+    }
+    defer vertex_func.release();
+    defer fragment_func.release();
+
+    // Create vertex descriptor
+    const vertex_desc = objc.Object.fromId(
+        objc.c.objc_msgSend(objc.getClass("MTLVertexDescriptor").?.value, objc.sel("vertexDescriptor"), .{}),
+    );
+    defer vertex_desc.release();
+
+    const attributes = objc.Object.fromId(vertex_desc.getProperty(?*anyopaque, "attributes"));
+    const layouts = objc.Object.fromId(vertex_desc.getProperty(?*anyopaque, "layouts"));
+
+    // Position attribute (0)
+    const pos_attr = attributes.msgSend(objc.Object, objc.sel("objectAtIndexedSubscript:"), .{@as(c_ulong, 0)});
+    pos_attr.setProperty("format", @intFromEnum(mtl.MTLVertexFormat.float2));
+    pos_attr.setProperty("offset", @as(c_ulong, 0));
+    pos_attr.setProperty("bufferIndex", @as(c_ulong, 0));
+
+    // Texture coordinate attribute (1)
+    const tex_attr = attributes.msgSend(objc.Object, objc.sel("objectAtIndexedSubscript:"), .{@as(c_ulong, 1)});
+    tex_attr.setProperty("format", @intFromEnum(mtl.MTLVertexFormat.float2));
+    tex_attr.setProperty("offset", @as(c_ulong, @offsetOf(TextureVertex, "texCoord")));
+    tex_attr.setProperty("bufferIndex", @as(c_ulong, 0));
+
+    // Layout
+    const layout = layouts.msgSend(objc.Object, objc.sel("objectAtIndexedSubscript:"), .{@as(c_ulong, 0)});
+    layout.setProperty("stride", @as(c_ulong, @sizeOf(TextureVertex)));
+    layout.setProperty("stepFunction", @intFromEnum(mtl.MTLVertexStepFunction.per_vertex));
+
+    // Create pipeline descriptor
+    const pipeline_desc = objc.Object.fromId(
+        objc.c.objc_msgSend(objc.getClass("MTLRenderPipelineDescriptor").?.value, objc.sel("new"), .{}),
+    );
+    defer pipeline_desc.release();
+
+    pipeline_desc.setProperty("vertexFunction", vertex_func.value);
+    pipeline_desc.setProperty("fragmentFunction", fragment_func.value);
+    pipeline_desc.setProperty("vertexDescriptor", vertex_desc.value);
+
+    // Color attachment
+    const color_attachments = objc.Object.fromId(pipeline_desc.getProperty(?*anyopaque, "colorAttachments"));
+    const color_attachment = color_attachments.msgSend(objc.Object, objc.sel("objectAtIndexedSubscript:"), .{@as(c_ulong, 0)});
+    color_attachment.setProperty("pixelFormat", @intFromEnum(mtl.MTLPixelFormat.bgra8unorm));
+
+    // Enable blending
+    color_attachment.setProperty("blendingEnabled", true);
+    color_attachment.setProperty("rgbBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
+    color_attachment.setProperty("alphaBlendOperation", @intFromEnum(mtl.MTLBlendOperation.add));
+    color_attachment.setProperty("sourceRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.source_alpha));
+    color_attachment.setProperty("sourceAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.source_alpha));
+    color_attachment.setProperty("destinationRGBBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
+    color_attachment.setProperty("destinationAlphaBlendFactor", @intFromEnum(mtl.MTLBlendFactor.one_minus_source_alpha));
+
+    // Create pipeline state
+    var pipeline_err: ?*anyopaque = null;
+    const pipeline_state = ctx.device.msgSend(
+        objc.Object,
+        objc.sel("newRenderPipelineStateWithDescriptor:error:"),
+        .{ pipeline_desc.value, &pipeline_err },
+    );
+    if (pipeline_err != null) {
+        log.err("Failed to create texture pipeline state", .{});
+        return error.InitializationFailed;
+    }
+
+    ctx.texture_pipeline_state = pipeline_state;
+}
+
+fn createTextureVertexBuffer(ctx: *Context) !void {
+    const buffer_size = @sizeOf(TextureVertex) * 6; // 6 vertices for 2 triangles (quad)
+
+    const vertex_buffer = ctx.device.msgSend(
+        objc.Object,
+        objc.sel("newBufferWithLength:options:"),
+        .{ @as(c_ulong, buffer_size), @intFromEnum(mtl.MTLResourceOptions.storage_mode_shared) },
+    );
+
+    if (vertex_buffer.value == null) {
+        log.err("Failed to create texture vertex buffer", .{});
+        return error.InitializationFailed;
+    }
+
+    ctx.texture_vertex_buffer = vertex_buffer;
+}
+
+fn createTextureUniformBuffer(ctx: *Context) !void {
+    const uniform_buffer = ctx.device.msgSend(
+        objc.Object,
+        objc.sel("newBufferWithLength:options:"),
+        .{ @as(c_ulong, @sizeOf(TextureUniforms)), @intFromEnum(mtl.MTLResourceOptions.storage_mode_shared) },
+    );
+
+    if (uniform_buffer.value == null) {
+        log.err("Failed to create texture uniform buffer", .{});
+        return error.InitializationFailed;
+    }
+
+    ctx.texture_uniform_buffer = uniform_buffer;
+}
+
+fn createTextureSampler(ctx: *Context) !void {
+    const sampler_desc = objc.Object.fromId(
+        objc.c.objc_msgSend(objc.getClass("MTLSamplerDescriptor").?.value, objc.sel("new"), .{}),
+    );
+    defer sampler_desc.release();
+
+    sampler_desc.setProperty("minFilter", @intFromEnum(mtl.MTLSamplerMinMagFilter.linear));
+    sampler_desc.setProperty("magFilter", @intFromEnum(mtl.MTLSamplerMinMagFilter.linear));
+    sampler_desc.setProperty("sAddressMode", @intFromEnum(mtl.MTLSamplerAddressMode.clamp_to_edge));
+    sampler_desc.setProperty("tAddressMode", @intFromEnum(mtl.MTLSamplerAddressMode.clamp_to_edge));
+
+    const sampler = ctx.device.msgSend(objc.Object, objc.sel("newSamplerStateWithDescriptor:"), .{sampler_desc.value});
+    if (sampler.value == null) {
+        log.err("Failed to create texture sampler", .{});
+        return error.InitializationFailed;
+    }
+
+    ctx.texture_sampler = sampler;
 }
 
 pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
@@ -131,6 +338,13 @@ pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
 
     if (ctx.pipeline_state) |ps| ps.release();
     if (ctx.vertex_buffer) |vb| vb.release();
+
+    // Clean up texture rendering resources
+    if (ctx.texture_library) |lib| lib.release();
+    if (ctx.texture_pipeline_state) |ps| ps.release();
+    if (ctx.texture_vertex_buffer) |vb| vb.release();
+    if (ctx.texture_uniform_buffer) |ub| ub.release();
+    if (ctx.texture_sampler) |sampler| sampler.release();
 
     ctx.command_queue.release();
     ctx.device.release();
@@ -305,13 +519,81 @@ pub fn drawTexture(
     src: ?@import("../renderer.zig").Rect,
     dst: @import("../renderer.zig").Rect,
 ) !void {
-    // TODO: Implement basic texture drawing using Metal render pipeline
-    // This would require setting up a basic vertex/fragment shader pipeline
-    // For now, this is a placeholder
-    _ = ctx;
-    _ = texture;
-    _ = src;
-    _ = dst;
+    const encoder = ctx.current_encoder orelse {
+        log.err("No current render encoder for texture drawing", .{});
+        return error.InitializationFailed;
+    };
+
+    // Get window dimensions for projection matrix
+    var window_width: c_int = 0;
+    var window_height: c_int = 0;
+    _ = sdl.c.SDL_GetWindowSize(ctx.window, &window_width, &window_height);
+
+    const w = @as(f32, @floatFromInt(window_width));
+    const h = @as(f32, @floatFromInt(window_height));
+
+    // Create orthographic projection matrix
+    const projection_matrix = [16]f32{
+        2.0 / w, 0.0,      0.0, 0.0,
+        0.0,     -2.0 / h, 0.0, 0.0,
+        0.0,     0.0,      1.0, 0.0,
+        -1.0,    1.0,      0.0, 1.0,
+    };
+
+    // Update uniform buffer
+    const uniform_buffer = ctx.texture_uniform_buffer.?;
+    const uniform_contents = uniform_buffer.msgSend(?*anyopaque, objc.sel("contents"), .{}).?;
+    const uniforms = @as(*TextureUniforms, @ptrCast(@alignCast(uniform_contents)));
+    uniforms.projectionMatrix = projection_matrix;
+
+    // Calculate vertex positions and texture coordinates
+    const x1 = dst.x;
+    const y1 = dst.y;
+    const x2 = dst.x + dst.w;
+    const y2 = dst.y + dst.h;
+
+    var tex_u1: f32 = 0.0;
+    var tex_v1: f32 = 0.0;
+    var tex_u2: f32 = 1.0;
+    var tex_v2: f32 = 1.0;
+
+    if (src) |src_rect| {
+        tex_u1 = src_rect.x / @as(f32, @floatFromInt(texture.width));
+        tex_v1 = src_rect.y / @as(f32, @floatFromInt(texture.height));
+        tex_u2 = (src_rect.x + src_rect.w) / @as(f32, @floatFromInt(texture.width));
+        tex_v2 = (src_rect.y + src_rect.h) / @as(f32, @floatFromInt(texture.height));
+    }
+
+    // Create quad vertices (2 triangles)
+    const vertices = [6]TextureVertex{
+        .{ .position = .{ x1, y1 }, .texCoord = .{ tex_u1, tex_v1 } },
+        .{ .position = .{ x2, y1 }, .texCoord = .{ tex_u2, tex_v1 } },
+        .{ .position = .{ x1, y2 }, .texCoord = .{ tex_u1, tex_v2 } },
+        .{ .position = .{ x1, y2 }, .texCoord = .{ tex_u1, tex_v2 } },
+        .{ .position = .{ x2, y1 }, .texCoord = .{ tex_u2, tex_v1 } },
+        .{ .position = .{ x2, y2 }, .texCoord = .{ tex_u2, tex_v2 } },
+    };
+
+    // Update vertex buffer
+    const vertex_buffer = ctx.texture_vertex_buffer.?;
+    const vertex_contents = vertex_buffer.msgSend(?*anyopaque, objc.sel("contents"), .{}).?;
+    @memcpy(@as([*]u8, @ptrCast(vertex_contents))[0..@sizeOf(@TypeOf(vertices))], std.mem.asBytes(&vertices));
+
+    // Set pipeline state
+    encoder.msgSend(void, objc.sel("setRenderPipelineState:"), .{ctx.texture_pipeline_state.?.value});
+
+    // Set vertex buffer
+    encoder.msgSend(void, objc.sel("setVertexBuffer:offset:atIndex:"), .{ vertex_buffer.value, @as(c_ulong, 0), @as(c_ulong, 0) });
+
+    // Set uniform buffer
+    encoder.msgSend(void, objc.sel("setVertexBuffer:offset:atIndex:"), .{ uniform_buffer.value, @as(c_ulong, 0), @as(c_ulong, 1) });
+
+    // Set texture and sampler
+    encoder.msgSend(void, objc.sel("setFragmentTexture:atIndex:"), .{ texture.texture.value, @as(c_ulong, 0) });
+    encoder.msgSend(void, objc.sel("setFragmentSamplerState:atIndex:"), .{ ctx.texture_sampler.?.value, @as(c_ulong, 0) });
+
+    // Draw
+    encoder.msgSend(void, objc.sel("drawPrimitives:vertexStart:vertexCount:"), .{ @intFromEnum(mtl.MTLPrimitiveType.triangle), @as(c_ulong, 0), @as(c_ulong, 6) });
 }
 
 pub fn drawTextureBatch(
@@ -321,6 +603,7 @@ pub fn drawTextureBatch(
     dst: []@import("../renderer.zig").Rect,
 ) !void {
     // For now, just draw each texture individually
+    // TODO: Optimize this with instanced rendering or batching
     for (dst) |rect| {
         try drawTexture(ctx, texture, src, rect);
     }

@@ -43,6 +43,12 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    // Add Metal shader compilation step for macOS targets
+    if (config.target.result.os.tag == .macos and config.renderer == .Metal) {
+        const metal_shader_step = addMetalShaderStep(b);
+        exe.step.dependOn(&metal_shader_step.step);
+    }
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -62,4 +68,23 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
+}
+
+fn addMetalShaderStep(b: *std.Build) *std.Build.Step.Run {
+    // Create directory for compiled shaders
+    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", "src/rendering/backend/metal/compiled" });
+
+    // Compile .metal to .air
+    const metal_compile_step = b.addSystemCommand(&.{ "xcrun", "metal", "-std=osx-metal2.0", "-o", "src/rendering/backend/metal/compiled/texture_shaders.air", "src/rendering/backend/metal/texture_shaders.metal" });
+    metal_compile_step.step.dependOn(&mkdir_step.step);
+
+    // Create metal archive
+    const metal_ar_step = b.addSystemCommand(&.{ "xcrun", "metal-ar", "r", "src/rendering/backend/metal/compiled/texture_shaders.metal-ar", "src/rendering/backend/metal/compiled/texture_shaders.air" });
+    metal_ar_step.step.dependOn(&metal_compile_step.step);
+
+    // Create metallib
+    const metallib_step = b.addSystemCommand(&.{ "xcrun", "metallib", "-o", "src/rendering/backend/metal/compiled/texture_shaders.metallib", "src/rendering/backend/metal/compiled/texture_shaders.metal-ar" });
+    metallib_step.step.dependOn(&metal_ar_step.step);
+
+    return metallib_step;
 }

@@ -2,3 +2,6 @@
 zig-out
 .zed
 **/*.DS_Store
+
+# Compiled Metal shaders
+src/rendering/backend/metal/compiled/
