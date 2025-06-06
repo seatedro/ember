@@ -155,7 +155,8 @@ pub fn newImGuiFrame() void {
     ig.ImGui_ImplSDL3_NewFrame();
 }
 
-pub fn renderImGui(_: *Context, draw: *ig.c.ImDrawData) void {
+pub fn renderImGui(_: *Context, draw: *ig.c.ImDrawData, clear_color: ig.c.ImVec4) void {
+    _ = clear_color; // OpenGL backend handles clear color in beginFrame
     ig.ImGui_ImplOpenGL3_RenderDrawData(draw);
 }
 
