@@ -3,11 +3,11 @@ const wgpu = @import("wgpu/root.zig");
 
 pub fn build(b: *std.Build) !void {
     const renderer_opt = b.option(
-        enum { SDL, OpenGL, Metal, WGPU },
+        enum { SDL, OpenGL, WGPU },
         "renderer",
-        "Renderer backend: sdl | opengl | metal (default: sdl)",
+        "Renderer backend: sdl | opengl | wgpu (default: wgpu)",
     );
-    const renderer = renderer_opt orelse .SDL;
+    const renderer = renderer_opt orelse .WGPU;
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -20,10 +20,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    // const wgpu_native_dep = b.dependency("wgpu_native_zig", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
 
     const sdl_image_dep = b.dependency("SDL_image", .{
         .target = target,

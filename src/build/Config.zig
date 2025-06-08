@@ -8,7 +8,7 @@ optimize: std.builtin.OptimizeMode,
 target: std.Build.ResolvedTarget,
 
 /// Comptime interfaces
-renderer: Renderer.BackendType = .SDL,
+renderer: Renderer.BackendType = .WGPU,
 
 /// This is for the zig build -D options
 pub fn init(b: *std.Build) !Config {
