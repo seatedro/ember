@@ -6,14 +6,12 @@ const build_config = @import("../build_config.zig");
 pub const BackendType = enum {
     SDL,
     OpenGL,
-    Metal,
+    WGPU,
 
     pub fn default(
         _: std.Target,
     ) BackendType {
-        // TODO: Uncomment this once we add metal as a backend
-        // if (target.os.tag.isDarwin()) return .Metal;
-        return .SDL;
+        return .WGPU;
     }
 };
 
@@ -32,7 +30,7 @@ pub const Error = error{
 pub const Backend = switch (build_config.renderer) {
     .SDL => @import("backend/sdl.zig"),
     .OpenGL => @import("backend/opengl.zig"),
-    .Metal => unreachable,
+    .WGPU => @import("backend/wgpu.zig"),
 };
 pub const Context = Backend.Context;
 
@@ -65,15 +63,15 @@ pub fn newImGuiFrame() void {
     Backend.newImGuiFrame();
 }
 
-pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData) void {
-    Backend.renderImGui(ctx, draw_data);
+pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData, clear_color: ig.c.ImVec4) void {
+    Backend.renderImGui(ctx, draw_data, clear_color);
 }
 
 pub fn resize(ctx: *Context, width: i32, height: i32) Error!void {
     try Backend.resize(ctx, width, height);
 }
 
-pub fn setVSync(ctx: *Context, enabled: bool) Error!void { // Add this method
+pub fn setVSync(ctx: *Context, enabled: bool) Error!void {
     try Backend.setVSync(ctx, enabled);
 }
 

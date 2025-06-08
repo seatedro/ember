@@ -57,3 +57,26 @@ pub extern fn ImGui_ImplOpenGL3_Init(glsl_version: [*:0]const u8) bool;
 pub extern fn ImGui_ImplOpenGL3_Shutdown() void;
 pub extern fn ImGui_ImplOpenGL3_NewFrame() void;
 pub extern fn ImGui_ImplOpenGL3_RenderDrawData(draw_data: ?*c.ImDrawData) void;
+
+// WGPU
+pub extern fn ImGui_ImplSDL3_InitForOther(window: ?*sdl.c.SDL_Window) callconv(.C) bool;
+
+pub const WGPUMultisampleState = extern struct {
+    next_in_chain: ?*const anyopaque,
+    count: u32,
+    mask: u32,
+    alpha_to_coverage_enabled: bool,
+};
+pub const ImGui_ImplWGPU_InitInfo = extern struct {
+    Device: ?*anyopaque,
+    NumFramesInFlight: c_int,
+    RenderTargetFormat: c_int,
+    DepthStencilFormat: c_int,
+    PipelineMultisampleState: WGPUMultisampleState,
+};
+pub extern fn ImGui_ImplWGPU_Init(init_info: *ImGui_ImplWGPU_InitInfo) callconv(.C) bool;
+pub extern fn ImGui_ImplWGPU_Shutdown() callconv(.C) void;
+pub extern fn ImGui_ImplWGPU_NewFrame() callconv(.C) void;
+pub extern fn ImGui_ImplWGPU_RenderDrawData(draw_data: ?*c.ImDrawData, pass_encoder: ?*anyopaque) callconv(.C) void;
+pub extern fn ImGui_ImplWGPU_InvalidateDeviceObjects() callconv(.C) void;
+pub extern fn ImGui_ImplWGPU_CreateDeviceObjects() callconv(.C) bool;

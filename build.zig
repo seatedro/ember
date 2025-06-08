@@ -12,6 +12,9 @@ pub fn build(b: *std.Build) void {
         .renderer = config.renderer,
     });
     const cimgui_mod = cimgui_dep.module("cimgui");
+    const wgpu_native_dep = b.dependency("wgpu_native_zig", .{
+        .target = config.target,
+    });
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -32,6 +35,7 @@ pub fn build(b: *std.Build) void {
             .flags = &.{},
         });
     }
+    exe_mod.addImport("wgpu", wgpu_native_dep.module("wgpu"));
     exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
 

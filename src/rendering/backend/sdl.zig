@@ -101,24 +101,20 @@ pub fn newImGuiFrame() void {
 pub fn renderImGui(
     context: *Context,
     draw_data: *ig.c.ImDrawData,
+    clear_color: ig.c.ImVec4,
 ) void {
+    _ = clear_color; // SDL backend handles clear color in beginFrame
     ig.ImGui_ImplSDLRenderer3_RenderDrawData(draw_data, context.renderer);
 
-    // **** Check for SDL errors IMMEDIATELY after the call ****
     const sdl_error = sdl.c.SDL_GetError();
-    if (sdl_error.* != 0) { // Check if the error string pointer is not null/empty
+    if (sdl_error.* != 0) {
         std.log.err("SDL Error *after* ImGui_ImplSDLRenderer3_RenderDrawData: {s}", .{sdl_error});
-        // You might want to return an error here, e.g.:
-        // return RendererInterface.Error.RenderImGuiFailed;
     } else {
         std.log.debug("No SDL error reported after ImGui_ImplSDLRenderer3_RenderDrawData.", .{});
     }
 }
 
 pub fn resize(_: *Context, width: i32, height: i32) RendererInterface.Error!void {
-    // SDL_Renderer usually handles resizing automatically with the window.
-    // We might need viewport adjustments if not using ImGui viewports,
-    // but for now, this can often be a no-op for basic SDL_Renderer.
     std.log.info("SDL Renderer Resize event (width: {}, height: {}) - usually no-op", .{ width, height });
     return;
 }
@@ -126,7 +122,7 @@ pub fn resize(_: *Context, width: i32, height: i32) RendererInterface.Error!void
 pub fn setVSync(context: *Context, enabled: bool) RendererInterface.Error!void {
     const r = context.renderer orelse {
         std.log.err("SDL_Renderer handle is null when attempting to set VSync.", .{});
-        return RendererInterface.Error.InitializationFailed; // Or VSyncFailed
+        return RendererInterface.Error.InitializationFailed;
     };
 
     const vsync_value: c_int = if (enabled) 1 else 0;
@@ -142,7 +138,6 @@ pub fn drawTexture(
     src: ?RendererInterface.Rect,
     dst: RendererInterface.Rect,
 ) RendererInterface.Error!void {
-    // unwrap the renderer pointer safely
     const r = context.renderer orelse
         return RendererInterface.Error.InitializationFailed;
 
@@ -162,7 +157,7 @@ pub fn drawTexture(
             .h = rect.h,
         };
     }
-    // if src is null, pass a null-pointer; otherwise pass the real rect
+
     var result: bool = undefined;
     if (sdlSrc) |s| {
         result = sdl.c.SDL_RenderTexture(r, texture, &s, &sdlDst);
@@ -200,7 +195,6 @@ pub fn drawTextureBatch(
             .h = rect.h,
         };
 
-        // if src is null, pass a null-pointer; otherwise pass the real rect
         var result: bool = undefined;
         if (sdlSrc) |s| {
             result = sdl.c.SDL_RenderTexture(r, texture, &s, &sdlDst);

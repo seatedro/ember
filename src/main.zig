@@ -237,7 +237,7 @@ pub fn main() !void {
 
         if (draw_data) |data| { // Check draw_data is not null
             if (data.Valid and data.CmdListsCount > 0) {
-                rendering.renderImGui(renderer_ctx, data);
+                rendering.renderImGui(renderer_ctx, data, clear_color);
             }
         } else {
             std.log.warn("ImGui draw data was null!", .{});

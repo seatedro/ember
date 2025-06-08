@@ -7,6 +7,10 @@
         .cimgui = .{ .path = "vendor/cimgui" },
         .opengl = .{ .path = "vendor/opengl", .lazy = true },
         .sdl_image = .{ .path = "vendor/sdl_image" },
+        .wgpu_native_zig = .{
+            .url = "git+https://github.com/bronter/wgpu_native_zig?ref=main#e08f24e6f09b011f973860ce4f13e6e07fb3d165",
+            .hash = "wgpu_native_zig-5.1.0-B9jeDJIvAwANqJx4wKH-oAxpiD9HFHYzLOFaxHsV9piX",
+        },
     },
     .paths = .{
         "build.zig",

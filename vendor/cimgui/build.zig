@@ -1,12 +1,13 @@
 const std = @import("std");
+const wgpu = @import("wgpu/root.zig");
 
 pub fn build(b: *std.Build) !void {
     const renderer_opt = b.option(
-        enum { SDL, OpenGL, Metal },
+        enum { SDL, OpenGL, WGPU },
         "renderer",
-        "Renderer backend: sdl | opengl | metal (default: sdl)",
+        "Renderer backend: sdl | opengl | wgpu (default: wgpu)",
     );
-    const renderer = renderer_opt orelse .SDL;
+    const renderer = renderer_opt orelse .WGPU;
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -19,6 +20,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+
     const sdl_image_dep = b.dependency("SDL_image", .{
         .target = target,
         .optimize = optimize,
@@ -42,6 +44,8 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "sdl", .module = sdl_mod },
         },
     });
+    const wgpuHeaderPath = try wgpu.getIncludePath(b, optimize, target);
+    cimgui_mod.addIncludePath(wgpuHeaderPath);
     cimgui_mod.addIncludePath(b.path("dist"));
     cimgui_mod.addIncludePath(imgui_source_path);
     cimgui_mod.addIncludePath(sdl_include_path);
@@ -54,6 +58,7 @@ pub fn build(b: *std.Build) !void {
     });
     lib_cimgui.linkLibCpp();
 
+    lib_cimgui.addIncludePath(wgpuHeaderPath);
     lib_cimgui.addIncludePath(sdl_include_path);
     lib_cimgui.addIncludePath(b.path("dist"));
     lib_cimgui.addIncludePath(imgui_source_path);
@@ -66,6 +71,9 @@ pub fn build(b: *std.Build) !void {
         "-DIMGUI_IMPL_API=extern\t\"C\"",
         // "-DIMGUI_USE_WCHAR32=1", // Add if needed
     });
+    if (renderer == .WGPU) {
+        try common_cpp_flags.append("-DIMGUI_IMPL_WEBGPU_BACKEND_WGPU=1");
+    }
 
     lib_cimgui.addCSourceFile(.{
         .file = b.path("dist/cimgui.cpp"),
@@ -96,6 +104,12 @@ pub fn build(b: *std.Build) !void {
         .OpenGL => {
             lib_cimgui.addCSourceFile(.{
                 .file = imgui_dep.path("backends/imgui_impl_opengl3.cpp"),
+                .flags = common_cpp_flags.items,
+            });
+        },
+        .WGPU => {
+            lib_cimgui.addCSourceFile(.{
+                .file = imgui_dep.path("backends/imgui_impl_wgpu.cpp"),
                 .flags = common_cpp_flags.items,
             });
         },
