@@ -5,6 +5,7 @@ const math = std.math;
 const build_config = @import("build_config.zig");
 
 const rendering = @import("rendering/renderer.zig");
+const sprite = @import("sprite/sprite.zig");
 
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
@@ -13,34 +14,15 @@ const SPRITE_H = 32;
 const MOVE_SPEED = 50.0;
 const SPRITES_PER_CLICK = 100;
 
-pub const Sprite = struct {
-    rects: std.ArrayList(rendering.Rect),
-    vx: std.ArrayList(f32),
-    vy: std.ArrayList(f32),
-
-    pub fn init(allocator: std.mem.Allocator) !Sprite {
-        return Sprite{
-            .rects = std.ArrayList(rendering.Rect).init(allocator),
-            .vx = std.ArrayList(f32).init(allocator),
-            .vy = std.ArrayList(f32).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *Sprite) void {
-        self.rects.deinit();
-        self.vx.deinit();
-        self.vy.deinit();
-    }
+const SpriteData = struct {
+    transform: rendering.Transform2D,
+    velocity: @Vector(2, f32),
 };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
-    const perf_file = try std.fs.cwd().createFile("perf.csv", .{ .truncate = true });
-    defer perf_file.close();
-
-    try perf_file.writer().print("sprite_count,fps\n", .{});
 
     try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
     defer sdl.c.SDL_Quit();
@@ -49,7 +31,6 @@ pub fn main() !void {
 
     var window_flags = sdl.c.SDL_WINDOW_RESIZABLE | sdl.c.SDL_WINDOW_HIDDEN;
     if (backend == .OpenGL) {
-        // Example: Add OpenGL flag if needed by that backend's init
         window_flags |= sdl.c.SDL_WINDOW_OPENGL;
         try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_DOUBLEBUFFER, 1));
         try sdl.errify(sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_DEPTH_SIZE, 24));
@@ -58,7 +39,7 @@ pub fn main() !void {
     }
 
     const window = sdl.c.SDL_CreateWindow(
-        "Ember Engine",
+        "Ember Engine - High Performance Renderer",
         WIN_WIDTH,
         WIN_HEIGHT,
         window_flags,
@@ -75,10 +56,8 @@ pub fn main() !void {
         sdl.c.SDL_WINDOWPOS_CENTERED,
     ));
 
-    // Setup Dear ImGui context
-    const ig_context = cimgui.c.igCreateContext(null); // Store the returned context pointer
+    const ig_context = cimgui.c.igCreateContext(null);
     if (ig_context == null) {
-        // Check if context creation failed
         std.log.err("Failed to create ImGui context!", .{});
         sdl.c.SDL_DestroyWindow(window);
         sdl.c.SDL_Quit();
@@ -95,7 +74,7 @@ pub fn main() !void {
     cimgui.c.igStyleColorsDark(null);
 
     defer cimgui.ImGui_ImplSDL3_Shutdown();
-    // Create renderer
+
     const renderer_ctx = rendering.init(allocator, window.?) catch {
         cimgui.c.igDestroyContext(ig_context);
         sdl.c.SDL_DestroyWindow(window);
@@ -103,18 +82,18 @@ pub fn main() !void {
         return error.InitializationFailed;
     };
     defer rendering.deinit(allocator, renderer_ctx);
+
     try sdl.errify(sdl.c.SDL_ShowWindow(window));
     try rendering.setVSync(renderer_ctx, true);
 
     try rendering.initImGuiBackend(renderer_ctx);
     defer rendering.deinitImGuiBackend();
 
-    // State
     const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
 
     const sprite_path = "assets/amogus.png";
     const stress_texture = try rendering.loadTexture(renderer_ctx, sprite_path);
-    defer rendering.destroyTexture(stress_texture);
+    defer rendering.destroyTexture(renderer_ctx, stress_texture);
 
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = 49;
@@ -123,10 +102,8 @@ pub fn main() !void {
     });
     const rand = prng.random();
 
-    var sprites = try allocator.create(Sprite);
+    var sprites = std.ArrayList(SpriteData).init(allocator);
     defer sprites.deinit();
-    defer allocator.destroy(sprites);
-    sprites.* = try Sprite.init(allocator);
 
     var done = false;
     var left_down: bool = false;
@@ -134,7 +111,6 @@ pub fn main() !void {
     var win_w: c_int = 0;
     var win_h: c_int = 0;
     var last_ticks = sdl.c.SDL_GetTicks();
-    // var last_log_time: u64 = 0;
 
     try sdl.errify(sdl.c.SDL_GetWindowSize(window, &win_w, &win_h));
 
@@ -161,39 +137,25 @@ pub fn main() !void {
                 sdl.c.SDL_EVENT_MOUSE_BUTTON_DOWN => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
                     left_down = true;
                     for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(sprites, rand.float(f32), event.button.x, event.button.y);
+                        try spawnSprite(&sprites, rand, event.button.x, event.button.y);
                     }
-                    // try sprites.append(sdl.c.SDL_FRect{
-                    //     .x = event.button.x,
-                    //     .y = event.button.y,
-                    //     .w = SPRITE_W,
-                    //     .h = SPRITE_H,
-                    // });
                 },
                 sdl.c.SDL_EVENT_MOUSE_BUTTON_UP => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
                     left_down = false;
                 },
                 sdl.c.SDL_EVENT_MOUSE_MOTION => if (left_down) {
-                    // try sprites.append(sdl.c.SDL_FRect{
-                    //     .x = event.motion.x,
-                    //     .y = event.motion.y,
-                    //     .w = SPRITE_W,
-                    //     .h = SPRITE_H,
-                    // });
                     for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(sprites, rand.float(f32), event.motion.x, event.motion.y);
+                        try spawnSprite(&sprites, rand, event.motion.x, event.motion.y);
                     }
                 },
                 else => {},
             }
         }
 
-        for (0..sprites.rects.items.len) |i| {
-            sprites.rects.items[i].x += sprites.vx.items[i] * dt;
-            sprites.rects.items[i].y += sprites.vy.items[i] * dt;
+        for (sprites.items) |*s| {
+            s.transform.position += s.velocity * @as(@Vector(2, f32), @splat(dt));
         }
 
-        // Minimized? Sleep and skip frame
         if ((sdl.c.SDL_GetWindowFlags(window) & sdl.c.SDL_WINDOW_MINIMIZED) != 0) {
             sdl.c.SDL_Delay(10);
             continue;
@@ -205,61 +167,55 @@ pub fn main() !void {
 
         {
             if (cimgui.c.igBegin("Ember Debug Console", null, 0)) {
-                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.rects.items.len)));
+                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.items.len)));
                 cimgui.c.igText(
                     "Perf: %.3f ms/frame (%.1f FPS)",
                     1000.0 / io.*.Framerate,
                     io.*.Framerate,
                 );
+                cimgui.c.igText("Ember: A silly little game engine");
             }
-            // if (now - last_log_time >= 500) { // log every 500ms
-            //     try perf_file.writer().print("{d},{d:.2}\n", .{
-            //         sprites.rects.items.len,
-            //         io.*.Framerate,
-            //     });
-            //     last_log_time = now;
-            // }
             cimgui.c.igEnd();
         }
 
-        // Rendering
         cimgui.c.igRender();
-        const draw_data = cimgui.igGetDrawData();
-        // SDL_RenderSetScale(renderer, io.*.DisplayFramebufferScale.x, io.*.DisplayFramebufferScale.y);
+
         try rendering.beginFrame(renderer_ctx, clear_color);
 
-        // old
-        // for (sprites.items) |s| {
-        //     try rendering.drawTexture(renderer_ctx, stress_texture, null, s.rect);
-        // }
-
-        try rendering.drawTextureBatch(renderer_ctx, stress_texture, null, sprites.rects.items);
-
-        if (draw_data) |data| { // Check draw_data is not null
-            if (data.Valid and data.CmdListsCount > 0) {
-                rendering.renderImGui(renderer_ctx, data, clear_color);
-            }
-        } else {
-            std.log.warn("ImGui draw data was null!", .{});
+        for (sprites.items) |s| {
+            const sprite_data = rendering.SpriteDrawData{
+                .transform = s.transform,
+                .texture_handle = stress_texture,
+                .color = rendering.Color.WHITE,
+            };
+            try rendering.drawSprite(renderer_ctx, sprite_data);
         }
 
-        // This does nothing if the backend doesn't support it.
-        // So far sdlrenderer3 does not support multi-viewports.
+        try rendering.drawCircle(renderer_ctx, @Vector(2, f32){ 100.0, 100.0 }, 25.0, rendering.Color.RED);
+        try rendering.drawLine(renderer_ctx, @Vector(2, f32){ 50.0, 50.0 }, @Vector(2, f32){ 150.0, 150.0 }, 2.0, rendering.Color.GREEN);
+        try rendering.drawRect(renderer_ctx, @Vector(2, f32){ 200.0, 200.0 }, @Vector(2, f32){ 50.0, 30.0 }, rendering.Color.BLUE);
+
+        try rendering.render(renderer_ctx, clear_color);
 
         try rendering.endFrame(renderer_ctx);
     }
 }
 
-fn spawnSprite(sprites: *Sprite, r: f32, mx: f32, my: f32) !void {
-    const angle = r * math.pi * 2.0;
-    const vx = math.cos(angle) * MOVE_SPEED;
-    const vy = math.sin(angle) * MOVE_SPEED;
-    try sprites.rects.append(rendering.Rect{
-        .x = mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
-        .y = my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
-        .w = SPRITE_W,
-        .h = SPRITE_H,
+fn spawnSprite(sprites: *std.ArrayList(SpriteData), rand: std.Random, mx: f32, my: f32) !void {
+    const angle = rand.float(f32) * math.pi * 2.0;
+    const velocity = @Vector(2, f32){
+        math.cos(angle) * MOVE_SPEED,
+        math.sin(angle) * MOVE_SPEED,
+    };
+    const position = @Vector(2, f32){
+        mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
+        my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
+    };
+    try sprites.append(SpriteData{
+        .transform = rendering.Transform2D{
+            .position = position,
+            .scale = @Vector(2, f32){ 1.0, 1.0 },
+        },
+        .velocity = velocity,
     });
-    try sprites.vx.append(vx);
-    try sprites.vy.append(vy);
 }

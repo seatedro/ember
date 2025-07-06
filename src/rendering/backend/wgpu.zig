@@ -3,6 +3,14 @@ const sdl = @import("sdl");
 const ig = @import("cimgui");
 const wgpu = @import("wgpu");
 const RendererInterface = @import("../renderer.zig");
+const resource = @import("../../core/resource.zig");
+const sprite = @import("../../sprite/sprite.zig");
+
+const BackendTexture = resource.BackendTexture;
+const SpriteInstance = sprite.SpriteInstance;
+const CircleInstance = sprite.CircleInstance;
+const LineInstance = sprite.LineInstance;
+const RectInstance = sprite.RectInstance;
 
 pub const Context = struct {
     allocator: std.mem.Allocator,
@@ -68,8 +76,8 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInt
 
     const instance_desc = wgpu.InstanceDescriptor{
         .features = wgpu.InstanceCapabilities{
-            .timed_wait_any_enable = 0, // false - disable timed wait features
-            .timed_wait_any_max_count = 0, // not needed since timed wait is disabled
+            .timed_wait_any_enable = 0,
+            .timed_wait_any_max_count = 0,
         },
     };
     ctx.instance = wgpu.Instance.create(&instance_desc) orelse {
@@ -178,8 +186,7 @@ pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
 }
 
 pub fn beginFrame(ctx: *Context, _: ig.c.ImVec4) RendererInterface.Error!void {
-    ctx.draw_calls.clearRetainingCapacity();
-    ctx.vertex_data.clearRetainingCapacity();
+    _ = ctx;
 }
 
 pub fn endFrame(ctx: *Context) RendererInterface.Error!void {
@@ -221,7 +228,46 @@ pub fn newImGuiFrame() void {
     ig.ImGui_ImplWGPU_NewFrame();
 }
 
-pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData, clear_color: ig.c.ImVec4) void {
+pub fn renderImGui(
+    draw_data: *ig.c.ImDrawData,
+    clear_color: ig.c.ImVec4,
+    view: *wgpu.TextureView,
+    encoder: *wgpu.CommandEncoder,
+) void {
+    const render_pass_desc = wgpu.RenderPassDescriptor{
+        .label = wgpu.StringView.fromSlice("Render Pass"),
+        .color_attachment_count = 1,
+        .color_attachments = &[_]wgpu.ColorAttachment{
+            .{
+                .view = view,
+                .resolve_target = null,
+                .load_op = .load,
+                .store_op = .store,
+                .clear_value = wgpu.Color{
+                    .r = clear_color.x * clear_color.w,
+                    .g = clear_color.y * clear_color.w,
+                    .b = clear_color.z * clear_color.w,
+                    .a = clear_color.w,
+                },
+            },
+        },
+        .depth_stencil_attachment = null,
+        .occlusion_query_set = null,
+        .timestamp_writes = null,
+    };
+
+    const imgui_render_pass = encoder.beginRenderPass(&render_pass_desc) orelse {
+        std.log.err("Failed to begin ImGui render pass", .{});
+        return;
+    };
+    defer imgui_render_pass.release();
+
+    ig.ImGui_ImplWGPU_RenderDrawData(draw_data, imgui_render_pass);
+
+    imgui_render_pass.end();
+}
+
+pub fn render(ctx: *Context, clear_color: ig.c.ImVec4) void {
     var surface_texture: wgpu.SurfaceTexture = undefined;
     ctx.surface.?.getCurrentTexture(&surface_texture);
     defer if (surface_texture.texture) |texture| texture.release();
@@ -246,66 +292,65 @@ pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData, clear_color: ig.c
     };
     defer encoder.release();
 
-    const render_pass_desc = wgpu.RenderPassDescriptor{
-        .label = wgpu.StringView.fromSlice("Render Pass"),
-        .color_attachment_count = 1,
-        .color_attachments = &[_]wgpu.ColorAttachment{
-            .{
-                .view = view,
-                .resolve_target = null,
-                .load_op = .clear,
-                .store_op = .store,
-                .clear_value = wgpu.Color{
-                    .r = clear_color.x * clear_color.w,
-                    .g = clear_color.y * clear_color.w,
-                    .b = clear_color.z * clear_color.w,
-                    .a = clear_color.w,
+    if (ctx.draw_calls.items.len > 0 and ctx.vertex_data.items.len > 0) {
+        std.log.debug("drawing game content: {}", .{ctx.vertex_data.items.len});
+        const game_render_pass_desc = wgpu.RenderPassDescriptor{
+            .label = wgpu.StringView.fromSlice("Game Content Render Pass"),
+            .color_attachment_count = 1,
+            .color_attachments = &[_]wgpu.ColorAttachment{
+                .{
+                    .view = view,
+                    .resolve_target = null,
+                    .load_op = .clear, // Clear first
+                    .store_op = .store,
+                    .clear_value = wgpu.Color{
+                        .r = clear_color.x * clear_color.w,
+                        .g = clear_color.y * clear_color.w,
+                        .b = clear_color.z * clear_color.w,
+                        .a = clear_color.w,
+                    },
                 },
             },
-        },
-        .depth_stencil_attachment = null,
-        .occlusion_query_set = null,
-        .timestamp_writes = null,
-    };
+            .depth_stencil_attachment = null,
+            .occlusion_query_set = null,
+            .timestamp_writes = null,
+        };
 
-    const render_pass = encoder.beginRenderPass(&render_pass_desc) orelse {
-        std.log.err("Failed to begin render pass", .{});
-        return;
-    };
-    defer render_pass.release();
-
-    if (ctx.draw_calls.items.len > 0 and ctx.vertex_data.items.len > 0) {
-        const vertex_data_size = ctx.vertex_data.items.len * @sizeOf(Vertex);
-        const max_buffer_size = @sizeOf(Vertex) * 6 * 65536;
-
-        if (vertex_data_size > max_buffer_size) {
-            std.log.err("Vertex data size {} exceeds buffer size {}", .{ vertex_data_size, max_buffer_size });
+        const game_render_pass = encoder.beginRenderPass(&game_render_pass_desc) orelse {
+            std.log.err("Failed to begin game render pass", .{});
             return;
-        }
+        };
+        defer game_render_pass.release();
 
-        if (vertex_data_size > 0) {
-            ctx.queue.?.writeBuffer(
-                ctx.vertex_buffer.?,
-                0,
-                ctx.vertex_data.items.ptr,
-                vertex_data_size,
-            );
+        const vertex_data_size = ctx.vertex_data.items.len * @sizeOf(Vertex);
+        ctx.queue.?.writeBuffer(
+            ctx.vertex_buffer.?,
+            0,
+            ctx.vertex_data.items.ptr,
+            vertex_data_size,
+        );
 
-            if (ctx.render_pipeline) |pipeline| {
-                render_pass.setPipeline(pipeline);
+        if (ctx.render_pipeline) |pipeline| {
+            game_render_pass.setPipeline(pipeline);
 
-                for (ctx.draw_calls.items) |draw_call| {
-                    render_pass.setBindGroup(0, draw_call.bind_group, 0, null);
-                    render_pass.setVertexBuffer(0, ctx.vertex_buffer.?, draw_call.vertex_offset * @sizeOf(Vertex), draw_call.vertex_count * @sizeOf(Vertex));
-                    render_pass.draw(draw_call.vertex_count, 1, 0, 0);
-                }
+            for (ctx.draw_calls.items) |draw_call| {
+                game_render_pass.setBindGroup(0, draw_call.bind_group, 0, null);
+                game_render_pass.setVertexBuffer(0, ctx.vertex_buffer.?, draw_call.vertex_offset * @sizeOf(Vertex), draw_call.vertex_count * @sizeOf(Vertex));
+                game_render_pass.draw(draw_call.vertex_count, 1, 0, 0);
             }
         }
+
+        game_render_pass.end();
     }
 
-    ig.ImGui_ImplWGPU_RenderDrawData(draw_data, render_pass);
-
-    render_pass.end();
+    const draw_data = ig.igGetDrawData();
+    if (draw_data) |data| {
+        if (data.Valid and data.CmdListsCount > 0) {
+            renderImGui(data, clear_color, view, encoder);
+        }
+    } else {
+        std.log.warn("ImGui draw data was null!", .{});
+    }
 
     const command_buffer_desc = wgpu.CommandBufferDescriptor{
         .label = wgpu.StringView.fromSlice("Command Buffer"),
@@ -315,9 +360,10 @@ pub fn renderImGui(ctx: *Context, draw_data: *ig.c.ImDrawData, clear_color: ig.c
         return;
     };
     defer command_buffer.release();
-
     ctx.queue.?.submit(&[_]*wgpu.CommandBuffer{command_buffer});
     _ = ctx.surface.?.present();
+    ctx.draw_calls.clearRetainingCapacity();
+    ctx.vertex_data.clearRetainingCapacity();
 }
 
 pub fn resize(ctx: *Context, width: i32, height: i32) RendererInterface.Error!void {
@@ -344,7 +390,7 @@ pub fn setVSync(ctx: *Context, enabled: bool) RendererInterface.Error!void {
     std.log.info("WGPU Renderer VSync set to: {}", .{enabled});
 }
 
-pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Texture {
+pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!BackendTexture {
     const surface = sdl.c.IMG_Load(path.ptr);
     if (surface == null) {
         std.log.err("Failed to load image: {s}", .{path});
@@ -434,13 +480,15 @@ pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Text
 
     std.log.info("Texture loaded successfully: {}x{}", .{ width, height });
 
-    return Texture{
+    const tex = Texture{
         .texture = texture,
         .view = view.?,
         .bind_group = bind_group.?,
         .width = width,
         .height = height,
     };
+
+    return BackendTexture{ .texture = tex, .width = width, .height = height };
 }
 
 pub fn destroyTexture(tex: Texture) void {
@@ -449,70 +497,44 @@ pub fn destroyTexture(tex: Texture) void {
     tex.texture.release();
 }
 
-pub fn drawTexture(
+pub fn renderSpriteInstances(
     ctx: *Context,
-    texture: Texture,
-    src: ?RendererInterface.Rect,
-    dst: RendererInterface.Rect,
+    backend_tex: BackendTexture,
+    instances: []const SpriteInstance,
 ) RendererInterface.Error!void {
+    if (instances.len == 0) return;
     if (ctx.render_pipeline == null) {
         std.log.err("Render pipeline not initialized", .{});
         return;
     }
 
-    const vertex_offset = @as(u32, @intCast(ctx.vertex_data.items.len));
-
-    const x0 = dst.x / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-    const y0 = 1.0 - dst.y / @as(f32, @floatFromInt(ctx.height)) * 2.0;
-    const x1 = (dst.x + dst.w) / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-    const y1 = 1.0 - (dst.y + dst.h) / @as(f32, @floatFromInt(ctx.height)) * 2.0;
-
-    const tex_u0: f32 = if (src) |s| s.x / @as(f32, @floatFromInt(texture.width)) else 0.0;
-    const tex_v0: f32 = if (src) |s| s.y / @as(f32, @floatFromInt(texture.height)) else 0.0;
-    const tex_u1: f32 = if (src) |s| (s.x + s.w) / @as(f32, @floatFromInt(texture.width)) else 1.0;
-    const tex_v1: f32 = if (src) |s| (s.y + s.h) / @as(f32, @floatFromInt(texture.height)) else 1.0;
-
-    try ctx.vertex_data.append(.{ .position = .{ x0, y0 }, .tex_coords = .{ tex_u0, tex_v0 } });
-    try ctx.vertex_data.append(.{ .position = .{ x1, y0 }, .tex_coords = .{ tex_u1, tex_v0 } });
-    try ctx.vertex_data.append(.{ .position = .{ x1, y1 }, .tex_coords = .{ tex_u1, tex_v1 } });
-    try ctx.vertex_data.append(.{ .position = .{ x0, y0 }, .tex_coords = .{ tex_u0, tex_v0 } });
-    try ctx.vertex_data.append(.{ .position = .{ x1, y1 }, .tex_coords = .{ tex_u1, tex_v1 } });
-    try ctx.vertex_data.append(.{ .position = .{ x0, y1 }, .tex_coords = .{ tex_u0, tex_v1 } });
-
-    try ctx.draw_calls.append(.{
-        .texture_view = texture.view,
-        .bind_group = texture.bind_group,
-        .vertex_offset = vertex_offset,
-        .vertex_count = 6,
-    });
-}
-
-pub fn drawTextureBatch(
-    ctx: *Context,
-    texture: Texture,
-    src: ?RendererInterface.Rect,
-    dst: []RendererInterface.Rect,
-) RendererInterface.Error!void {
-    if (dst.len == 0) return;
-    if (ctx.render_pipeline == null) {
-        std.log.err("Render pipeline not initialized", .{});
-        return;
-    }
+    const texture = backend_tex.texture;
 
     const vertex_offset = @as(u32, @intCast(ctx.vertex_data.items.len));
 
-    try ctx.vertex_data.ensureUnusedCapacity(dst.len * 6);
+    try ctx.vertex_data.ensureUnusedCapacity(instances.len * 6);
 
-    for (dst) |rect| {
-        const x0 = rect.x / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-        const y0 = 1.0 - rect.y / @as(f32, @floatFromInt(ctx.height)) * 2.0;
-        const x1 = (rect.x + rect.w) / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-        const y1 = 1.0 - (rect.y + rect.h) / @as(f32, @floatFromInt(ctx.height)) * 2.0;
+    for (instances) |instance| {
+        const pos_x = instance.transform[3]; // 4th column, 1st row (m03)
+        const pos_y = instance.transform[7]; // 4th column, 2nd row (m13)
 
-        const tex_u0: f32 = if (src) |s| s.x / @as(f32, @floatFromInt(texture.width)) else 0.0;
-        const tex_v0: f32 = if (src) |s| s.y / @as(f32, @floatFromInt(texture.height)) else 0.0;
-        const tex_u1: f32 = if (src) |s| (s.x + s.w) / @as(f32, @floatFromInt(texture.width)) else 1.0;
-        const tex_v1: f32 = if (src) |s| (s.y + s.h) / @as(f32, @floatFromInt(texture.height)) else 1.0;
+        const scale_x = @sqrt(instance.transform[0] * instance.transform[0] + instance.transform[4] * instance.transform[4]);
+        const scale_y = @sqrt(instance.transform[1] * instance.transform[1] + instance.transform[5] * instance.transform[5]);
+
+        const base_size = 32.0;
+        const width = base_size * scale_x;
+        const height = base_size * scale_y;
+
+        const x0 = pos_x / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
+        const y0 = 1.0 - pos_y / @as(f32, @floatFromInt(ctx.height)) * 2.0;
+        const x1 = (pos_x + width) / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
+        const y1 = 1.0 - (pos_y + height) / @as(f32, @floatFromInt(ctx.height)) * 2.0;
+
+        const uv_offset_scale = instance.uv_offset_scale;
+        const tex_u0 = uv_offset_scale[0];
+        const tex_v0 = uv_offset_scale[1];
+        const tex_u1 = uv_offset_scale[0] + uv_offset_scale[2];
+        const tex_v1 = uv_offset_scale[1] + uv_offset_scale[3];
 
         try ctx.vertex_data.append(.{ .position = .{ x0, y0 }, .tex_coords = .{ tex_u0, tex_v0 } });
         try ctx.vertex_data.append(.{ .position = .{ x1, y0 }, .tex_coords = .{ tex_u1, tex_v0 } });
@@ -530,6 +552,33 @@ pub fn drawTextureBatch(
         .vertex_offset = vertex_offset,
         .vertex_count = vertex_count,
     });
+}
+
+/// TODO: Implement SDF-based circle rendering
+pub fn renderCircleInstances(
+    ctx: *Context,
+    instances: []const CircleInstance,
+) RendererInterface.Error!void {
+    _ = ctx;
+    _ = instances;
+}
+
+/// TODO: Implement instanced line rendering with geometry shaders or compute
+pub fn renderLineInstances(
+    ctx: *Context,
+    instances: []const LineInstance,
+) RendererInterface.Error!void {
+    _ = ctx;
+    _ = instances;
+}
+
+/// TODO: Implement SDF-based rectangle rendering
+pub fn renderRectInstances(
+    ctx: *Context,
+    instances: []const RectInstance,
+) RendererInterface.Error!void {
+    _ = ctx;
+    _ = instances;
 }
 
 fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Window) !*wgpu.Surface {

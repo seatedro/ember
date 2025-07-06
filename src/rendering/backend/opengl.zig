@@ -2,13 +2,23 @@ const std = @import("std");
 const sdl = @import("sdl");
 const ig = @import("cimgui");
 const Renderer = @import("../renderer.zig");
+const resource = @import("../../core/resource.zig");
 const gl = @import("opengl");
+const sprite = @import("../../sprite/sprite.zig");
+const errors = @import("../errors.zig");
+
 const glad = gl.glad;
 const Buffer = gl.Buffer;
 const Shader = gl.Shader;
 const Program = gl.Program;
 const VertexArray = gl.VertexArray;
 pub const Texture = gl.Texture;
+
+const BackendTexture = resource.BackendTexture;
+const SpriteInstance = sprite.SpriteInstance;
+const CircleInstance = sprite.CircleInstance;
+const LineInstance = sprite.LineInstance;
+const RectInstance = sprite.RectInstance;
 
 pub const BatchedVertex = [4]f32; // Vertex data layout: [x, y, u, v]
 pub const Context = struct {
@@ -78,7 +88,6 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
         const vbo_binding = try vbo.bind(.array);
         defer vbo_binding.unbind();
 
-        // Allocate buffer for 6 vertices of vec4 (pos.xy, uv.xy)
         try vbo_binding.setDataNullManual(@sizeOf([6][4]f32), .dynamic_draw);
 
         try vbo_binding.attributeAdvanced(0, 2, gl.c.GL_FLOAT, false, 4 * @sizeOf(f32), 0);
@@ -111,28 +120,17 @@ pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
     std.log.info("Deinitialized GL Renderer.", .{});
 }
 
-pub fn beginFrame(_: *Context, clr: ig.c.ImVec4) !void {
-    gl.clearColor(clr.x, clr.y, clr.z, clr.w);
+pub fn beginFrame(_: *Context, clear_color: ig.c.ImVec4) !void {
+    gl.clearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
     gl.clear(gl.c.GL_COLOR_BUFFER_BIT);
-    try gl.enable(gl.c.GL_BLEND);
-    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
+
+    gl.enable(gl.c.GL_BLEND) catch {};
+    gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA) catch {};
 }
 
-pub fn endFrame(ctx: *Context) Renderer.Error!void {
-    _ = sdl.c.SDL_GL_SwapWindow(ctx.window);
+pub fn endFrame(_: *Context) !void {}
 
-    const io = ig.c.igGetIO().?;
-    if ((io.*.ConfigFlags & ig.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
-        const backup_win = sdl.c.SDL_GL_GetCurrentWindow();
-        const backup_ctx = sdl.c.SDL_GL_GetCurrentContext();
-        ig.c.igUpdatePlatformWindows();
-        ig.c.igRenderPlatformWindowsDefault();
-
-        _ = sdl.c.SDL_GL_MakeCurrent(backup_win, backup_ctx);
-    }
-}
-
-pub fn initImGuiBackend(ctx: *Context) Renderer.Error!void {
+pub fn initImGuiBackend(ctx: *Context) !void {
     if (!ig.ImGui_ImplSDL3_InitForOpenGL(ctx.window, ctx.renderer)) {
         std.log.err("ImGui_ImplOpenGL3_Init failed", .{});
         return Renderer.Error.InitializationFailed;
@@ -155,12 +153,31 @@ pub fn newImGuiFrame() void {
     ig.ImGui_ImplSDL3_NewFrame();
 }
 
-pub fn renderImGui(_: *Context, draw: *ig.c.ImDrawData, clear_color: ig.c.ImVec4) void {
-    _ = clear_color; // OpenGL backend handles clear color in beginFrame
-    ig.ImGui_ImplOpenGL3_RenderDrawData(draw);
+pub fn renderImGui(draw_data: *ig.c.ImDrawData) void {
+    ig.ImGui_ImplOpenGL3_RenderDrawData(draw_data);
 }
 
-pub fn resize(_: *anyopaque, w: i32, h: i32) Renderer.Error!void {
+pub fn render(ctx: *Context, _: ig.c.ImVec4) void {
+    const draw_data = ig.igGetDrawData();
+    if (draw_data) |data| {
+        if (data.Valid and data.CmdListsCount > 0) {
+            renderImGui(data);
+        }
+    }
+
+    _ = sdl.c.SDL_GL_SwapWindow(ctx.window);
+
+    const io = ig.c.igGetIO().?;
+    if ((io.*.ConfigFlags & ig.c.ImGuiConfigFlags_ViewportsEnable) != 0) {
+        const backup_win = sdl.c.SDL_GL_GetCurrentWindow();
+        const backup_ctx = sdl.c.SDL_GL_GetCurrentContext();
+        ig.c.igUpdatePlatformWindows();
+        ig.c.igRenderPlatformWindowsDefault();
+        _ = sdl.c.SDL_GL_MakeCurrent(backup_win, backup_ctx);
+    }
+}
+
+pub fn resize(_: *anyopaque, w: i32, h: i32) !void {
     gl.viewport(0, 0, w, h);
 }
 
@@ -168,7 +185,7 @@ pub fn setVSync(_: *Context, on: bool) !void {
     try sdl.errify(sdl.c.SDL_GL_SetSwapInterval(if (on) 1 else 0));
 }
 
-pub fn loadTexture(_: *Context, path: []const u8) !Texture {
+pub fn loadTexture(_: *Context, path: []const u8) !BackendTexture {
     const surface = sdl.c.IMG_Load(path.ptr);
     if (surface == null) return Renderer.Error.InitializationFailed;
 
@@ -199,7 +216,7 @@ pub fn loadTexture(_: *Context, path: []const u8) !Texture {
 
     std.log.debug("Format: {d}", .{format});
 
-    try binding.image2D(
+    try errors.errifyGL(binding.image2D(
         0, // level (0 = base)
         .rgba, // internal format
         surface.*.w, // width
@@ -208,79 +225,30 @@ pub fn loadTexture(_: *Context, path: []const u8) !Texture {
         format, // format
         .UnsignedByte, // data type
         surface.*.pixels, // pixel data
-    );
+    ));
 
     binding.generateMipmap();
 
-    return texture;
-}
-
-pub fn drawTexture(
-    ctx: *Context,
-    tex: Texture,
-    srcRect: ?Renderer.Rect,
-    dstRect: Renderer.Rect,
-) !void {
-    const program_binding = try ctx.shader_program.use();
-    defer program_binding.unbind();
-
-    const vao_binding = try ctx.quad_vao.bind();
-    defer vao_binding.unbind();
-
-    try Texture.active(gl.c.GL_TEXTURE0);
-    const tex_binding = try tex.bind(.@"2D");
-    defer tex_binding.unbind();
-
-    try ctx.shader_program.setUniform("tex", 0);
-
-    var w: c_int = 0;
-    var h: c_int = 0;
-    _ = sdl.c.SDL_GetWindowSizeInPixels(ctx.window, &w, &h);
-    const fw = @as(f32, @floatFromInt(w));
-    const fh = @as(f32, @floatFromInt(h));
-
-    const x0 = dstRect.x / fw * 2.0 - 1.0;
-    const y0 = 1.0 - dstRect.y / fh * 2.0;
-    const x1 = (dstRect.x + dstRect.w) / fw * 2.0 - 1.0;
-    const y1 = 1.0 - (dstRect.y + dstRect.h) / fh * 2.0;
-
-    const u_0: f32 = 0.0;
-    const v_0: f32 = 0.0;
-    const u_1: f32 = 1.0;
-    const v_1: f32 = 1.0;
-
-    // If srcRect is provided, calculate normalized texture coordinates
-    // This would require knowing texture dimensions to implement correctly
-    if (srcRect) |src| {
-        // TODO: For proper implementation, we need the texture dimensions
-        // For now, we'll just use full texture coordinates
-        _ = src;
-    }
-
-    const verts = [6][4]f32{
-        .{ x0, y0, u_0, v_0 },
-        .{ x1, y0, u_1, v_0 },
-        .{ x1, y1, u_1, v_1 },
-        .{ x0, y0, u_0, v_0 },
-        .{ x1, y1, u_1, v_1 },
-        .{ x0, y1, u_0, v_1 },
+    return BackendTexture{
+        .texture = texture,
+        .width = @intCast(surface.*.w),
+        .height = @intCast(surface.*.h),
     };
-
-    const vbo_binding = try ctx.quad_vbo.bind(.array);
-    defer vbo_binding.unbind();
-    try vbo_binding.setSubData(0, &verts);
-
-    try gl.drawArrays(gl.c.GL_TRIANGLES, 0, 6);
-
-    return;
 }
 
-pub fn drawTextureBatch(
+pub fn destroyTexture(tex: Texture) void {
+    tex.destroy();
+}
+
+pub fn renderSpriteInstances(
     ctx: *Context,
-    tex: Texture,
-    _: ?Renderer.Rect,
-    dstRect: []Renderer.Rect,
+    backend_tex: BackendTexture,
+    instances: []const SpriteInstance,
 ) !void {
+    if (instances.len == 0) return;
+
+    const texture = backend_tex.texture;
+
     const pbind = try ctx.shader_program.use();
     defer pbind.unbind();
 
@@ -288,7 +256,7 @@ pub fn drawTextureBatch(
     defer vbind.unbind();
 
     try Texture.active(gl.c.GL_TEXTURE0);
-    const tbind = try tex.bind(.@"2D");
+    const tbind = try texture.bind(.@"2D");
     defer tbind.unbind();
 
     try ctx.shader_program.setUniform("tex", 0);
@@ -299,14 +267,27 @@ pub fn drawTextureBatch(
     const fw = @as(f32, @floatFromInt(w));
     const fh = @as(f32, @floatFromInt(h));
 
-    const n = dstRect.len;
+    const n = instances.len;
     try ctx.vertices.ensureTotalCapacity(n * 6);
     ctx.vertices.clearRetainingCapacity();
-    for (dstRect) |rect| {
-        const x0 = rect.x / fw * 2.0 - 1.0;
-        const y0 = 1.0 - rect.y / fh * 2.0;
-        const x1 = (rect.x + rect.w) / fw * 2.0 - 1.0;
-        const y1 = 1.0 - (rect.y + rect.h) / fh * 2.0;
+
+    for (instances) |instance| {
+        const pos_x = instance.transform[3]; // 4th column, 1st row (m03)
+        const pos_y = instance.transform[7]; // 4th column, 2nd row (m13)
+
+        const scale_x = @sqrt(instance.transform[0] * instance.transform[0] + instance.transform[4] * instance.transform[4]);
+        const scale_y = @sqrt(instance.transform[1] * instance.transform[1] + instance.transform[5] * instance.transform[5]);
+
+        const base_size = 32.0;
+        const rect_x = pos_x;
+        const rect_y = pos_y;
+        const rect_w = base_size * scale_x;
+        const rect_h = base_size * scale_y;
+
+        const x0 = rect_x / fw * 2.0 - 1.0;
+        const y0 = 1.0 - rect_y / fh * 2.0;
+        const x1 = (rect_x + rect_w) / fw * 2.0 - 1.0;
+        const y1 = 1.0 - (rect_y + rect_h) / fh * 2.0;
 
         const u_0 = 0.0;
         const v_0 = 0.0;
@@ -321,17 +302,66 @@ pub fn drawTextureBatch(
         try ctx.vertices.append(.{ x0, y1, u_0, v_1 });
     }
 
-    // upload & draw
     const b = try ctx.quad_vbo.bind(.array);
     defer b.unbind();
 
     const required_size = @sizeOf(BatchedVertex) * ctx.vertices.items.len;
     try b.setDataNullManual(required_size, .dynamic_draw);
-
     try b.setSubData(0, ctx.vertices.items);
     try gl.drawArrays(gl.c.GL_TRIANGLES, 0, @intCast(ctx.vertices.items.len));
 }
 
-pub fn destroyTexture(tex: Texture) void {
-    tex.destroy();
+/// TODO: Implement SDF-based circle rendering shaders
+pub fn renderCircleInstances(
+    ctx: *Context,
+    instances: []const CircleInstance,
+) !void {
+    _ = ctx;
+    _ = instances;
+}
+
+/// TODO: Implement instanced line rendering with geometry shaders
+pub fn renderLineInstances(
+    ctx: *Context,
+    instances: []const LineInstance,
+) !void {
+    if (instances.len == 0) return;
+    _ = ctx;
+
+    try gl.enable(gl.c.GL_BLEND);
+    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
+}
+
+/// TODO: Implement SDF-based rectangle rendering shaders
+pub fn renderRectInstances(
+    ctx: *Context,
+    instances: []const RectInstance,
+) !void {
+    if (instances.len == 0) return;
+
+    try gl.enable(gl.c.GL_BLEND);
+    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
+
+    for (instances) |instance| {
+        const x0 = instance.position[0];
+        const y0 = instance.position[1];
+        const x1 = instance.position[0] + instance.size[0];
+        const y1 = instance.position[1] + instance.size[1];
+
+        var w: c_int = 0;
+        var h: c_int = 0;
+        _ = sdl.c.SDL_GetWindowSizeInPixels(ctx.window, &w, &h);
+        const fw = @as(f32, @floatFromInt(w));
+        const fh = @as(f32, @floatFromInt(h));
+
+        const nx0 = x0 / fw * 2.0 - 1.0;
+        const ny0 = 1.0 - y0 / fh * 2.0;
+        const nx1 = x1 / fw * 2.0 - 1.0;
+        const ny1 = 1.0 - y1 / fh * 2.0;
+
+        _ = nx0;
+        _ = ny0;
+        _ = nx1;
+        _ = ny1;
+    }
 }
