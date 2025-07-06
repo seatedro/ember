@@ -113,7 +113,6 @@ pub fn build(b: *std.Build) !void {
                 .flags = common_cpp_flags.items,
             });
         },
-        else => unreachable,
     }
 
     if (target.result.os.tag == .windows) {
