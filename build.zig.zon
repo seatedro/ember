@@ -8,8 +8,8 @@
         .opengl = .{ .path = "vendor/opengl", .lazy = true },
         .sdl_image = .{ .path = "vendor/sdl_image" },
         .wgpu_native_zig = .{
-            .url = "git+https://github.com/bronter/wgpu_native_zig?ref=main#e08f24e6f09b011f973860ce4f13e6e07fb3d165",
-            .hash = "wgpu_native_zig-5.1.0-B9jeDJIvAwANqJx4wKH-oAxpiD9HFHYzLOFaxHsV9piX",
+            .url = "https://github.com/bronter/wgpu_native_zig/archive/refs/tags/v6.4.0.tar.gz",
+            .hash = "wgpu_native_zig-6.4.0-B9jeDFpzAwAhZF12H1peAJ9MZkEIc_IpTCiNTb71gs8O",
         },
     },
     .paths = .{

@@ -24,7 +24,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
+    // try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
+    const rval = sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO);
+    if (!rval) {
+        std.log.err("SDL_Init failed: {s}", .{sdl.c.SDL_GetError()});
+    }
     defer sdl.c.SDL_Quit();
 
     const backend = build_config.renderer;
@@ -50,11 +54,25 @@ pub fn main() !void {
     }
     defer sdl.c.SDL_DestroyWindow(window);
 
-    try sdl.errify(sdl.c.SDL_SetWindowPosition(
-        window,
-        sdl.c.SDL_WINDOWPOS_CENTERED,
-        sdl.c.SDL_WINDOWPOS_CENTERED,
-    ));
+    // Setting the position is not supported by the Wayland backend; skip it there.
+    const video_driver_cstr = sdl.c.SDL_GetCurrentVideoDriver() orelse null;
+    const skip_set_pos = if (video_driver_cstr) |cstr| blk: {
+        const name = std.mem.span(cstr);
+        break :blk std.mem.eql(u8, name, "wayland");
+    } else false;
+
+    if (!skip_set_pos) {
+        sdl.errify(sdl.c.SDL_SetWindowPosition(
+            window,
+            sdl.c.SDL_WINDOWPOS_CENTERED,
+            sdl.c.SDL_WINDOWPOS_CENTERED,
+        )) catch {
+            std.log.err("SDL_SetWindowPosition failed: {s}", .{sdl.c.SDL_GetError()});
+            // Non-fatal; just continue running.
+        };
+    } else {
+        std.log.debug("Skipping SDL_SetWindowPosition – not supported by Wayland backend", .{});
+    }
 
     const ig_context = cimgui.c.igCreateContext(null);
     if (ig_context == null) {
