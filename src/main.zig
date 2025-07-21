@@ -1,30 +1,26 @@
 const std = @import("std");
 const cimgui = @import("cimgui");
 const sdl = @import("sdl");
-const math = std.math;
 const build_config = @import("build_config.zig");
 
+const core = @import("core/types.zig");
+const physics = @import("physics/verlet.zig");
+const math = std.math;
+
 const rendering = @import("rendering/renderer.zig");
-const sprite = @import("sprite/sprite.zig");
 
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
-const SPRITE_W = 32;
-const SPRITE_H = 32;
-const MOVE_SPEED = 50.0;
-const SPRITES_PER_CLICK = 100;
+const PARTICLES_PER_CLICK = 1;
 
-const SpriteData = struct {
-    transform: rendering.Transform2D,
-    velocity: @Vector(2, f32),
-};
+const PHYS_GRAVITY = core.Vec2{ 0.0, 1000.0 };
+const PARTICLE_RADIUS = 10.0;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // try sdl.errify(sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO));
     const rval = sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO);
     if (!rval) {
         std.log.err("SDL_Init failed: {s}", .{sdl.c.SDL_GetError()});
@@ -43,7 +39,7 @@ pub fn main() !void {
     }
 
     const window = sdl.c.SDL_CreateWindow(
-        "Ember Engine - High Performance Renderer",
+        "Ember Engine",
         WIN_WIDTH,
         WIN_HEIGHT,
         window_flags,
@@ -93,38 +89,40 @@ pub fn main() !void {
 
     defer cimgui.ImGui_ImplSDL3_Shutdown();
 
-    const renderer_ctx = rendering.init(allocator, window.?) catch {
+    var renderer_ctx = rendering.init(allocator, window.?) catch {
         cimgui.c.igDestroyContext(ig_context);
         sdl.c.SDL_DestroyWindow(window);
         sdl.c.SDL_Quit();
         return error.InitializationFailed;
     };
-    defer rendering.deinit(allocator, renderer_ctx);
+    defer rendering.deinit(&renderer_ctx);
 
     try sdl.errify(sdl.c.SDL_ShowWindow(window));
-    try rendering.setVSync(renderer_ctx, true);
+    try rendering.setVSync(&renderer_ctx, true);
 
-    try rendering.initImGuiBackend(renderer_ctx);
+    try rendering.initImGuiBackend(&renderer_ctx);
     defer rendering.deinitImGuiBackend();
 
-    const clear_color = cimgui.c.ImVec4{ .x = 0.45, .y = 0.55, .z = 0.60, .w = 1.00 };
+    const clear_color = cimgui.c.ImVec4{ .x = 0.01, .y = 0.01, .z = 0.01, .w = 1.00 };
 
-    const sprite_path = "assets/amogus.png";
-    const stress_texture = try rendering.loadTexture(renderer_ctx, sprite_path);
-    defer rendering.destroyTexture(renderer_ctx, stress_texture);
+    var world = try physics.World.init(allocator, PHYS_GRAVITY);
+    defer world.deinit();
 
     var prng = std.Random.DefaultPrng.init(blk: {
-        var seed: u64 = 49;
-        try std.posix.getrandom(std.mem.asBytes(&seed));
+        var seed: u64 = 0;
+        std.posix.getrandom(std.mem.asBytes(&seed)) catch |err| {
+            std.log.warn("Failed to get random seed: {}, using default", .{err});
+            seed = @as(u64, @intCast(std.time.timestamp()));
+        };
         break :blk seed;
     });
     const rand = prng.random();
 
-    var sprites = std.ArrayList(SpriteData).init(allocator);
-    defer sprites.deinit();
-
     var done = false;
     var left_down: bool = false;
+    var space_held: bool = false;
+    var particle_spawn_timer: f32 = 0.0;
+    const particle_spawn_interval: f32 = 0.05;
     var event: sdl.c.SDL_Event = undefined;
     var win_w: c_int = 0;
     var win_h: c_int = 0;
@@ -132,7 +130,9 @@ pub fn main() !void {
 
     try sdl.errify(sdl.c.SDL_GetWindowSize(window, &win_w, &win_h));
 
-    std.log.debug("Window size: {}x{}", .{ win_w, win_h });
+    const boundary_center = core.Vec2{ @as(f32, @floatFromInt(win_w)) / 2.0, @as(f32, @floatFromInt(win_h)) / 2.0 };
+    const boundary_radius = @min(@as(f32, @floatFromInt(win_w)), @as(f32, @floatFromInt(win_h))) / 2.0 - 20.0;
+    world.setBoundaryCircle(boundary_center, boundary_radius, 2);
 
     while (!done) {
         const now = sdl.c.SDL_GetTicks();
@@ -152,27 +152,56 @@ pub fn main() !void {
                         done = true;
                     }
                 },
+                sdl.c.SDL_EVENT_WINDOW_RESIZED => {
+                    const w = event.window.data1;
+                    const h = event.window.data2;
+                    try rendering.resize(&renderer_ctx, w, h);
+                },
                 sdl.c.SDL_EVENT_MOUSE_BUTTON_DOWN => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
                     left_down = true;
-                    for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(&sprites, rand, event.button.x, event.button.y);
+                    for (0..PARTICLES_PER_CLICK) |_| {
+                        const color = @Vector(4, f32){
+                            rand.float(f32), // Red
+                            rand.float(f32), // Green
+                            rand.float(f32), // Blue
+                            1.0, // Alpha
+                        };
+                        try world.addParticle(core.Vec2{ event.button.x, event.button.y }, PARTICLE_RADIUS, color);
                     }
                 },
                 sdl.c.SDL_EVENT_MOUSE_BUTTON_UP => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
                     left_down = false;
                 },
-                sdl.c.SDL_EVENT_MOUSE_MOTION => if (left_down) {
-                    for (0..SPRITES_PER_CLICK) |_| {
-                        try spawnSprite(&sprites, rand, event.motion.x, event.motion.y);
-                    }
+                sdl.c.SDL_EVENT_KEY_DOWN => if (event.key.key == sdl.c.SDLK_SPACE) {
+                    space_held = true;
+                },
+                sdl.c.SDL_EVENT_KEY_UP => if (event.key.key == sdl.c.SDLK_SPACE) {
+                    space_held = false;
+                    particle_spawn_timer = 0.0;
                 },
                 else => {},
             }
         }
 
-        for (sprites.items) |*s| {
-            s.transform.position += s.velocity * @as(@Vector(2, f32), @splat(dt));
+        if (space_held) {
+            particle_spawn_timer += dt;
+            while (particle_spawn_timer >= particle_spawn_interval) {
+                particle_spawn_timer -= particle_spawn_interval;
+
+                const color = @Vector(4, f32){
+                    rand.float(f32), // Red
+                    rand.float(f32), // Green
+                    rand.float(f32), // Blue
+                    1.0, // Alpha
+                };
+                var x: f32 = 0;
+                var y: f32 = 0;
+                _ = sdl.c.SDL_GetMouseState(&x, &y);
+                try world.addParticle(core.Vec2{ x, y }, PARTICLE_RADIUS, color);
+            }
         }
+
+        world.step(dt);
 
         if ((sdl.c.SDL_GetWindowFlags(window) & sdl.c.SDL_WINDOW_MINIMIZED) != 0) {
             sdl.c.SDL_Delay(10);
@@ -185,7 +214,7 @@ pub fn main() !void {
 
         {
             if (cimgui.c.igBegin("Ember Debug Console", null, 0)) {
-                cimgui.c.igText("Sprites: %d", @as(c_int, @intCast(sprites.items.len)));
+                cimgui.c.igText("Particles: %d", @as(c_int, @intCast(world.len())));
                 cimgui.c.igText(
                     "Perf: %.3f ms/frame (%.1f FPS)",
                     1000.0 / io.*.Framerate,
@@ -198,42 +227,16 @@ pub fn main() !void {
 
         cimgui.c.igRender();
 
-        try rendering.beginFrame(renderer_ctx, clear_color);
+        try rendering.beginFrame(&renderer_ctx, clear_color);
 
-        for (sprites.items) |s| {
-            const sprite_data = rendering.SpriteDrawData{
-                .transform = s.transform,
-                .texture_handle = stress_texture,
-                .color = rendering.Color.WHITE,
-            };
-            try rendering.drawSprite(renderer_ctx, sprite_data);
+        for (world.particles.items) |p| {
+            try rendering.drawCircleFilled(&renderer_ctx, p.position, PARTICLE_RADIUS, p.color);
         }
 
-        try rendering.drawCircle(renderer_ctx, @Vector(2, f32){ 100.0, 100.0 }, 25.0, rendering.Color.RED);
-        try rendering.drawLine(renderer_ctx, @Vector(2, f32){ 50.0, 50.0 }, @Vector(2, f32){ 150.0, 150.0 }, 2.0, rendering.Color.GREEN);
-        try rendering.drawRect(renderer_ctx, @Vector(2, f32){ 200.0, 200.0 }, @Vector(2, f32){ 50.0, 30.0 }, rendering.Color.BLUE);
+        try rendering.drawCircle(&renderer_ctx, boundary_center, boundary_radius, rendering.Color.WHITE);
 
-        try rendering.render(renderer_ctx, clear_color);
+        try rendering.render(&renderer_ctx, clear_color);
 
-        try rendering.endFrame(renderer_ctx);
+        try rendering.endFrame(&renderer_ctx);
     }
-}
-
-fn spawnSprite(sprites: *std.ArrayList(SpriteData), rand: std.Random, mx: f32, my: f32) !void {
-    const angle = rand.float(f32) * math.pi * 2.0;
-    const velocity = @Vector(2, f32){
-        math.cos(angle) * MOVE_SPEED,
-        math.sin(angle) * MOVE_SPEED,
-    };
-    const position = @Vector(2, f32){
-        mx - (@as(f32, @floatFromInt(SPRITE_W / 2))),
-        my - (@as(f32, @floatFromInt(SPRITE_H / 2))),
-    };
-    try sprites.append(SpriteData{
-        .transform = rendering.Transform2D{
-            .position = position,
-            .scale = @Vector(2, f32){ 1.0, 1.0 },
-        },
-        .velocity = velocity,
-    });
 }

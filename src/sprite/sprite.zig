@@ -1,41 +1,31 @@
 const std = @import("std");
 const TextureHandle = @import("../core/resource.zig").TextureHandle;
 
-pub const SpriteInstance = struct {
-    transform: [16]f32 align(16),
-    uv_offset_scale: @Vector(4, f32) align(16),
-    color: @Vector(4, f32) align(16),
-    texture_handle: TextureHandle align(16),
+const Point = @Vector(2, f32);
+
+pub const SpriteCommand = struct {
+    transform: [16]f32,
+    uv_offset_scale: @Vector(4, f32),
+    color: @Vector(4, f32),
+    texture_handle: TextureHandle,
 };
 
-pub const CircleInstance = struct {
-    center: @Vector(2, f32) align(8),
+pub const CircleCommand = struct {
+    center: Point,
     radius: f32,
-    color: @Vector(4, f32) align(16),
-
-    comptime {
-        std.debug.assert(@alignOf(CircleInstance) == 16);
-    }
+    color: u32,
+    num_segments: u32,
 };
 
-pub const LineInstance = struct {
-    start: @Vector(2, f32) align(8),
-    end: @Vector(2, f32) align(8),
+pub const LineCommand = struct {
+    start: Point,
+    end: Point,
     thickness: f32,
-    color: @Vector(4, f32) align(16),
-    _padding: [12]u8 = std.mem.zeroes([12]u8),
-
-    comptime {
-        std.debug.assert(@alignOf(LineInstance) == 16);
-    }
+    color: u32,
 };
 
-pub const RectInstance = struct {
-    position: @Vector(2, f32) align(8),
-    size: @Vector(2, f32) align(8),
-    color: @Vector(4, f32) align(16),
-
-    comptime {
-        std.debug.assert(@alignOf(RectInstance) == 16);
-    }
+pub const QuadCommand = struct {
+    position: Point,
+    size: Point,
+    color: u32,
 };

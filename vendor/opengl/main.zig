@@ -1,7 +1,7 @@
 pub const c = @import("c.zig").c;
 pub const glad = @import("glad.zig");
 pub const Buffer = @import("Buffer.zig");
-pub const Framebuffer = @import("Framebuffer.zig");
+pub const Framebuffer = @import("FrameBuffer.zig");
 pub const Program = @import("Program.zig");
 pub const Shader = @import("Shader.zig");
 pub const Texture = @import("Texture.zig");
