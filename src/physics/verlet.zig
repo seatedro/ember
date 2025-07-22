@@ -49,7 +49,7 @@ pub const World = struct {
     boundary_center: Vec2 = Vec2{ 0.0, 0.0 },
     boundary_radius: f32 = 0.0,
 
-    solver_iterations: usize = 1,
+    solver_iterations: usize = 8,
 
     pub fn init(a: std.mem.Allocator, gravity: Vec2) !Self {
         return .{
@@ -85,15 +85,16 @@ pub const World = struct {
     /// Step the whole world forward by `dt` seconds.
     /// A single global gravity is applied as an acceleration to all particles.
     pub fn step(self: *Self, dt: f32) void {
-        self.applyGravity();
-        for (self.particles.items) |*p| {
-            p.integrate(dt);
-        }
+        for (0..self.solver_iterations) |_| {
+            self.applyGravity();
 
-        self.checkCollisions();
+            for (self.particles.items) |*p| {
+                p.integrate(dt);
+            }
 
-        if (self.has_boundary) {
-            for (0..self.solver_iterations) |_| {
+            self.checkCollisions();
+
+            if (self.has_boundary) {
                 for (self.particles.items) |*p| {
                     enforceCircleBound(self, p);
                 }

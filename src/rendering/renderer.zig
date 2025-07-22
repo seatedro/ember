@@ -50,7 +50,7 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !Context {
     const r = try Renderer2D.init(allocator);
     const backend_ctx = try Backend.init(allocator, window);
 
-    const atlas = try TextureAtlas.init(allocator, 512);
+    const atlas = try TextureAtlas.init(allocator, 4);
 
     return Context{
         .backend_ctx = backend_ctx,

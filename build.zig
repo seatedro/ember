@@ -25,16 +25,16 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sdl", .module = cimgui_dep.module("sdl") },
         },
     });
-    if (config.renderer == .OpenGL) {
-        if (b.lazyDependency("opengl", .{})) |dep| {
-            exe_mod.addImport("opengl", dep.module("opengl"));
-        }
-        exe_mod.addIncludePath(b.path("vendor/glad/include"));
-        exe_mod.addCSourceFile(.{
-            .file = b.path("vendor/glad/src/gl.c"),
-            .flags = &.{},
-        });
+    // if (config.renderer == .OpenGL) {
+    if (b.lazyDependency("opengl", .{})) |dep| {
+        exe_mod.addImport("opengl", dep.module("opengl"));
     }
+    exe_mod.addIncludePath(b.path("vendor/glad/include"));
+    exe_mod.addCSourceFile(.{
+        .file = b.path("vendor/glad/src/gl.c"),
+        .flags = &.{},
+    });
+    // }
     exe_mod.addImport("wgpu", wgpu_native_dep.module("wgpu"));
     exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
