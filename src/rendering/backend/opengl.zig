@@ -3,6 +3,7 @@ const sdl = @import("sdl");
 const ig = @import("cimgui");
 const Renderer = @import("../renderer.zig");
 const resource = @import("../../core/resource.zig");
+const TextureAtlas = @import("../../core/atlas.zig").TextureAtlas;
 const gl = @import("opengl");
 const sprite = @import("../../sprite/sprite.zig");
 const errors = @import("../errors.zig");
@@ -20,17 +21,25 @@ const CircleInstance = sprite.CircleInstance;
 const LineInstance = sprite.LineInstance;
 const RectInstance = sprite.RectInstance;
 
-pub const BatchedVertex = [4]f32; // Vertex data layout: [x, y, u, v]
+// Updated vertex format that includes color
+pub const BatchedVertex = struct {
+    position: [2]f32,
+    uv: [2]f32,
+    color: [4]f32,
+};
 pub const Context = struct {
     renderer: sdl.c.SDL_GLContext,
     window: *sdl.c.SDL_Window,
     shader_program: Program,
     quad_vao: VertexArray,
     quad_vbo: Buffer,
+    quad_ebo: Buffer,
     vertices: std.ArrayList(BatchedVertex),
+
+    atlas_tex: ?Texture = null,
 };
 
-pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
+pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !Context {
     _ = sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     _ = sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_MINOR_VERSION, 3);
     _ = sdl.c.SDL_GL_SetAttribute(sdl.c.SDL_GL_CONTEXT_PROFILE_MASK, sdl.c.SDL_GL_CONTEXT_PROFILE_CORE);
@@ -53,19 +62,23 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
         \\#version 330 core
         \\layout(location = 0) in vec2 inPos;
         \\layout(location = 1) in vec2 inUV;
+        \\layout(location = 2) in vec4 inColor;
         \\out vec2 uv;
+        \\out vec4 color;
         \\void main() {
         \\    uv = inUV;
+        \\    color = inColor;
         \\    gl_Position = vec4(inPos, 0.0, 1.0);
         \\}
     ;
     const frag_src =
         \\#version 330 core
         \\in vec2 uv;
+        \\in vec4 color;
         \\out vec4 fragColor;
         \\uniform sampler2D tex;
         \\void main() {
-        \\    fragColor = texture(tex, uv);
+        \\    fragColor = color * texture(tex, uv);
         \\}
     ;
 
@@ -81,6 +94,9 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
     const vbo = try Buffer.create();
     errdefer vbo.destroy();
 
+    const ebo = try Buffer.create();
+    errdefer ebo.destroy();
+
     {
         const vao_binding = try vao.bind();
         defer vao_binding.unbind();
@@ -88,35 +104,38 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) !*Context {
         const vbo_binding = try vbo.bind(.array);
         defer vbo_binding.unbind();
 
-        try vbo_binding.setDataNullManual(@sizeOf([6][4]f32), .dynamic_draw);
+        try vbo_binding.setDataNullManual(@sizeOf([6]BatchedVertex), .dynamic_draw);
 
-        try vbo_binding.attributeAdvanced(0, 2, gl.c.GL_FLOAT, false, 4 * @sizeOf(f32), 0);
+        // Position attribute (location 0)
+        try vbo_binding.attributeAdvanced(0, 2, gl.c.GL_FLOAT, false, @sizeOf(BatchedVertex), @offsetOf(BatchedVertex, "position"));
         try vbo_binding.enableAttribArray(0);
 
-        try vbo_binding.attributeAdvanced(1, 2, gl.c.GL_FLOAT, false, 4 * @sizeOf(f32), 2 * @sizeOf(f32));
+        // UV attribute (location 1)
+        try vbo_binding.attributeAdvanced(1, 2, gl.c.GL_FLOAT, false, @sizeOf(BatchedVertex), @offsetOf(BatchedVertex, "uv"));
         try vbo_binding.enableAttribArray(1);
+
+        // Color attribute (location 2)
+        try vbo_binding.attributeAdvanced(2, 4, gl.c.GL_FLOAT, false, @sizeOf(BatchedVertex), @offsetOf(BatchedVertex, "color"));
+        try vbo_binding.enableAttribArray(2);
     }
 
-    const ctx = try allocator.create(Context);
-    ctx.* = Context{
+    return Context{
         .window = window,
         .renderer = gl_ctx,
         .shader_program = program,
         .quad_vao = vao,
         .quad_vbo = vbo,
+        .quad_ebo = ebo,
         .vertices = vertices,
     };
-
-    return ctx;
 }
 
-pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
+pub fn deinit(ctx: *Context) void {
     std.log.info("Deinitializing GL Renderer...", .{});
     if (ctx.renderer) |r| {
         _ = sdl.c.SDL_GL_DestroyContext(r);
     }
     ctx.vertices.deinit();
-    allocator.destroy(ctx);
     std.log.info("Deinitialized GL Renderer.", .{});
 }
 
@@ -157,13 +176,15 @@ pub fn renderImGui(draw_data: *ig.c.ImDrawData) void {
     ig.ImGui_ImplOpenGL3_RenderDrawData(draw_data);
 }
 
-pub fn render(ctx: *Context, _: ig.c.ImVec4) void {
+pub fn render(ctx: *Context, _: ig.c.ImVec4, dl: *Renderer.DrawList) !void {
     const draw_data = ig.igGetDrawData();
     if (draw_data) |data| {
         if (data.Valid and data.CmdListsCount > 0) {
             renderImGui(data);
         }
     }
+
+    try renderDrawList(ctx, dl);
 
     _ = sdl.c.SDL_GL_SwapWindow(ctx.window);
 
@@ -178,7 +199,7 @@ pub fn render(ctx: *Context, _: ig.c.ImVec4) void {
 }
 
 pub fn resize(_: *anyopaque, w: i32, h: i32) !void {
-    gl.viewport(0, 0, w, h);
+    try errors.errifyGL(gl.viewport(0, 0, w, h));
 }
 
 pub fn setVSync(_: *Context, on: bool) !void {
@@ -240,128 +261,123 @@ pub fn destroyTexture(tex: Texture) void {
     tex.destroy();
 }
 
-pub fn renderSpriteInstances(
-    ctx: *Context,
-    backend_tex: BackendTexture,
-    instances: []const SpriteInstance,
-) !void {
-    if (instances.len == 0) return;
+pub fn syncAtlas(ctx: *Context, atlas: *TextureAtlas) !void {
+    if (!atlas.dirty) return;
 
-    const texture = backend_tex.texture;
+    if (ctx.atlas_tex == null) {
+        const texture = try gl.Texture.create();
 
-    const pbind = try ctx.shader_program.use();
-    defer pbind.unbind();
+        const binding = try texture.bind(.@"2D");
+        defer binding.unbind();
 
-    const vbind = try ctx.quad_vao.bind();
-    defer vbind.unbind();
+        try binding.parameter(.MinFilter, gl.c.GL_LINEAR);
+        try binding.parameter(.MagFilter, gl.c.GL_LINEAR);
+        try binding.parameter(.WrapS, gl.c.GL_CLAMP_TO_EDGE);
+        try binding.parameter(.WrapT, gl.c.GL_CLAMP_TO_EDGE);
 
-    try Texture.active(gl.c.GL_TEXTURE0);
-    const tbind = try texture.bind(.@"2D");
-    defer tbind.unbind();
+        try errors.errifyGL(binding.image2D(
+            0, // level (0 = base)
+            .rgba, // internal format
+            @intCast(atlas.width), // width
+            @intCast(atlas.height), // height
+            0, // border (must be 0)
+            .rgba, // format
+            .UnsignedByte,
+            atlas.pixels.ptr, // pixel data
+        ));
 
-    try ctx.shader_program.setUniform("tex", 0);
-
-    var w: c_int = 0;
-    var h: c_int = 0;
-    _ = sdl.c.SDL_GetWindowSizeInPixels(ctx.window, &w, &h);
-    const fw = @as(f32, @floatFromInt(w));
-    const fh = @as(f32, @floatFromInt(h));
-
-    const n = instances.len;
-    try ctx.vertices.ensureTotalCapacity(n * 6);
-    ctx.vertices.clearRetainingCapacity();
-
-    for (instances) |instance| {
-        const pos_x = instance.transform[3]; // 4th column, 1st row (m03)
-        const pos_y = instance.transform[7]; // 4th column, 2nd row (m13)
-
-        const scale_x = @sqrt(instance.transform[0] * instance.transform[0] + instance.transform[4] * instance.transform[4]);
-        const scale_y = @sqrt(instance.transform[1] * instance.transform[1] + instance.transform[5] * instance.transform[5]);
-
-        const base_size = 32.0;
-        const rect_x = pos_x;
-        const rect_y = pos_y;
-        const rect_w = base_size * scale_x;
-        const rect_h = base_size * scale_y;
-
-        const x0 = rect_x / fw * 2.0 - 1.0;
-        const y0 = 1.0 - rect_y / fh * 2.0;
-        const x1 = (rect_x + rect_w) / fw * 2.0 - 1.0;
-        const y1 = 1.0 - (rect_y + rect_h) / fh * 2.0;
-
-        const u_0 = 0.0;
-        const v_0 = 0.0;
-        const u_1 = 1.0;
-        const v_1 = 1.0;
-
-        try ctx.vertices.append(.{ x0, y0, u_0, v_0 });
-        try ctx.vertices.append(.{ x1, y0, u_1, v_0 });
-        try ctx.vertices.append(.{ x1, y1, u_1, v_1 });
-        try ctx.vertices.append(.{ x0, y0, u_0, v_0 });
-        try ctx.vertices.append(.{ x1, y1, u_1, v_1 });
-        try ctx.vertices.append(.{ x0, y1, u_0, v_1 });
+        binding.generateMipmap();
+        ctx.atlas_tex = texture;
     }
 
+    atlas.dirty = false;
+}
+
+pub fn renderDrawList(ctx: *Context, dl: *Renderer.DrawList) !void {
+    if (dl.cmd_buffer.items.len == 0) return;
+
+    var window_w: c_int = 0;
+    var window_h: c_int = 0;
+    _ = sdl.c.SDL_GetWindowSize(ctx.window, &window_w, &window_h);
+
+    const width = @as(f32, @floatFromInt(window_w));
+    const height = @as(f32, @floatFromInt(window_h));
+
+    if (width == 0.0 or height == 0.0) return; // Avoid division by zero
+
+    const commands = dl.cmd_buffer.items;
+    const vs_ptr = dl.vtx_buffer.items;
+    const is_ptr = dl.idx_buffer.items;
+
+    if (vs_ptr.len == 0 or is_ptr.len == 0) return;
+
+    var gl_vertices = std.ArrayList(BatchedVertex).init(ctx.vertices.allocator);
+    defer gl_vertices.deinit();
+
+    try gl_vertices.ensureTotalCapacity(vs_ptr.len);
+    for (vs_ptr) |drawvert| {
+        const color_u32 = drawvert.color;
+        const color_f32 = [4]f32{
+            @as(f32, @floatFromInt(color_u32 & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 8) & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 16) & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 24) & 0xFF)) / 255.0,
+        };
+
+        const ndc_x = (drawvert.pos[0] / width) * 2.0 - 1.0;
+        const ndc_y = 1.0 - (drawvert.pos[1] / height) * 2.0; // Flip Y coordinate
+
+        gl_vertices.appendAssumeCapacity(BatchedVertex{
+            .position = [2]f32{ ndc_x, ndc_y },
+            .uv = [2]f32{ drawvert.uv[0], drawvert.uv[1] },
+            .color = color_f32,
+        });
+    }
+
+    const vao_binding = try ctx.quad_vao.bind();
+    defer vao_binding.unbind();
+
+    // Upload vertex data
     const b = try ctx.quad_vbo.bind(.array);
     defer b.unbind();
 
-    const required_size = @sizeOf(BatchedVertex) * ctx.vertices.items.len;
+    const required_size = @sizeOf(BatchedVertex) * gl_vertices.items.len;
     try b.setDataNullManual(required_size, .dynamic_draw);
-    try b.setSubData(0, ctx.vertices.items);
-    try gl.drawArrays(gl.c.GL_TRIANGLES, 0, @intCast(ctx.vertices.items.len));
-}
+    try b.setSubData(0, gl_vertices.items);
 
-/// TODO: Implement SDF-based circle rendering shaders
-pub fn renderCircleInstances(
-    ctx: *Context,
-    instances: []const CircleInstance,
-) !void {
-    _ = ctx;
-    _ = instances;
-}
+    // Upload index data
+    const ebo_binding = try ctx.quad_ebo.bind(.element_array);
+    defer ebo_binding.unbind();
 
-/// TODO: Implement instanced line rendering with geometry shaders
-pub fn renderLineInstances(
-    ctx: *Context,
-    instances: []const LineInstance,
-) !void {
-    if (instances.len == 0) return;
-    _ = ctx;
+    try ebo_binding.setDataNullManual(4 * is_ptr.len, .dynamic_draw);
+    try ebo_binding.setSubData(0, is_ptr);
 
-    try gl.enable(gl.c.GL_BLEND);
-    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
-}
+    const program_binding = try ctx.shader_program.use();
+    defer program_binding.unbind();
 
-/// TODO: Implement SDF-based rectangle rendering shaders
-pub fn renderRectInstances(
-    ctx: *Context,
-    instances: []const RectInstance,
-) !void {
-    if (instances.len == 0) return;
+    for (commands) |cmd| {
+        if (cmd.user_callback != null or cmd.elem_count == 0) continue;
 
-    try gl.enable(gl.c.GL_BLEND);
-    try gl.blendFunc(gl.c.GL_SRC_ALPHA, gl.c.GL_ONE_MINUS_SRC_ALPHA);
+        try Texture.active(gl.c.GL_TEXTURE0);
+        var binding: ?gl.Texture.Binding = null;
+        if (cmd.texture_id) |texture_id| {
+            const backend_tex: *const BackendTexture = @ptrCast(@alignCast(texture_id));
+            binding = try backend_tex.texture.bind(.@"2D");
+        } else if (ctx.atlas_tex) |atlas_tex| {
+            binding = try atlas_tex.bind(.@"2D");
+        } else {
+            continue;
+        }
+        defer if (binding != null) binding.?.unbind();
 
-    for (instances) |instance| {
-        const x0 = instance.position[0];
-        const y0 = instance.position[1];
-        const x1 = instance.position[0] + instance.size[0];
-        const y1 = instance.position[1] + instance.size[1];
+        try ctx.shader_program.setUniform("tex", 0);
 
-        var w: c_int = 0;
-        var h: c_int = 0;
-        _ = sdl.c.SDL_GetWindowSizeInPixels(ctx.window, &w, &h);
-        const fw = @as(f32, @floatFromInt(w));
-        const fh = @as(f32, @floatFromInt(h));
-
-        const nx0 = x0 / fw * 2.0 - 1.0;
-        const ny0 = 1.0 - y0 / fh * 2.0;
-        const nx1 = x1 / fw * 2.0 - 1.0;
-        const ny1 = 1.0 - y1 / fh * 2.0;
-
-        _ = nx0;
-        _ = ny0;
-        _ = nx1;
-        _ = ny1;
+        const offset_bytes = cmd.idx_offset * @sizeOf(u32);
+        try gl.drawElements(
+            gl.c.GL_TRIANGLES,
+            @intCast(cmd.elem_count),
+            gl.c.GL_UNSIGNED_INT,
+            offset_bytes,
+        );
     }
 }

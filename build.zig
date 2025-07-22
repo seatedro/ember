@@ -25,16 +25,16 @@ pub fn build(b: *std.Build) void {
             .{ .name = "sdl", .module = cimgui_dep.module("sdl") },
         },
     });
-    if (config.renderer == .OpenGL) {
-        if (b.lazyDependency("opengl", .{})) |dep| {
-            exe_mod.addImport("opengl", dep.module("opengl"));
-        }
-        exe_mod.addIncludePath(b.path("vendor/glad/include"));
-        exe_mod.addCSourceFile(.{
-            .file = b.path("vendor/glad/src/gl.c"),
-            .flags = &.{},
-        });
+    // if (config.renderer == .OpenGL) {
+    if (b.lazyDependency("opengl", .{})) |dep| {
+        exe_mod.addImport("opengl", dep.module("opengl"));
     }
+    exe_mod.addIncludePath(b.path("vendor/glad/include"));
+    exe_mod.addCSourceFile(.{
+        .file = b.path("vendor/glad/src/gl.c"),
+        .flags = &.{},
+    });
+    // }
     exe_mod.addImport("wgpu", wgpu_native_dep.module("wgpu"));
     exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "ember",
         .root_module = exe_mod,
+        .use_llvm = true,
     });
 
     b.installArtifact(exe);
@@ -56,9 +57,28 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const test_name = if (b.args != null and b.args.?.len > 0)
+        b.args.?[0]
+    else
+        "src/test.zig";
+
     const exe_unit_tests = b.addTest(.{
-        .root_module = exe_mod,
+        .root_source_file = b.path(test_name),
+        .target = config.target,
+        .optimize = config.optimize,
     });
+    if (config.renderer == .OpenGL) {
+        exe_unit_tests.addIncludePath(b.path("vendor/glad/include"));
+        exe_unit_tests.addCSourceFile(.{
+            .file = b.path("vendor/glad/src/gl.c"),
+            .flags = &.{},
+        });
+    }
+    exe_unit_tests.root_module.addImport("cimgui", cimgui_mod);
+    exe_unit_tests.root_module.addImport("sdl", cimgui_dep.module("sdl"));
+    exe_unit_tests.root_module.addImport("wgpu", wgpu_native_dep.module("wgpu"));
+    exe_unit_tests.root_module.addOptions("build_options", options);
+    exe_unit_tests.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");

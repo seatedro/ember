@@ -2,15 +2,21 @@ const std = @import("std");
 const sdl = @import("sdl");
 const ig = @import("cimgui");
 const wgpu = @import("wgpu");
-const RendererInterface = @import("../renderer.zig");
+const Renderer = @import("../renderer.zig");
+const TextureAtlas = @import("../../core/atlas.zig").TextureAtlas;
+const core = @import("../../core/types.zig");
 const resource = @import("../../core/resource.zig");
 const sprite = @import("../../sprite/sprite.zig");
+const math = std.math;
 
 const BackendTexture = resource.BackendTexture;
 const SpriteInstance = sprite.SpriteInstance;
 const CircleInstance = sprite.CircleInstance;
 const LineInstance = sprite.LineInstance;
 const RectInstance = sprite.RectInstance;
+
+const Region = core.Region;
+const CanvasSize = core.CanvasSize;
 
 pub const Context = struct {
     allocator: std.mem.Allocator,
@@ -21,15 +27,18 @@ pub const Context = struct {
     queue: ?*wgpu.Queue,
     surface: ?*wgpu.Surface,
     surface_config: wgpu.SurfaceConfiguration,
-    render_pipeline: ?*wgpu.RenderPipeline,
-    bind_group_layout: ?*wgpu.BindGroupLayout,
-    sampler: ?*wgpu.Sampler,
-    vertex_buffer: ?*wgpu.Buffer,
-    vertices: std.ArrayList(Vertex),
     width: u32,
     height: u32,
-    draw_calls: std.ArrayList(DrawCall),
-    vertex_data: std.ArrayList(Vertex),
+
+    pipeline: ?*wgpu.RenderPipeline = null,
+    bind_group_layout: ?*wgpu.BindGroupLayout = null,
+    sampler: ?*wgpu.Sampler = null,
+    vertex_buffer: ?*wgpu.Buffer = null,
+    index_buffer: ?*wgpu.Buffer = null,
+
+    atlas_tex: ?*wgpu.Texture = null,
+    atlas_view: ?*wgpu.TextureView = null,
+    atlas_bind_group: ?*wgpu.BindGroup = null,
 };
 
 pub const Texture = struct {
@@ -40,33 +49,19 @@ pub const Texture = struct {
     height: u32,
 };
 
-const Vertex = struct {
+const DrawListVertex = struct {
     position: [2]f32,
-    tex_coords: [2]f32,
+    uv: [2]f32,
+    color: [4]f32,
 };
 
-const DrawCall = struct {
-    texture_view: *wgpu.TextureView,
-    bind_group: *wgpu.BindGroup,
-    vertex_offset: u32,
-    vertex_count: u32,
-};
-
-pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInterface.Error!*Context {
-    const ctx = try allocator.create(Context);
-    errdefer allocator.destroy(ctx);
-
-    ctx.allocator = allocator;
-    ctx.window = window;
-    ctx.vertices = std.ArrayList(Vertex).init(allocator);
-    ctx.draw_calls = std.ArrayList(DrawCall).init(allocator);
-    ctx.vertex_data = std.ArrayList(Vertex).init(allocator);
-
+pub fn init(
+    allocator: std.mem.Allocator,
+    window: *sdl.c.SDL_Window,
+) Renderer.Error!Context {
     var w: c_int = 0;
     var h: c_int = 0;
     _ = sdl.c.SDL_GetWindowSizeInPixels(window, &w, &h);
-    ctx.width = @intCast(w);
-    ctx.height = @intCast(h);
 
     var logical_w: c_int = 0;
     var logical_h: c_int = 0;
@@ -80,30 +75,30 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInt
             .timed_wait_any_max_count = 0,
         },
     };
-    ctx.instance = wgpu.Instance.create(&instance_desc) orelse {
+    const instance = wgpu.Instance.create(&instance_desc) orelse {
         std.log.err("Failed to create WGPU instance", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     };
-    errdefer ctx.instance.release();
+    errdefer instance.release();
 
-    ctx.surface = try createSurfaceFromSDLWindow(ctx.instance, window);
-    errdefer if (ctx.surface) |s| s.release();
+    const surface = try createSurfaceFromSDLWindow(instance, window);
+    errdefer surface.release();
 
     const adapter_opts = wgpu.RequestAdapterOptions{
-        .compatible_surface = ctx.surface,
+        .compatible_surface = surface,
         .power_preference = .undefined,
         .force_fallback_adapter = 0,
     };
 
-    const adapter_response = ctx.instance.requestAdapterSync(&adapter_opts, 200_000_000);
-    ctx.adapter = switch (adapter_response.status) {
+    const adapter_response = instance.requestAdapterSync(&adapter_opts, 200_000_000);
+    const adapter = switch (adapter_response.status) {
         .success => adapter_response.adapter,
         else => {
             std.log.err("Failed to request adapter: {s}", .{adapter_response.message orelse "Unknown error"});
-            return RendererInterface.Error.InitializationFailed;
+            return Renderer.Error.InitializationFailed;
         },
     };
-    errdefer if (ctx.adapter) |a| a.release();
+    errdefer if (adapter) |a| a.release();
 
     const device_desc = wgpu.DeviceDescriptor{
         .label = wgpu.StringView.fromSlice("Device"),
@@ -115,20 +110,20 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInt
         },
     };
 
-    const device_response = ctx.adapter.?.requestDeviceSync(ctx.instance, &device_desc, 200_000_000);
-    ctx.device = switch (device_response.status) {
+    const device_response = adapter.?.requestDeviceSync(instance, &device_desc, 200_000_000);
+    const device = switch (device_response.status) {
         .success => device_response.device,
         else => {
             std.log.err("Failed to request device: {s}", .{device_response.message orelse "Unknown error"});
-            return RendererInterface.Error.InitializationFailed;
+            return Renderer.Error.InitializationFailed;
         },
     };
-    errdefer if (ctx.device) |d| d.release();
+    errdefer if (device) |d| d.release();
 
-    ctx.queue = ctx.device.?.getQueue();
+    const queue = device.?.getQueue();
 
     var surface_caps: wgpu.SurfaceCapabilities = undefined;
-    _ = ctx.surface.?.getCapabilities(ctx.adapter.?, &surface_caps);
+    _ = surface.getCapabilities(adapter.?, &surface_caps);
     defer surface_caps.freeMembers();
 
     const surface_format = if (surface_caps.format_count > 0)
@@ -136,67 +131,73 @@ pub fn init(allocator: std.mem.Allocator, window: *sdl.c.SDL_Window) RendererInt
     else
         .bgra8_unorm;
 
-    ctx.surface_config = wgpu.SurfaceConfiguration{
-        .device = ctx.device.?,
+    const surface_config = wgpu.SurfaceConfiguration{
+        .device = device.?,
         .format = surface_format,
         .usage = wgpu.TextureUsages.render_attachment,
-        .width = ctx.width,
-        .height = ctx.height,
+        .width = @intCast(w),
+        .height = @intCast(h),
         .present_mode = .fifo,
         .alpha_mode = .auto,
         .view_formats = &[_]wgpu.TextureFormat{},
         .view_format_count = 0,
     };
 
-    ctx.surface.?.configure(&ctx.surface_config);
+    surface.configure(&surface_config);
 
-    try createTextureResources(ctx);
-
-    try createRenderPipeline(ctx);
-
-    const vertex_buffer_desc = wgpu.BufferDescriptor{
-        .label = wgpu.StringView.fromSlice("Vertex Buffer"),
-        .usage = wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
-        .size = @sizeOf(Vertex) * 6 * 65536,
-        .mapped_at_creation = 0,
+    var ctx = Context{
+        .allocator = allocator,
+        .window = window,
+        .instance = instance,
+        .adapter = adapter,
+        .device = device,
+        .queue = queue,
+        .surface = surface,
+        .surface_config = surface_config,
+        .width = @intCast(w),
+        .height = @intCast(h),
     };
-    ctx.vertex_buffer = ctx.device.?.createBuffer(&vertex_buffer_desc);
+
+    try createTextureResources(&ctx);
+    try createDrawListPipeline(&ctx);
 
     std.log.info("WGPU Renderer initialized successfully", .{});
+
     return ctx;
 }
 
-pub fn deinit(allocator: std.mem.Allocator, ctx: *Context) void {
+pub fn deinit(ctx: *Context) void {
     std.log.info("Deinitializing WGPU Renderer...", .{});
 
+    if (ctx.atlas_bind_group) |bg| bg.release();
+    if (ctx.atlas_view) |v| v.release();
+    if (ctx.atlas_tex) |t| t.release();
+
     if (ctx.vertex_buffer) |vb| vb.release();
+    if (ctx.index_buffer) |ib| ib.release();
     if (ctx.sampler) |s| s.release();
     if (ctx.bind_group_layout) |bgl| bgl.release();
-    if (ctx.render_pipeline) |rp| rp.release();
+    if (ctx.pipeline) |p| p.release();
     if (ctx.surface) |s| s.release();
     if (ctx.device) |d| d.release();
     if (ctx.adapter) |a| a.release();
     ctx.instance.release();
-    ctx.vertices.deinit();
-    ctx.draw_calls.deinit();
-    ctx.vertex_data.deinit();
 
-    allocator.destroy(ctx);
     std.log.info("Deinitialized WGPU Renderer.", .{});
 }
 
-pub fn beginFrame(ctx: *Context, _: ig.c.ImVec4) RendererInterface.Error!void {
+pub fn beginFrame(ctx: *Context, _: ig.c.ImVec4) Renderer.Error!void {
     _ = ctx;
 }
 
-pub fn endFrame(ctx: *Context) RendererInterface.Error!void {
+pub fn endFrame(ctx: *Context) Renderer.Error!void {
     _ = ctx;
 }
 
-pub fn initImGuiBackend(ctx: *Context) RendererInterface.Error!void {
+pub fn initImGuiBackend(ctx: *Context) Renderer.Error!void {
     if (!ig.ImGui_ImplSDL3_InitForOther(ctx.window)) {
         std.log.err("ImGui_ImplSDL3_InitForOther failed", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
 
     var init_info = ig.ImGui_ImplWGPU_InitInfo{
@@ -214,7 +215,7 @@ pub fn initImGuiBackend(ctx: *Context) RendererInterface.Error!void {
 
     if (!ig.ImGui_ImplWGPU_Init(&init_info)) {
         std.log.err("ImGui_ImplWGPU_Init failed", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
 
     std.log.info("ImGui WGPU Backend Initialized.", .{});
@@ -267,7 +268,7 @@ pub fn renderImGui(
     imgui_render_pass.end();
 }
 
-pub fn render(ctx: *Context, clear_color: ig.c.ImVec4) void {
+pub fn render(ctx: *Context, clear_color: ig.c.ImVec4, dl: *Renderer.DrawList) !void {
     var surface_texture: wgpu.SurfaceTexture = undefined;
     ctx.surface.?.getCurrentTexture(&surface_texture);
     defer if (surface_texture.texture) |texture| texture.release();
@@ -292,56 +293,7 @@ pub fn render(ctx: *Context, clear_color: ig.c.ImVec4) void {
     };
     defer encoder.release();
 
-    if (ctx.draw_calls.items.len > 0 and ctx.vertex_data.items.len > 0) {
-        std.log.debug("drawing game content: {}", .{ctx.vertex_data.items.len});
-        const game_render_pass_desc = wgpu.RenderPassDescriptor{
-            .label = wgpu.StringView.fromSlice("Game Content Render Pass"),
-            .color_attachment_count = 1,
-            .color_attachments = &[_]wgpu.ColorAttachment{
-                .{
-                    .view = view,
-                    .resolve_target = null,
-                    .load_op = .clear, // Clear first
-                    .store_op = .store,
-                    .clear_value = wgpu.Color{
-                        .r = clear_color.x * clear_color.w,
-                        .g = clear_color.y * clear_color.w,
-                        .b = clear_color.z * clear_color.w,
-                        .a = clear_color.w,
-                    },
-                },
-            },
-            .depth_stencil_attachment = null,
-            .occlusion_query_set = null,
-            .timestamp_writes = null,
-        };
-
-        const game_render_pass = encoder.beginRenderPass(&game_render_pass_desc) orelse {
-            std.log.err("Failed to begin game render pass", .{});
-            return;
-        };
-        defer game_render_pass.release();
-
-        const vertex_data_size = ctx.vertex_data.items.len * @sizeOf(Vertex);
-        ctx.queue.?.writeBuffer(
-            ctx.vertex_buffer.?,
-            0,
-            ctx.vertex_data.items.ptr,
-            vertex_data_size,
-        );
-
-        if (ctx.render_pipeline) |pipeline| {
-            game_render_pass.setPipeline(pipeline);
-
-            for (ctx.draw_calls.items) |draw_call| {
-                game_render_pass.setBindGroup(0, draw_call.bind_group, 0, null);
-                game_render_pass.setVertexBuffer(0, ctx.vertex_buffer.?, draw_call.vertex_offset * @sizeOf(Vertex), draw_call.vertex_count * @sizeOf(Vertex));
-                game_render_pass.draw(draw_call.vertex_count, 1, 0, 0);
-            }
-        }
-
-        game_render_pass.end();
-    }
+    try renderDrawList(ctx, view, encoder, clear_color, dl);
 
     const draw_data = ig.igGetDrawData();
     if (draw_data) |data| {
@@ -362,11 +314,11 @@ pub fn render(ctx: *Context, clear_color: ig.c.ImVec4) void {
     defer command_buffer.release();
     ctx.queue.?.submit(&[_]*wgpu.CommandBuffer{command_buffer});
     _ = ctx.surface.?.present();
-    ctx.draw_calls.clearRetainingCapacity();
-    ctx.vertex_data.clearRetainingCapacity();
 }
 
-pub fn resize(ctx: *Context, width: i32, height: i32) RendererInterface.Error!void {
+pub fn resize(ctx: *Context, width: i32, height: i32) Renderer.Error!void {
+    if (width == 0 or height == 0) return; // can report zero while minimized
+
     ctx.width = @intCast(width);
     ctx.height = @intCast(height);
 
@@ -378,23 +330,23 @@ pub fn resize(ctx: *Context, width: i32, height: i32) RendererInterface.Error!vo
 
     if (!ig.ImGui_ImplWGPU_CreateDeviceObjects()) {
         std.log.err("Failed to recreate ImGui device objects after resize", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
 
     std.log.info("WGPU Renderer resized to {}x{}", .{ width, height });
 }
 
-pub fn setVSync(ctx: *Context, enabled: bool) RendererInterface.Error!void {
+pub fn setVSync(ctx: *Context, enabled: bool) Renderer.Error!void {
     ctx.surface_config.present_mode = if (enabled) .fifo else .immediate;
     ctx.surface.?.configure(&ctx.surface_config);
     std.log.info("WGPU Renderer VSync set to: {}", .{enabled});
 }
 
-pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!BackendTexture {
+pub fn loadTexture(ctx: *Context, path: []const u8) Renderer.Error!BackendTexture {
     const surface = sdl.c.IMG_Load(path.ptr);
     if (surface == null) {
         std.log.err("Failed to load image: {s}", .{path});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
     defer sdl.c.SDL_DestroySurface(surface);
 
@@ -405,7 +357,7 @@ pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Back
     const rgba_surface = sdl.c.SDL_ConvertSurface(surface, sdl.c.SDL_PIXELFORMAT_RGBA32);
     if (rgba_surface == null) {
         std.log.err("Failed to convert surface to RGBA", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
     defer sdl.c.SDL_DestroySurface(rgba_surface);
 
@@ -427,7 +379,7 @@ pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Back
 
     const texture = ctx.device.?.createTexture(&texture_desc) orelse {
         std.log.err("Failed to create texture", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     };
 
     const texel_copy_texture = wgpu.TexelCopyTextureInfo{
@@ -475,7 +427,7 @@ pub fn loadTexture(ctx: *Context, path: []const u8) RendererInterface.Error!Back
 
     if (bind_group == null) {
         std.log.err("Failed to create bind group for texture", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     }
 
     std.log.info("Texture loaded successfully: {}x{}", .{ width, height });
@@ -497,95 +449,11 @@ pub fn destroyTexture(tex: Texture) void {
     tex.texture.release();
 }
 
-pub fn renderSpriteInstances(
-    ctx: *Context,
-    backend_tex: BackendTexture,
-    instances: []const SpriteInstance,
-) RendererInterface.Error!void {
-    if (instances.len == 0) return;
-    if (ctx.render_pipeline == null) {
-        std.log.err("Render pipeline not initialized", .{});
-        return;
-    }
-
-    const texture = backend_tex.texture;
-
-    const vertex_offset = @as(u32, @intCast(ctx.vertex_data.items.len));
-
-    try ctx.vertex_data.ensureUnusedCapacity(instances.len * 6);
-
-    for (instances) |instance| {
-        const pos_x = instance.transform[3]; // 4th column, 1st row (m03)
-        const pos_y = instance.transform[7]; // 4th column, 2nd row (m13)
-
-        const scale_x = @sqrt(instance.transform[0] * instance.transform[0] + instance.transform[4] * instance.transform[4]);
-        const scale_y = @sqrt(instance.transform[1] * instance.transform[1] + instance.transform[5] * instance.transform[5]);
-
-        const base_size = 32.0;
-        const width = base_size * scale_x;
-        const height = base_size * scale_y;
-
-        const x0 = pos_x / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-        const y0 = 1.0 - pos_y / @as(f32, @floatFromInt(ctx.height)) * 2.0;
-        const x1 = (pos_x + width) / @as(f32, @floatFromInt(ctx.width)) * 2.0 - 1.0;
-        const y1 = 1.0 - (pos_y + height) / @as(f32, @floatFromInt(ctx.height)) * 2.0;
-
-        const uv_offset_scale = instance.uv_offset_scale;
-        const tex_u0 = uv_offset_scale[0];
-        const tex_v0 = uv_offset_scale[1];
-        const tex_u1 = uv_offset_scale[0] + uv_offset_scale[2];
-        const tex_v1 = uv_offset_scale[1] + uv_offset_scale[3];
-
-        try ctx.vertex_data.append(.{ .position = .{ x0, y0 }, .tex_coords = .{ tex_u0, tex_v0 } });
-        try ctx.vertex_data.append(.{ .position = .{ x1, y0 }, .tex_coords = .{ tex_u1, tex_v0 } });
-        try ctx.vertex_data.append(.{ .position = .{ x1, y1 }, .tex_coords = .{ tex_u1, tex_v1 } });
-        try ctx.vertex_data.append(.{ .position = .{ x0, y0 }, .tex_coords = .{ tex_u0, tex_v0 } });
-        try ctx.vertex_data.append(.{ .position = .{ x1, y1 }, .tex_coords = .{ tex_u1, tex_v1 } });
-        try ctx.vertex_data.append(.{ .position = .{ x0, y1 }, .tex_coords = .{ tex_u0, tex_v1 } });
-    }
-
-    const vertex_count = @as(u32, @intCast(ctx.vertex_data.items.len - vertex_offset));
-
-    try ctx.draw_calls.append(.{
-        .texture_view = texture.view,
-        .bind_group = texture.bind_group,
-        .vertex_offset = vertex_offset,
-        .vertex_count = vertex_count,
-    });
-}
-
-/// TODO: Implement SDF-based circle rendering
-pub fn renderCircleInstances(
-    ctx: *Context,
-    instances: []const CircleInstance,
-) RendererInterface.Error!void {
-    _ = ctx;
-    _ = instances;
-}
-
-/// TODO: Implement instanced line rendering with geometry shaders or compute
-pub fn renderLineInstances(
-    ctx: *Context,
-    instances: []const LineInstance,
-) RendererInterface.Error!void {
-    _ = ctx;
-    _ = instances;
-}
-
-/// TODO: Implement SDF-based rectangle rendering
-pub fn renderRectInstances(
-    ctx: *Context,
-    instances: []const RectInstance,
-) RendererInterface.Error!void {
-    _ = ctx;
-    _ = instances;
-}
-
 fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Window) !*wgpu.Surface {
     const props = sdl.c.SDL_GetWindowProperties(window);
     if (props == 0) {
         std.log.err("Failed to get window properties", .{});
-        return RendererInterface.Error.UnsupportedBackend;
+        return Renderer.Error.UnsupportedBackend;
     }
 
     // macOS/Cocoa
@@ -599,7 +467,7 @@ fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Windo
                 });
                 return instance.createSurface(&desc) orelse {
                     std.log.err("Failed to create WGPU surface from Metal layer", .{});
-                    return RendererInterface.Error.InitializationFailed;
+                    return Renderer.Error.InitializationFailed;
                 };
             }
         }
@@ -615,7 +483,7 @@ fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Windo
             });
             return instance.createSurface(&desc) orelse {
                 std.log.err("Failed to create WGPU surface from HWND", .{});
-                return RendererInterface.Error.InitializationFailed;
+                return Renderer.Error.InitializationFailed;
             };
         }
     }
@@ -630,7 +498,7 @@ fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Windo
             });
             return instance.createSurface(&desc) orelse {
                 std.log.err("Failed to create WGPU surface from X11 window", .{});
-                return RendererInterface.Error.InitializationFailed;
+                return Renderer.Error.InitializationFailed;
             };
         }
     }
@@ -644,13 +512,13 @@ fn createSurfaceFromSDLWindow(instance: *wgpu.Instance, window: *sdl.c.SDL_Windo
             });
             return instance.createSurface(&desc) orelse {
                 std.log.err("Failed to create WGPU surface from Wayland surface", .{});
-                return RendererInterface.Error.InitializationFailed;
+                return Renderer.Error.InitializationFailed;
             };
         }
     }
 
     std.log.err("Unsupported platform for WGPU surface creation", .{});
-    return RendererInterface.Error.UnsupportedBackend;
+    return Renderer.Error.UnsupportedBackend;
 }
 
 fn createTextureResources(ctx: *Context) !void {
@@ -712,73 +580,245 @@ fn createTextureResources(ctx: *Context) !void {
     ctx.bind_group_layout = ctx.device.?.createBindGroupLayout(&bind_group_layout_desc);
 }
 
-fn createRenderPipeline(ctx: *Context) !void {
+fn getCanvasSize(ctx: *Context) CanvasSize {
+    return CanvasSize{ .width = @intCast(ctx.width), .height = @intCast(ctx.height) };
+}
+
+pub fn renderDrawList(
+    ctx: *Context,
+    view: *wgpu.TextureView,
+    encoder: *wgpu.CommandEncoder,
+    clear_color: ig.c.ImVec4,
+    dl: *Renderer.DrawList,
+) Renderer.Error!void {
+    if (dl.cmd_buffer.items.len <= 0) return;
+
+    // Initialize pipeline if not already done
+    if (ctx.pipeline == null) {
+        try createDrawListPipeline(ctx);
+    }
+
+    const commands = dl.cmd_buffer.items;
+    const vs_ptr = dl.vtx_buffer.items;
+    const vs_count = dl.vtx_buffer.items.len;
+    const is_ptr = dl.idx_buffer.items;
+
+    const csz = getCanvasSize(ctx);
+
+    var wgpu_vertices = std.ArrayList(DrawListVertex).init(ctx.allocator);
+    defer wgpu_vertices.deinit();
+
+    try wgpu_vertices.ensureTotalCapacity(vs_count);
+    for (vs_ptr) |drawvert| {
+        const color_u32 = drawvert.color;
+        const color_f32 = [4]f32{
+            @as(f32, @floatFromInt(color_u32 & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 8) & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 16) & 0xFF)) / 255.0,
+            @as(f32, @floatFromInt((color_u32 >> 24) & 0xFF)) / 255.0,
+        };
+
+        const ndc_x = (drawvert.pos[0] / csz.getWidthFloat()) * 2.0 - 1.0;
+        const ndc_y = 1.0 - (drawvert.pos[1] / csz.getHeightFloat()) * 2.0; // Flip Y
+
+        wgpu_vertices.appendAssumeCapacity(DrawListVertex{
+            .position = [2]f32{ ndc_x, ndc_y },
+            .uv = [2]f32{ drawvert.uv[0], drawvert.uv[1] },
+            .color = color_f32,
+        });
+    }
+
+    // Upload vertex data
+    const vertex_data_size = wgpu_vertices.items.len * @sizeOf(DrawListVertex);
+    if (vertex_data_size > 0) {
+        const required_vertex_size = @max(vertex_data_size * 2, 65536);
+
+        if (ctx.vertex_buffer == null) {
+            const vertex_buffer_desc = wgpu.BufferDescriptor{
+                .label = wgpu.StringView.fromSlice("DrawList Vertex Buffer"),
+                .usage = wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                .size = required_vertex_size,
+                .mapped_at_creation = 0,
+            };
+            ctx.vertex_buffer = ctx.device.?.createBuffer(&vertex_buffer_desc);
+        } else {
+            const current_size = ctx.vertex_buffer.?.getSize();
+            if (vertex_data_size > current_size) {
+                ctx.vertex_buffer.?.release();
+                const vertex_buffer_desc = wgpu.BufferDescriptor{
+                    .label = wgpu.StringView.fromSlice("DrawList Vertex Buffer"),
+                    .usage = wgpu.BufferUsages.vertex | wgpu.BufferUsages.copy_dst,
+                    .size = required_vertex_size,
+                    .mapped_at_creation = 0,
+                };
+                ctx.vertex_buffer = ctx.device.?.createBuffer(&vertex_buffer_desc);
+            }
+        }
+
+        ctx.queue.?.writeBuffer(
+            ctx.vertex_buffer.?,
+            0,
+            wgpu_vertices.items.ptr,
+            vertex_data_size,
+        );
+    }
+
+    // Upload index data
+    const index_data_size = is_ptr.len * @sizeOf(u32);
+    if (index_data_size > 0) {
+        const required_index_size = @max(index_data_size * 2, 65536);
+
+        if (ctx.index_buffer == null) {
+            const index_buffer_desc = wgpu.BufferDescriptor{
+                .label = wgpu.StringView.fromSlice("DrawList Index Buffer"),
+                .usage = wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                .size = required_index_size,
+                .mapped_at_creation = 0,
+            };
+            ctx.index_buffer = ctx.device.?.createBuffer(&index_buffer_desc);
+        } else {
+            const current_size = ctx.index_buffer.?.getSize();
+            if (index_data_size > current_size) {
+                ctx.index_buffer.?.release();
+                const index_buffer_desc = wgpu.BufferDescriptor{
+                    .label = wgpu.StringView.fromSlice("DrawList Index Buffer"),
+                    .usage = wgpu.BufferUsages.index | wgpu.BufferUsages.copy_dst,
+                    .size = required_index_size,
+                    .mapped_at_creation = 0,
+                };
+                ctx.index_buffer = ctx.device.?.createBuffer(&index_buffer_desc);
+            }
+        }
+
+        ctx.queue.?.writeBuffer(
+            ctx.index_buffer.?,
+            0,
+            is_ptr.ptr,
+            index_data_size,
+        );
+    }
+
+    const render_pass_desc = wgpu.RenderPassDescriptor{
+        .label = wgpu.StringView.fromSlice("DrawList Render Pass"),
+        .color_attachment_count = 1,
+        .color_attachments = &[_]wgpu.ColorAttachment{
+            .{
+                .view = view,
+                .resolve_target = null,
+                .load_op = .clear,
+                .store_op = .store,
+                .clear_value = wgpu.Color{
+                    .r = clear_color.x * clear_color.w,
+                    .g = clear_color.y * clear_color.w,
+                    .b = clear_color.z * clear_color.w,
+                    .a = clear_color.w,
+                },
+            },
+        },
+        .depth_stencil_attachment = null,
+        .occlusion_query_set = null,
+        .timestamp_writes = null,
+    };
+
+    const render_pass = encoder.beginRenderPass(&render_pass_desc) orelse {
+        std.log.err("Failed to begin DrawList render pass", .{});
+        return Renderer.Error.InitializationFailed;
+    };
+    defer render_pass.release();
+
+    render_pass.setPipeline(ctx.pipeline.?);
+    if (ctx.vertex_buffer) |vb| {
+        render_pass.setVertexBuffer(0, vb, 0, vertex_data_size);
+    }
+    if (ctx.index_buffer) |ib| {
+        render_pass.setIndexBuffer(ib, .uint32, 0, index_data_size);
+    }
+
+    for (commands) |cmd| {
+        if (cmd.user_callback != null or cmd.elem_count == 0) continue;
+
+        const bind_group = if (cmd.texture_id == null) blk: {
+            if (ctx.atlas_bind_group == null) {
+                std.log.err("Atlas not initialized but draw command needs it.", .{});
+                continue;
+            }
+            break :blk ctx.atlas_bind_group.?;
+        } else blk: {
+            const backend_tex: *const BackendTexture = @ptrCast(@alignCast(cmd.texture_id));
+            break :blk backend_tex.texture.bind_group;
+        };
+
+        render_pass.setBindGroup(0, bind_group, 0, null);
+        render_pass.drawIndexed(cmd.elem_count, 1, cmd.idx_offset, @intCast(cmd.vtx_offset), 0);
+    }
+
+    render_pass.end();
+}
+
+fn createDrawListPipeline(ctx: *Context) Renderer.Error!void {
     const shader_source =
+        \\struct VertexInput {
+        \\    @location(0) position: vec2<f32>,
+        \\    @location(1) uv: vec2<f32>,
+        \\    @location(2) color: vec4<f32>,
+        \\}
+        \\
         \\struct VertexOutput {
-        \\    @builtin(position) clip_position: vec4f,
-        \\    @location(0) tex_coords: vec2f,
+        \\    @builtin(position) clip_position: vec4<f32>,
+        \\    @location(0) uv: vec2<f32>,
+        \\    @location(1) color: vec4<f32>,
         \\}
         \\
         \\@vertex
-        \\fn vs_main(@location(0) position: vec2f, @location(1) tex_coords: vec2f) -> VertexOutput {
-        \\    var out: VertexOutput;
-        \\    out.clip_position = vec4f(position, 0.0, 1.0);
-        \\    out.tex_coords = tex_coords;
-        \\    return out;
+        \\fn vs_main(input: VertexInput) -> VertexOutput {
+        \\    var output: VertexOutput;
+        \\    output.clip_position = vec4<f32>(input.position, 0.0, 1.0);
+        \\    output.uv = input.uv;
+        \\    output.color = input.color;
+        \\    return output;
         \\}
         \\
         \\@group(0) @binding(0) var texture_view: texture_2d<f32>;
         \\@group(0) @binding(1) var texture_sampler: sampler;
         \\
         \\@fragment
-        \\fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-        \\    return textureSample(texture_view, texture_sampler, in.tex_coords);
+        \\fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+        \\    let tex_color = textureSample(texture_view, texture_sampler, input.uv);
+        \\    return input.color * tex_color;
         \\}
     ;
 
     const shader_desc = wgpu.shaderModuleWGSLDescriptor(.{
-        .label = "Texture Shader",
+        .label = "DrawList Shader",
         .code = shader_source,
     });
     const shader_module = ctx.device.?.createShaderModule(&shader_desc) orelse {
-        std.log.err("Failed to create shader module", .{});
-        return RendererInterface.Error.InitializationFailed;
+        return Renderer.Error.InitializationFailed;
     };
     defer shader_module.release();
 
-    const pipeline_layout_desc = wgpu.PipelineLayoutDescriptor{
-        .label = wgpu.StringView.fromSlice("Render Pipeline Layout"),
+    const pipeline_layout = ctx.device.?.createPipelineLayout(&wgpu.PipelineLayoutDescriptor{
+        .label = wgpu.StringView.fromSlice("DrawList Pipeline Layout"),
         .bind_group_layout_count = 1,
         .bind_group_layouts = &[_]*wgpu.BindGroupLayout{ctx.bind_group_layout.?},
-    };
-    const pipeline_layout = ctx.device.?.createPipelineLayout(&pipeline_layout_desc) orelse {
-        std.log.err("Failed to create pipeline layout", .{});
-        return RendererInterface.Error.InitializationFailed;
-    };
+    }) orelse return Renderer.Error.InitializationFailed;
     defer pipeline_layout.release();
 
     const vertex_attributes = [_]wgpu.VertexAttribute{
-        .{
-            .offset = 0,
-            .shader_location = 0,
-            .format = .float32x2,
-        },
-        .{
-            .offset = @offsetOf(Vertex, "tex_coords"),
-            .shader_location = 1,
-            .format = .float32x2,
-        },
+        .{ .offset = 0, .shader_location = 0, .format = .float32x2 }, // position
+        .{ .offset = 8, .shader_location = 1, .format = .float32x2 }, // uv
+        .{ .offset = 16, .shader_location = 2, .format = .float32x4 }, // color
     };
 
     const vertex_buffer_layout = wgpu.VertexBufferLayout{
-        .array_stride = @sizeOf(Vertex),
+        .array_stride = @sizeOf(DrawListVertex),
         .step_mode = .vertex,
         .attribute_count = vertex_attributes.len,
         .attributes = &vertex_attributes,
     };
 
     const render_pipeline_desc = wgpu.RenderPipelineDescriptor{
-        .label = wgpu.StringView.fromSlice("Render Pipeline"),
+        .label = wgpu.StringView.fromSlice("DrawList Pipeline"),
         .layout = pipeline_layout,
         .vertex = wgpu.VertexState{
             .module = shader_module,
@@ -823,10 +863,106 @@ fn createRenderPipeline(ctx: *Context) !void {
         },
     };
 
-    ctx.render_pipeline = ctx.device.?.createRenderPipeline(&render_pipeline_desc);
-    if (ctx.render_pipeline == null) {
-        std.log.err("Failed to create render pipeline!", .{});
-        return RendererInterface.Error.InitializationFailed;
+    ctx.pipeline = ctx.device.?.createRenderPipeline(&render_pipeline_desc);
+    if (ctx.pipeline == null) {
+        return Renderer.Error.InitializationFailed;
     }
-    std.log.info("Render pipeline created successfully", .{});
+}
+
+pub fn syncAtlas(ctx: *Context, atlas: *TextureAtlas) !void {
+    if (!atlas.dirty) return;
+
+    const w = atlas.width;
+    const h = atlas.height;
+
+    if (ctx.atlas_tex == null) {
+        std.log.info("Creating atlas texture", .{});
+        const texture_desc = wgpu.TextureDescriptor{
+            .label = wgpu.StringView.fromSlice("Atlas Texture"),
+            .usage = wgpu.TextureUsages.texture_binding | wgpu.TextureUsages.copy_dst,
+            .dimension = .@"2d",
+            .size = wgpu.Extent3D{
+                .width = w,
+                .height = h,
+                .depth_or_array_layers = 1,
+            },
+            .format = .rgba8_unorm,
+            .mip_level_count = 1,
+            .sample_count = 1,
+            .view_format_count = 0,
+            .view_formats = &[_]wgpu.TextureFormat{},
+        };
+
+        ctx.atlas_tex = ctx.device.?.createTexture(&texture_desc) orelse {
+            return Renderer.Error.InitializationFailed;
+        };
+
+        ctx.atlas_view = ctx.atlas_tex.?.createView(null);
+
+        ctx.atlas_bind_group = ctx.device.?.createBindGroup(&wgpu.BindGroupDescriptor{
+            .label = wgpu.StringView.fromSlice("Atlas Bind Group"),
+            .layout = ctx.bind_group_layout.?,
+            .entry_count = 2,
+            .entries = &[_]wgpu.BindGroupEntry{
+                .{
+                    .binding = 0,
+                    .texture_view = ctx.atlas_view.?,
+                },
+                .{
+                    .binding = 1,
+                    .sampler = ctx.sampler.?,
+                },
+            },
+        });
+    }
+
+    const texel_copy_tex = wgpu.TexelCopyTextureInfo{
+        .texture = ctx.atlas_tex.?,
+        .mip_level = 0,
+        .origin = wgpu.Origin3D{ .x = 0, .y = 0, .z = 0 },
+        .aspect = .all,
+    };
+
+    const texel_copy_layout = wgpu.TexelCopyBufferLayout{
+        .offset = 0,
+        .bytes_per_row = w * 4,
+        .rows_per_image = h,
+    };
+
+    ctx.queue.?.writeTexture(&texel_copy_tex, atlas.pixels.ptr, atlas.pixels.len, &texel_copy_layout, &wgpu.Extent3D{
+        .width = w,
+        .height = h,
+        .depth_or_array_layers = 1,
+    });
+
+    atlas.dirty = false;
+}
+
+test "optional" {
+    const renderer_2d = @import("../renderer_2d.zig");
+    var draw_data = renderer_2d.DrawData.init(std.testing.allocator) catch unreachable;
+    var draw_list = Renderer.DrawList.init(std.testing.allocator, &draw_data);
+
+    const ctx: Context = .{
+        .allocator = std.testing.allocator,
+        .dl = &draw_list,
+        .window = undefined, // Would need real SDL window in actual usage
+        .instance = undefined, // Would need real WGPU instance in actual usage
+        .adapter = null,
+        .device = null,
+        .queue = null,
+        .surface = null,
+        .surface_config = std.mem.zeroes(wgpu.SurfaceConfiguration),
+        .width = 0,
+        .height = 0,
+    };
+
+    try std.testing.expect(ctx.pipeline == null);
+    try std.testing.expect(ctx.bind_group_layout == null);
+    try std.testing.expect(ctx.sampler == null);
+    try std.testing.expect(ctx.atlas_tex == null);
+    try std.testing.expect(ctx.atlas_view == null);
+    try std.testing.expect(ctx.atlas_bind_group == null);
+
+    std.debug.print("Test passed", .{});
 }
