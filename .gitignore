@@ -2,3 +2,6 @@
 zig-out
 .zed
 **/*.DS_Store
+.direnv
+# this is only for debugging on linux please
+.vscode/launch.json
