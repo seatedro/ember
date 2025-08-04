@@ -39,9 +39,18 @@ pub fn build(b: *std.Build) void {
     exe_mod.addOptions("build_options", options);
     exe_mod.linkLibrary(cimgui_dep.artifact("cimgui_impl"));
 
+    const entrypoint = b.createModule(.{
+        .root_source_file = b.path("src/core/entrypoint.zig"),
+        .target = config.target,
+        .optimize = config.optimize,
+        .imports = &.{
+            .{ .name = "game", .module = exe_mod },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "ember",
-        .root_module = exe_mod,
+        .root_module = entrypoint,
         .use_llvm = true,
     });
 

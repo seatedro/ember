@@ -1,13 +1,12 @@
 const std = @import("std");
 const cimgui = @import("cimgui");
 const sdl = @import("sdl");
+const ember = @import("../src/ember.zig");
 const build_config = @import("../src/build_config.zig");
 const math = std.math;
 
-const rendering = @import("../src/rendering/renderer.zig");
-
 // ---------------------------------------------------------------------------
-//                               Constants                                     
+//                               Constants
 // ---------------------------------------------------------------------------
 const WIN_WIDTH = 1280;
 const WIN_HEIGHT = 720;
@@ -15,105 +14,48 @@ const SPRITE_W = 32;
 const SPRITE_H = 32;
 const MOVE_SPEED = 50.0;
 const SPRITES_PER_CLICK = 100;
+const SPRITE_PATH = "assets/amogus.png";
 
 const SpriteData = struct {
-    transform: rendering.Transform2D,
+    transform: ember.Renderer.Transform2D,
     velocity: @Vector(2, f32),
 };
 
-/// Example entry-point: run with `zig run examples/spawn_sprites.zig` or wire it
-/// into `build.zig` as needed.
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+pub const ember_systems = ember.Systems{
+    .init = init,
+    .draw = draw,
+    .update = update,
+    .quit = quit,
+    .event = event,
+};
 
-    // Initialise SDL3 video.
-    if (sdl.c.SDL_Init(sdl.c.SDL_INIT_VIDEO) != 0) {
-        return error.SDLInitFailed;
-    }
-    defer sdl.c.SDL_Quit();
+pub const cfg = ember.Config{
+    .fps_limit = .{ .capped = 60 },
+    .window_size = .maximized,
+    .title = "Sprite Stress Test",
+};
 
-    const backend = build_config.renderer;
+const State = struct {
+    tex: ember.Renderer.TextureHandle,
+    rand: std.Random,
+    sprites: std.ArrayList(SpriteData),
+    left_down: bool = false,
+};
 
-    var window_flags: u32 = sdl.c.SDL_WINDOW_RESIZABLE | sdl.c.SDL_WINDOW_HIDDEN;
-    if (backend == .OpenGL) {
-        window_flags |= sdl.c.SDL_WINDOW_OPENGL;
-    }
+var state: State = undefined;
 
-    const window = sdl.c.SDL_CreateWindow("Sprite Stress Test", WIN_WIDTH, WIN_HEIGHT, window_flags);
-    if (window == null) return error.WindowCreateFailed;
-    defer sdl.c.SDL_DestroyWindow(window);
+pub fn init(ctx: *ember.Context) !void {
+    state.tex = try ember.Renderer.loadTexture(&ctx.renderer_ctx, SPRITE_PATH);
+    defer ember.Renderer.destroyTexture(&ctx.renderer_ctx, state.tex);
 
-    const renderer_ctx = try rendering.init(allocator, window.?);
-    defer rendering.deinit(allocator, renderer_ctx);
-    try rendering.setVSync(renderer_ctx, true);
-
-    const sprite_path = "assets/amogus.png";
-    const texture = try rendering.loadTexture(renderer_ctx, sprite_path);
-    defer rendering.destroyTexture(renderer_ctx, texture);
-
-    var prng = std.Random.DefaultPrng.init(blk: {
+    const prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = 1234;
         try std.posix.getrandom(std.mem.asBytes(&seed));
         break :blk seed;
     });
-    const rand = prng.random();
+    state.rand = prng.random();
 
-    var sprites = std.ArrayList(SpriteData).init(allocator);
-    defer sprites.deinit();
-
-    var done = false;
-    var left_down = false;
-    var event: sdl.c.SDL_Event = undefined;
-    var last_ticks = sdl.c.SDL_GetTicks();
-
-    try sdl.errify(sdl.c.SDL_ShowWindow(window));
-
-    while (!done) {
-        const now = sdl.c.SDL_GetTicks();
-        const dt: f32 = @as(f32, @floatFromInt(now - last_ticks)) / 1000.0;
-        last_ticks = now;
-
-        while (sdl.c.SDL_PollEvent(&event)) {
-            switch (event.type) {
-                sdl.c.SDL_EVENT_QUIT => done = true,
-                sdl.c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => done = true,
-                sdl.c.SDL_EVENT_MOUSE_BUTTON_DOWN => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
-                    left_down = true;
-                    for (0..SPRITES_PER_CLICK) |_|
-                        try spawnSprite(&sprites, rand, event.button.x, event.button.y);
-                },
-                sdl.c.SDL_EVENT_MOUSE_BUTTON_UP => if (event.button.button == sdl.c.SDL_BUTTON_LEFT) {
-                    left_down = false;
-                },
-                sdl.c.SDL_EVENT_MOUSE_MOTION => if (left_down) {
-                    for (0..SPRITES_PER_CLICK) |_|
-                        try spawnSprite(&sprites, rand, event.motion.x, event.motion.y);
-                },
-                else => {},
-            }
-        }
-
-        // Update sprite positions.
-        for (sprites.items) |*s| {
-            s.transform.position += s.velocity * @as(@Vector(2, f32), @splat(dt));
-        }
-
-        // Render.
-        try rendering.beginFrame(renderer_ctx, .{ .x = 0.1, .y = 0.1, .z = 0.1, .w = 1.0 });
-
-        for (sprites.items) |s| {
-            try rendering.drawSprite(renderer_ctx, .{
-                .transform = s.transform,
-                .texture_handle = texture,
-                .color = rendering.Color.WHITE,
-            });
-        }
-
-        try rendering.render(renderer_ctx, .{ .x = 0.1, .y = 0.1, .z = 0.1, .w = 1.0 });
-        try rendering.endFrame(renderer_ctx);
-    }
+    state.sprites = std.ArrayList(SpriteData).init(ctx.allocator);
 }
 
 fn spawnSprite(sprites: *std.ArrayList(SpriteData), rand: std.Random, mx: f32, my: f32) !void {
@@ -125,4 +67,45 @@ fn spawnSprite(sprites: *std.ArrayList(SpriteData), rand: std.Random, mx: f32, m
         .transform = .{ .position = position, .scale = @Vector(2, f32){ 1.0, 1.0 } },
         .velocity = velocity,
     });
-} 
+}
+
+pub fn update(ctx: *ember.Context) !void {
+    // Update sprite positions.
+    for (state.sprites.items) |*s| {
+        s.transform.position += s.velocity * @as(@Vector(2, f32), @splat(ctx.dt));
+    }
+}
+
+pub fn draw(ctx: *ember.Context) !void {
+    for (state.sprites.items) |s| {
+        try ember.Renderer.drawSprite(&ctx.renderer_ctx, .{
+            .transform = s.transform,
+            .texture_handle = state.tex,
+            .color = ember.Renderer.Color.WHITE,
+        });
+    }
+}
+
+pub fn event(ctx: *ember.Context, e: ember.io.Event) !void {
+    _ = ctx;
+    return switch (e) {
+        .mouse_button_down => |me| if (me.button == .left) {
+            state.left_down = true;
+            for (0..SPRITES_PER_CLICK) |_|
+                try spawnSprite(&state.sprites, state.rand, event.button.x, event.button.y);
+        },
+        .mouse_button_up => |me| if (me.button == .left) {
+            state.left_down = false;
+        },
+        .mouse_motion => |me| {
+            for (0..SPRITES_PER_CLICK) |_|
+                try spawnSprite(&state.sprites, state.rand, me.x, me.y);
+        },
+        else => {},
+    };
+}
+
+pub fn quit(ctx: *ember.Context) !void {
+    _ = ctx;
+    state.sprites.deinit();
+}
