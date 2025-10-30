@@ -44,8 +44,9 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "sdl", .module = sdl_mod },
         },
     });
-    const wgpuHeaderPath = try wgpu.getIncludePath(b, optimize, target);
-    cimgui_mod.addIncludePath(wgpuHeaderPath);
+    if (wgpu.getIncludePath(b, optimize, target) catch null) |wgpuHeaderPath| {
+        cimgui_mod.addIncludePath(wgpuHeaderPath);
+    }
     cimgui_mod.addIncludePath(b.path("dist"));
     cimgui_mod.addIncludePath(imgui_source_path);
     cimgui_mod.addIncludePath(sdl_include_path);
@@ -58,7 +59,9 @@ pub fn build(b: *std.Build) !void {
     });
     lib_cimgui.linkLibCpp();
 
-    lib_cimgui.addIncludePath(wgpuHeaderPath);
+    if (wgpu.getIncludePath(b, optimize, target) catch null) |wgpuHeaderPath| {
+        lib_cimgui.addIncludePath(wgpuHeaderPath);
+    }
     lib_cimgui.addIncludePath(sdl_include_path);
     lib_cimgui.addIncludePath(b.path("dist"));
     lib_cimgui.addIncludePath(imgui_source_path);
