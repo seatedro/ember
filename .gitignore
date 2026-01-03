@@ -1,7 +1,13 @@
-.zig-cache
-zig-out
-.zed
-**/*.DS_Store
-.direnv
-# this is only for debugging on linux please
-.vscode/launch.json
+*
+!src
+!src/**
+!game
+!game/**
+!assets
+!assets/**
+!shell.nix
+!build.sh
+!.github
+!.clang-format
+!.envrc
+!.nvim.lua
