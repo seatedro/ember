@@ -1,17 +1,168 @@
+#include "GLFW/glfw3.h"
+#include "core/core.h"
+#include "core/math.h"
 #include "platform/window.h"
+#include "rhi/rhi.h"
 #include <cstdlib>
 
+using namespace ember;
+
+// clang-format off
+global f32 cube_verts[] = {
+    // front(red)
+    -0.5f, -0.5f,  0.5f, 1, 0, 0,
+     0.5f, -0.5f,  0.5f, 1, 0, 0,
+     0.5f,  0.5f,  0.5f, 1, 0, 0,
+    -0.5f,  0.5f,  0.5f, 1, 0, 0,
+    // back(green)
+    -0.5f, -0.5f, -0.5f, 0, 1, 0,
+     0.5f, -0.5f, -0.5f, 0, 1, 0,
+     0.5f,  0.5f, -0.5f, 0, 1, 0,
+    -0.5f,  0.5f, -0.5f, 0, 1, 0,
+    // top(blue)
+    -0.5f,  0.5f, -0.5f, 0, 0, 1,
+     0.5f,  0.5f, -0.5f, 0, 0, 1,
+     0.5f,  0.5f,  0.5f, 0, 0, 1,
+    -0.5f,  0.5f,  0.5f, 0, 0, 1,
+    // bottom(yellow)
+    -0.5f, -0.5f, -0.5f, 1, 1, 0,
+     0.5f, -0.5f, -0.5f, 1, 1, 0,
+     0.5f, -0.5f,  0.5f, 1, 1, 0,
+    -0.5f, -0.5f,  0.5f, 1, 1, 0,
+    // right(magenta)
+     0.5f, -0.5f, -0.5f, 1, 0, 1,
+     0.5f,  0.5f, -0.5f, 1, 0, 1,
+     0.5f,  0.5f,  0.5f, 1, 0, 1,
+     0.5f, -0.5f,  0.5f, 1, 0, 1,
+    // left(cyan)
+    -0.5f, -0.5f, -0.5f, 0, 1, 1,
+    -0.5f,  0.5f, -0.5f, 0, 1, 1,
+    -0.5f,  0.5f,  0.5f, 0, 1, 1,
+    -0.5f, -0.5f,  0.5f, 0, 1, 1,
+};
+
+global u32 cube_indices[] = {
+    0,  1,  2,   2,  3,  0,  // front
+    4,  7,  6,   6,  5,  4,  // back
+    8,  11, 10,  10, 9,  8,  // top
+    12, 13, 14,  14, 15, 12, // bottom
+    16, 17, 18,  18, 19, 16, // right
+    20, 22, 21,  22, 20, 23, // left
+};
+// clang-format on
+
+global const char* vert_src = R"(
+    #version 460 core
+    layout(location = 0) in vec3 a_position;
+    layout(location = 1) in vec3 a_color;
+    uniform mat4 u_mvp;
+    out vec3 v_color;
+    void main() {
+        gl_Position = u_mvp * vec4(a_position, 1.0);
+        v_color = a_color;
+    }
+)";
+
+global const char* frag_src = R"(
+    #version 460 core
+    in vec3 v_color;
+    out vec4 frag_color;
+    void main() {
+        frag_color = vec4(v_color, 1.0);
+    }
+)";
+
 int main() {
-    ember::Window window = ember::Window::create(1280, 720, "ember");
+    Window w = Window {};
+    b32    ok = create_window(&w, 1280, 720, "ember");
 
-    LOG_INFO("main", "window created: handle=%p, should_close=%d",
-        window.handle, window.should_close);
-
-    while (!window.should_close) {
-        ember::Window::poll_events(&window);
-        ember::Window::swap_buffers(&window);
+    if (!ok) {
+        LOG_ERROR("main", "window failed to create");
+        return 1;
     }
 
-    ember::Window::destroy(&window);
+    Device* d = create_device(&w);
+    if (!d) {
+        LOG_ERROR("main", "failed to create rhi device");
+        destroy_window(&w);
+    }
+
+    BufferDesc vb_desc = { .type = BufferType::Vertex,
+        .usage = BufferUsage::Static,
+        .data = cube_verts,
+        .size = sizeof(cube_verts) };
+
+    BufferHandle vbo = create_buffer(d, &vb_desc);
+
+    BufferDesc ib_desc = { .type = BufferType::Index,
+        .usage = BufferUsage::Static,
+        .data = cube_indices,
+        .size = sizeof(cube_indices) };
+
+    BufferHandle ibo = create_buffer(d, &ib_desc);
+
+    ShaderDesc sh_desc
+        = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
+
+    ShaderHandle shader = create_shader(d, &sh_desc);
+
+    VertexAttrib attribs[] = {
+        { .format = VertexFormat::F32x3, .offset = 0 }, // pos
+        { .format = VertexFormat::F32x3, .offset = sizeof(f32) * 3 } // color
+    };
+
+    VertexLayout layout = { .attribs = attribs, .attrib_count = 2, .stride = sizeof(f32) * 6 };
+
+    PipelineDesc pip_desc = {
+        .shader = shader,
+        .layout = layout,
+        .depth = { .test_enabled = true, .write_enabled = true, .compare = CompareFn::Less },
+        .raster = { .cull = CullMode::Back, .winding = Winding::CCW, .wireframe = false },
+        .primitive = Primitive::Triangles,
+    };
+
+    PipelineHandle pipeline = create_pipeline(d, &pip_desc);
+
+    f32  aspect = (f32)w.width / (f32)w.height;
+    mat4 proj = perspective(0.785f, aspect, 0.1f, 100.0f); // 45deg
+    mat4 view = look_at({ 0, 1.5f, 4 }, { 0, 0, 0 }, { 0, 1, 0 });
+
+    f64 last_time = glfwGetTime();
+
+    while (!w.should_close) {
+        poll_events(&w);
+
+        f64 now = glfwGetTime();
+        f32 dt = (f32)(now - last_time);
+        last_time = now;
+
+        static f32 rx = 0.0f, ry = 0.0f;
+        rx += dt * 1.0f;
+        ry += dt * 2.0f;
+        mat4 model = rotate_y(ry) * rotate_x(rx);
+        mat4 mvp = proj * view * model;
+
+        set_viewport(0, 0, w.width, w.height);
+        clear(0.1f, 0.1f, 0.1f, 1.0f, 1.0f);
+
+        bind_pipeline(d, pipeline);
+        bind_vertex_buffer(d, vbo);
+        bind_index_buffer(d, ibo);
+        set_uniform_mat4(d, shader, "u_mvp", &mvp);
+
+        DrawDesc dd = {};
+        dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
+        draw(d, &dd);
+
+        swap_buffers(&w);
+    }
+
+    destroy_pipeline(d, pipeline);
+    destroy_shader(d, shader);
+    destroy_buffer(d, ibo);
+    destroy_buffer(d, vbo);
+    destroy_device(d);
+    destroy_window(&w);
+
     return 0;
 }

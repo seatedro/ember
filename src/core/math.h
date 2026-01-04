@@ -42,5 +42,13 @@ mat4 translate(vec3 t);
 mat4 rotate(quat q);
 mat4 scale(vec3 s);
 mat4 perspective(f32 fov, f32 aspect, f32 near, f32 far);
+mat4 look_at(vec3 eye, vec3 target, vec3 up);
+
+quat axis_angle(vec3 axis, f32 rads);
+mat4 to_mat4(quat q);
+
+inline mat4 rotate_x(f32 rads) { return rotate(axis_angle({ 1, 0, 0 }, rads)); }
+inline mat4 rotate_y(f32 rads) { return rotate(axis_angle({ 0, 1, 0 }, rads)); }
+inline mat4 rotate_z(f32 rads) { return rotate(axis_angle({ 0, 0, 1 }, rads)); }
 
 } // namespace ember

@@ -25,9 +25,7 @@ void* Arena::push(Arena* a, u64 size) {
     return ptr;
 }
 
-void Arena::reset(Arena* a) {
-    a->used = 0;
-}
+void Arena::reset(Arena* a) { a->used = 0; }
 
 void log(LogLevel level, const char* tag, const char* fmt, ...) {
     const char* level_str[] = { "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL" };

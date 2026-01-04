@@ -28,15 +28,16 @@ CXX="clang++"
 LIBS="-lglfw -lGL -lpthread -ldl -lm"
 
 CFLAGS="-std=c++23 -Wall -Wextra -Werror"
+CFLAGS="$CFLAGS -DEMBER_RHI_OPENGL"
 CFLAGS="$CFLAGS -fno-exceptions -fno-rtti"
 CFLAGS="$CFLAGS -Isrc -Ivendor/glfw/include -Ivendor/glad/include -Ivendor/imgui"
 
 BUILD="${BUILD:-debug}"
 if [ "$BUILD" = "debug" ]; then
   CFLAGS="$CFLAGS -O0 -g -DEMBER_DEBUG"
-  CFLAGS="$CFLAGS -fsanitize=address,undefined -fno-omit-frame-pointer"
-  CFLAGS="$CFLAGS -fsanitize-ignorelist=asan_ignorelist.txt"
-  LIBS="$LIBS -fsanitize=address,undefined"
+  # CFLAGS="$CFLAGS -fsanitize=address,undefined -fno-omit-frame-pointer"
+  # CFLAGS="$CFLAGS -fsanitize-ignorelist=asan_ignorelist.txt"
+  # LIBS="$LIBS -fsanitize=address,undefined"
 elif [ "$BUILD" = "release" ]; then
   CFLAGS="$CFLAGS -O2 -DNDEBUG"
 elif [ "$BUILD" = "dist" ]; then
@@ -48,10 +49,21 @@ fi
 OUT_DIR="build/$BUILD"
 mkdir -p "$OUT_DIR"
 
+VENDOR_CFLAGS="-Ivendor/glad/include -Ivendor/imgui"
+VENDOR_CFLAGS="$VENDOR_CFLAGS -w"
+
+VENDOR_C="vendor/glad/src/glad.c"
+VENDOR_OBJS=""
+for src in $VENDOR_C; do
+    obj="$OUT_DIR/$(basename ${src%.c}.o)"
+    $CC -c $VENDOR_CFLAGS $src -o $obj
+    VENDOR_OBJS="$VENDOR_OBJS $obj"
+done
+
 echo "Building ember ($BUILD)"
 
 SRCS=$(fd -e cpp . src game)
 
-$CXX $CFLAGS $SRCS -o "$OUT_DIR/game" $LIBS
+$CXX $CFLAGS $SRCS $VENDOR_OBJS -o "$OUT_DIR/game" $LIBS
 
 echo "done: $OUT_DIR/game"

@@ -63,11 +63,40 @@ mat4 perspective(f32 fov, f32 aspect, f32 near, f32 far) {
 
     m.data[0] = 1.0f / (aspect * tan_half_fov);
     m.data[5] = 1.0f / tan_half_fov;
-    m.data[10] = -(far * near) / (far - near);
+    m.data[10] = -(far + near) / (far - near);
     m.data[11] = -1.0f;
     m.data[14] = -(2.0f * far * near) / (far - near);
 
     return m;
+}
+
+mat4 look_at(vec3 eye, vec3 target, vec3 up) {
+    vec3 f = normalize(target - eye); // forward
+    vec3 r = normalize(cross(f, up)); // right
+    vec3 u = cross(r, f); // up - from camera's perspective
+
+    mat4 m = identity();
+    m.data[0] = r.x;
+    m.data[4] = r.y;
+    m.data[8] = r.z;
+    m.data[1] = u.x;
+    m.data[5] = u.y;
+    m.data[9] = u.z;
+    m.data[2] = -f.x;
+    m.data[6] = -f.y;
+    m.data[10] = -f.z;
+    m.data[12] = -dot(r, eye);
+    m.data[13] = -dot(u, eye);
+    m.data[14] = dot(f, eye);
+
+    return m;
+}
+
+quat axis_angle(vec3 axis, f32 rads) {
+    vec3 a = normalize(axis);
+    f32  half_angle = rads * 0.5f;
+    f32  s = sinf(half_angle);
+    return { a.x * s, a.y * s, a.z * s, cosf(half_angle) };
 }
 
 mat4 rotate(quat q) {
@@ -97,5 +126,7 @@ mat4 rotate(quat q) {
 
     return m;
 }
+
+mat4 to_mat4(quat q) { return rotate(q); }
 
 } // namespace ember

@@ -9,11 +9,15 @@ struct Window {
     u32   height;
     u32   width;
     b32   should_close;
-
-    static Window create(u32 width, u32 height, const char* title);
-    static void   destroy(Window* w);
-    static void   poll_events(Window* w);
-    static void   swap_buffers(Window* w);
 };
+
+b32  create_window(Window* w, u32 width, u32 height, const char* title);
+void destroy_window(Window* w);
+void poll_events(Window* w);
+void swap_buffers(Window* w);
+
+#if defined(EMBER_RHI_OPENGL)
+void* get_gl_proc_address(const char* name);
+#endif
 
 } // namespace ember
