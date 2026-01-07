@@ -3,6 +3,8 @@
 !src/**
 !game
 !game/**
+!vendor
+!vendor/**
 !assets
 !assets/**
 !shell.nix
