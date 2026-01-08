@@ -25,7 +25,11 @@ esac
 
 CXX="clang++"
 
-LIBS="-lglfw -lGL -lpthread -ldl -lm"
+if [ "$(uname)" = "Darwin" ]; then
+    LIBS="$(pkg-config --libs glfw3) -framework OpenGL -framework Cocoa -framework IOKit -lpthread -lm"
+else
+    LIBS="-lglfw -lGL -lpthread -ldl -lm"
+fi
 
 CFLAGS="-std=c++23 -Wall -Wextra -Werror"
 CFLAGS="$CFLAGS -DEMBER_RHI_OPENGL"
@@ -42,8 +46,12 @@ elif [ "$BUILD" = "release" ]; then
   CFLAGS="$CFLAGS -O2 -DNDEBUG"
 elif [ "$BUILD" = "dist" ]; then
   CFLAGS="$CFLAGS -O3 -flto -DNDEBUG -DEMBER_DIST"
-  CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
-  LIBS="$LIBS -Wl,--gc-sections -s"
+  if [ "$(uname)" = "Darwin" ]; then
+    LIBS="$LIBS -Wl,-dead_strip"
+  else
+    CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
+    LIBS="$LIBS -Wl,--gc-sections -s"
+  fi
 fi
 
 OUT_DIR="build/$BUILD"

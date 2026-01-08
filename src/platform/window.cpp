@@ -22,9 +22,15 @@ b32 create_window(Window* w, u32 width, u32 height, const char* title) {
     }
 
 #if defined(EMBER_RHI_OPENGL)
+#if defined(__APPLE__)
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#else
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#endif
 #elif defined(EMBER_RHI_VULKAN)
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 #else
