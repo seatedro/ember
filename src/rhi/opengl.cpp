@@ -36,6 +36,13 @@ struct Pipeline {
     u32          vao;
 };
 
+struct Texture {
+    u32           id;
+    u32           width;
+    u32           height;
+    TextureFormat format;
+};
+
 struct Device {
     Pool<Buffer, 4096>  buffers;
     Pool<Shader, 256>   shaders;
@@ -67,6 +74,8 @@ internal u32 buffer_usage_to_gl(BufferUsage u) {
         return GL_STATIC_DRAW;
     case BufferUsage::Dynamic:
         return GL_DYNAMIC_DRAW;
+    case BufferUsage::Stream:
+        return GL_STREAM_DRAW;
     }
 }
 
@@ -114,24 +123,24 @@ Device* device_create(Window* window) {
 
 void device_destroy(Device* d) { *d = {}; }
 
-BufferHandle buffer_create(Device* d, BufferDesc* desc) {
+BufferHandle buffer_create(Device* d, BufferConfig* cfg) {
     EMBER_ASSERT(d);
-    EMBER_ASSERT(desc);
-    EMBER_ASSERT(desc->size > 0);
+    EMBER_ASSERT(cfg);
+    EMBER_ASSERT(cfg->size > 0);
 
     u32     id = d->buffers.alloc();
     Buffer* buf = d->buffers.get(id);
 
     glGenBuffers(1, &buf->id);
     GL_CHECK();
-    u32 target = buffer_type_to_gl(desc->type);
+    u32 target = buffer_type_to_gl(cfg->type);
     glBindBuffer(target, buf->id);
-    glBufferData(target, desc->size, desc->data, buffer_usage_to_gl(desc->usage));
+    glBufferData(target, cfg->size, cfg->data, buffer_usage_to_gl(cfg->usage));
     GL_CHECK();
     glBindBuffer(target, 0);
 
-    buf->type = desc->type;
-    buf->size = desc->size;
+    buf->type = cfg->type;
+    buf->size = cfg->size;
 
     return { id };
 }
@@ -207,9 +216,9 @@ internal u32 compile_shader(const char* src, u32 type, const char* name) {
     return shader;
 }
 
-ShaderHandle shader_create(Device* d, ShaderDesc* desc) {
-    u32 vs = compile_shader(desc->vertex_src, GL_VERTEX_SHADER, desc->name);
-    u32 fs = compile_shader(desc->fragment_src, GL_FRAGMENT_SHADER, desc->name);
+ShaderHandle shader_create(Device* d, ShaderConfig* cfg) {
+    u32 vs = compile_shader(cfg->vertex_src, GL_VERTEX_SHADER, cfg->name);
+    u32 fs = compile_shader(cfg->fragment_src, GL_FRAGMENT_SHADER, cfg->name);
 
     if (!vs || !fs) {
         if (vs)
@@ -233,7 +242,7 @@ ShaderHandle shader_create(Device* d, ShaderDesc* desc) {
     if (!ok) {
         char log[512];
         glGetProgramInfoLog(prog, sizeof(log), null, log);
-        LOG_ERROR("rhi", "shader compile error (%s): %s", desc->name, log);
+        LOG_ERROR("rhi", "shader compile error (%s): %s", cfg->name, log);
         glDeleteProgram(prog);
         GL_CHECK();
         return { HANDLE_INVALID_ID };
@@ -244,7 +253,7 @@ ShaderHandle shader_create(Device* d, ShaderDesc* desc) {
     sh->program = prog;
     sh->uniform_count = 0;
 
-    LOG_INFO("rhi", "shader '%s' created", desc->name);
+    LOG_INFO("rhi", "shader '%s' created", cfg->name);
     return { id };
 }
 
@@ -254,22 +263,22 @@ void shader_destroy(Device* d, ShaderHandle h) {
     GL_CHECK();
 }
 
-PipelineHandle pipeline_create(Device* d, PipelineDesc* desc) {
+PipelineHandle pipeline_create(Device* d, PipelineConfig* cfg) {
     EMBER_ASSERT(d);
-    EMBER_ASSERT(desc);
-    EMBER_ASSERT(handle_valid(desc->shader));
-    EMBER_ASSERT(desc->layout.attribs);
-    EMBER_ASSERT(desc->layout.attrib_count > 0);
-    EMBER_ASSERT(desc->layout.stride > 0);
+    EMBER_ASSERT(cfg);
+    EMBER_ASSERT(handle_valid(cfg->shader));
+    EMBER_ASSERT(cfg->layout.attribs);
+    EMBER_ASSERT(cfg->layout.attrib_count > 0);
+    EMBER_ASSERT(cfg->layout.stride > 0);
 
     u32       id = d->pipelines.alloc();
     Pipeline* pip = d->pipelines.get(id);
 
-    pip->shader = desc->shader;
-    pip->layout = desc->layout;
-    pip->depth = desc->depth;
-    pip->raster = desc->raster;
-    pip->primitive = desc->primitive;
+    pip->shader = cfg->shader;
+    pip->layout = cfg->layout;
+    pip->depth = cfg->depth;
+    pip->raster = cfg->raster;
+    pip->primitive = cfg->primitive;
 
     glGenVertexArrays(1, &pip->vao);
     GL_CHECK();
@@ -368,15 +377,15 @@ void clear(f32 r, f32 g, f32 b, f32 a, f32 depth) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void draw(Device* d, DrawDesc* desc) {
+void draw(Device* d, DrawConfig* cfg) {
     Pipeline* pip = d->pipelines.get(d->bound_pipeline.id);
     GLenum    prim = primitive_to_gl(pip->primitive);
 
-    if (desc->index_count > 0) {
-        glDrawElements(prim, desc->index_count, GL_UNSIGNED_INT,
-            (void*)(uintptr_t)(desc->first_index * sizeof(u32)));
+    if (cfg->index_count > 0) {
+        glDrawElements(prim, cfg->index_count, GL_UNSIGNED_INT,
+            (void*)(uintptr_t)(cfg->first_index * sizeof(u32)));
     } else {
-        glDrawArrays(prim, desc->first_vertex, desc->vertex_count);
+        glDrawArrays(prim, cfg->first_vertex, cfg->vertex_count);
     }
 }
 

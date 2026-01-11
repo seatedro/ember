@@ -70,8 +70,13 @@ done
 
 echo "Building ember ($BUILD)"
 
-SRCS=$(fd -e cpp . src game)
+OBJS=""
+for src in $(fd -e cpp . src game); do
+    obj="$OUT_DIR/$(echo $src | tr '/' '_' | sed 's/\.cpp$/.o/')"
+    $CXX $CFLAGS -c $src -o $obj
+    OBJS="$OBJS $obj"
+done
 
-$CXX $CFLAGS $SRCS $VENDOR_OBJS -o "$OUT_DIR/game" $LIBS
+$CXX $CFLAGS $OBJS $VENDOR_OBJS -o "$OUT_DIR/game" $LIBS
 
 echo "done: $OUT_DIR/game"

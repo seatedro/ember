@@ -117,21 +117,21 @@ int main() {
         window_destroy(&w);
     }
 
-    BufferDesc vb_desc = { .type = BufferType::Vertex,
+    BufferConfig vb_desc = { .type = BufferType::Vertex,
         .usage = BufferUsage::Static,
         .data = cube_verts,
         .size = sizeof(cube_verts) };
 
     BufferHandle vbo = buffer_create(d, &vb_desc);
 
-    BufferDesc ib_desc = { .type = BufferType::Index,
+    BufferConfig ib_desc = { .type = BufferType::Index,
         .usage = BufferUsage::Static,
         .data = cube_indices,
         .size = sizeof(cube_indices) };
 
     BufferHandle ibo = buffer_create(d, &ib_desc);
 
-    ShaderDesc sh_desc
+    ShaderConfig sh_desc
         = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
 
     ShaderHandle shader = shader_create(d, &sh_desc);
@@ -143,7 +143,7 @@ int main() {
 
     VertexLayout layout = { .attribs = attribs, .attrib_count = 2, .stride = sizeof(f32) * 6 };
 
-    PipelineDesc pip_desc = {
+    PipelineConfig pip_desc = {
         .shader = shader,
         .layout = layout,
         .depth = { .test_enabled = true, .write_enabled = true, .compare = CompareFn::Less },
@@ -180,7 +180,7 @@ int main() {
         bind_index_buffer(d, ibo);
         set_uniform_mat4(d, shader, "u_mvp", &mvp);
 
-        DrawDesc dd = {};
+        DrawConfig dd = {};
         dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
         draw(d, &dd);
 

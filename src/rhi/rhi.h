@@ -19,14 +19,39 @@ struct PipelineHandle {
     u32 id;
 };
 
+struct TextureHandle {
+    u32 id;
+};
+
 inline b32 handle_valid(BufferHandle h) { return h.id != HANDLE_INVALID_ID; }
 inline b32 handle_valid(ShaderHandle h) { return h.id != HANDLE_INVALID_ID; }
 inline b32 handle_valid(PipelineHandle h) { return h.id != HANDLE_INVALID_ID; }
 
 enum class BufferType : u32 { Vertex, Index, Uniform };
-enum class BufferUsage : u32 { Static, Dynamic };
-enum class Primitive : u32 { Triangles, Lines, Points };
-enum class Winding : u32 { CW, CCW };
+// clang-format off
+enum class BufferUsage : u32 {
+    Static,  // upload once
+    Dynamic, // upload occasionally
+    Stream   // upload every frame
+};
+// clang-format on
+
+struct BufferConfig {
+    BufferType  type;
+    BufferUsage usage;
+    void*       data;
+    u64         size;
+};
+
+enum class ShaderStage : u32 { Vertex, Fragment, Compute };
+
+// TODO: make this use the fs
+struct ShaderConfig {
+    const char* vertex_src;
+    const char* fragment_src;
+    const char* name;
+};
+
 enum class CullMode : u32 { None, Front, Back };
 enum class CompareFn : u32 {
     Never = 0,
@@ -38,22 +63,9 @@ enum class CompareFn : u32 {
     GreaterEqual = 6,
     Always = 7
 };
+enum class Primitive : u32 { Triangles, Lines, Points };
+enum class Winding : u32 { CW, CCW };
 enum class VertexFormat : u32 { F32 = 1, F32x2 = 2, F32x3 = 3, F32x4 = 4 };
-enum class ShaderStage : u32 { Vertex, Fragment, Compute };
-
-struct BufferDesc {
-    BufferType  type;
-    BufferUsage usage;
-    void*       data;
-    u64         size;
-};
-
-// TODO: make this use the fs
-struct ShaderDesc {
-    const char* vertex_src;
-    const char* fragment_src;
-    const char* name;
-};
 
 struct VertexAttrib {
     VertexFormat format;
@@ -78,7 +90,7 @@ struct RasterState {
     b32      wireframe;
 };
 
-struct PipelineDesc {
+struct PipelineConfig {
     ShaderHandle shader;
     VertexLayout layout;
     DepthState   depth;
@@ -86,11 +98,28 @@ struct PipelineDesc {
     Primitive    primitive;
 };
 
-struct DrawDesc {
+struct DrawConfig {
     u32 vertex_count;
     u32 index_count;
     u32 first_vertex;
     u32 first_index;
+};
+
+enum class TextureFormat : u32 { R8, RG8, RGB8, RGBA8, Depth24Stencil8 };
+enum class TextureFilter : u32 { Nearest, Linear };
+enum class TextureWrap : u32 { Repeat, Clamp, Mirror };
+
+struct TextureConfig {
+    u32           width;
+    u32           height;
+    TextureFormat format;
+    TextureFilter min_filter;
+    TextureFilter mag_filter;
+    TextureWrap   wrap_s;
+    TextureWrap   wrap_t;
+    const void*   data;
+    b32           generate_mips;
+    const char*   debug_name;
 };
 
 struct Device; // opaque type, defined per backend
@@ -99,13 +128,13 @@ struct Device; // opaque type, defined per backend
 Device* device_create(Window* window);
 void    device_destroy(Device* d);
 
-BufferHandle buffer_create(Device* d, BufferDesc* desc);
+BufferHandle buffer_create(Device* d, BufferConfig* cfg);
 void         buffer_destroy(Device* d, BufferHandle h);
 
-ShaderHandle shader_create(Device* d, ShaderDesc* desc);
+ShaderHandle shader_create(Device* d, ShaderConfig* cfg);
 void         shader_destroy(Device* d, ShaderHandle h);
 
-PipelineHandle pipeline_create(Device* d, PipelineDesc* desc);
+PipelineHandle pipeline_create(Device* d, PipelineConfig* cfg);
 void           pipeline_destroy(Device* d, PipelineHandle h);
 
 void bind_pipeline(Device* d, PipelineHandle h);
@@ -116,6 +145,11 @@ void set_uniform_mat4(Device* d, ShaderHandle sh, const char* name, mat4* m);
 
 void set_viewport(u32 x, u32 y, u32 w, u32 h);
 void clear(f32 r, f32 g, f32 b, f32 a, f32 depth);
-void draw(Device* d, DrawDesc* desc);
+void draw(Device* d, DrawConfig* desc);
+
+TextureHandle texture_create(Device* d, const TextureConfig* cfg);
+void          texture_destroy(Device* d, TextureHandle handle);
+void          texture_bind(Device* d, TextureHandle handle, u32 slot);
+void          texture_update(Device* d, TextureHandle handle, const void* data);
 
 } // namespace ember
