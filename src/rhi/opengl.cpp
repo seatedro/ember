@@ -13,49 +13,6 @@
 
 namespace ember {
 
-// using template here for convenience
-template <typename T, u32 MAX>
-struct Pool {
-    T   data[MAX];
-    u32 free_list[MAX];
-    u32 free_count;
-    u32 count;
-
-    void init() {
-        count = 0;
-        free_count = 0;
-    }
-
-    u32 alloc() {
-        if (free_count > 0) {
-            u32 id = free_list[--free_count];
-            EMBER_ASSERT(id < count);
-            return id;
-        }
-        EMBER_ASSERT(count < MAX);
-        return count++;
-    }
-
-    void release(u32 id) {
-        EMBER_ASSERT(id < count);
-        EMBER_ASSERT(free_count < MAX);
-
-#if defined(EMBER_DEBUG)
-        // double free detection
-        for (u32 i = 0; i < free_count; i++) {
-            EMBER_ASSERT(free_list[i] != id);
-        }
-#endif
-
-        free_list[free_count++] = id;
-    }
-
-    T* get(u32 id) {
-        EMBER_ASSERT(id < count);
-        return &data[id];
-    }
-};
-
 // Internal types
 struct Buffer {
     u32        id;

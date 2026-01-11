@@ -2,6 +2,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace ember {
 
@@ -22,6 +23,12 @@ void* Arena::push(Arena* a, u64 size) {
     EMBER_ASSERT(a->used + size <= a->size);
     void* ptr = a->base + a->used;
     a->used += size;
+    return ptr;
+}
+
+void* Arena::push_zero(Arena* a, u64 size) {
+    void* ptr = push(a, size);
+    memset(ptr, 0, size);
     return ptr;
 }
 
