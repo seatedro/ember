@@ -4,17 +4,27 @@
 
 namespace ember {
 
-struct Window {
-    void* handle; // GLFWwindow*
-    u32   height;
-    u32   width;
-    b32   should_close;
+struct WindowConfig {
+    const char* title;
+    u32         width;
+    u32         height;
+    b32         vsync;
+    b32         fullscreen;
 };
 
-b32  create_window(Window* w, u32 width, u32 height, const char* title);
-void destroy_window(Window* w);
-void poll_events(Window* w);
-void swap_buffers(Window* w);
+struct Window {
+    void* handle; // GLFWwindow*
+    u32   width;
+    u32   height;
+    b32   should_close;
+    b32   minimized;
+};
+
+b32  window_create(Window* w, const WindowConfig* cfg);
+void window_destroy(Window* w);
+void window_poll_events(Window* w);
+void window_swap_buffers(Window* w);
+f64  window_get_time(Window* w);
 
 #if defined(EMBER_RHI_OPENGL)
 void* get_gl_proc_address(const char* name);

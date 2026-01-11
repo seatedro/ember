@@ -96,18 +96,25 @@ global const char* frag_src = R"(
 #endif
 
 int main() {
-    Window w = Window {};
-    b32    ok = create_window(&w, 1280, 720, "ember");
+    Window       w = Window {};
+    WindowConfig cfg = {
+        .title = "ember",
+        .width = 1280,
+        .height = 720,
+        .vsync = true,
+        .fullscreen = false,
+    };
+    b32 ok = window_create(&w, &cfg);
 
     if (!ok) {
         LOG_ERROR("main", "window failed to create");
         return 1;
     }
 
-    Device* d = create_device(&w);
+    Device* d = device_create(&w);
     if (!d) {
         LOG_ERROR("main", "failed to create rhi device");
-        destroy_window(&w);
+        window_destroy(&w);
     }
 
     BufferDesc vb_desc = { .type = BufferType::Vertex,
@@ -115,19 +122,19 @@ int main() {
         .data = cube_verts,
         .size = sizeof(cube_verts) };
 
-    BufferHandle vbo = create_buffer(d, &vb_desc);
+    BufferHandle vbo = buffer_create(d, &vb_desc);
 
     BufferDesc ib_desc = { .type = BufferType::Index,
         .usage = BufferUsage::Static,
         .data = cube_indices,
         .size = sizeof(cube_indices) };
 
-    BufferHandle ibo = create_buffer(d, &ib_desc);
+    BufferHandle ibo = buffer_create(d, &ib_desc);
 
     ShaderDesc sh_desc
         = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
 
-    ShaderHandle shader = create_shader(d, &sh_desc);
+    ShaderHandle shader = shader_create(d, &sh_desc);
 
     VertexAttrib attribs[] = {
         { .format = VertexFormat::F32x3, .offset = 0 }, // pos
@@ -144,7 +151,7 @@ int main() {
         .primitive = Primitive::Triangles,
     };
 
-    PipelineHandle pipeline = create_pipeline(d, &pip_desc);
+    PipelineHandle pipeline = pipeline_create(d, &pip_desc);
 
     f32  aspect = (f32)w.width / (f32)w.height;
     mat4 proj = perspective(0.785f, aspect, 0.1f, 100.0f); // 45deg
@@ -153,9 +160,9 @@ int main() {
     f64 last_time = glfwGetTime();
 
     while (!w.should_close) {
-        poll_events(&w);
+        window_poll_events(&w);
 
-        f64 now = glfwGetTime();
+        f64 now = window_get_time(&w);
         f32 dt = (f32)(now - last_time);
         last_time = now;
 
@@ -177,15 +184,15 @@ int main() {
         dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
         draw(d, &dd);
 
-        swap_buffers(&w);
+        window_swap_buffers(&w);
     }
 
-    destroy_pipeline(d, pipeline);
-    destroy_shader(d, shader);
-    destroy_buffer(d, ibo);
-    destroy_buffer(d, vbo);
-    destroy_device(d);
-    destroy_window(&w);
+    pipeline_destroy(d, pipeline);
+    shader_destroy(d, shader);
+    buffer_destroy(d, ibo);
+    buffer_destroy(d, vbo);
+    device_destroy(d);
+    window_destroy(&w);
 
     return 0;
 }

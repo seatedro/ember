@@ -96,17 +96,17 @@ struct DrawDesc {
 struct Device; // opaque type, defined per backend
 
 // API
-Device* create_device(Window* window);
-void    destroy_device(Device* d);
+Device* device_create(Window* window);
+void    device_destroy(Device* d);
 
-BufferHandle create_buffer(Device* d, BufferDesc* desc);
-void         destroy_buffer(Device* d, BufferHandle h);
+BufferHandle buffer_create(Device* d, BufferDesc* desc);
+void         buffer_destroy(Device* d, BufferHandle h);
 
-ShaderHandle create_shader(Device* d, ShaderDesc* desc);
-void         destroy_shader(Device* d, ShaderHandle h);
+ShaderHandle shader_create(Device* d, ShaderDesc* desc);
+void         shader_destroy(Device* d, ShaderHandle h);
 
-PipelineHandle create_pipeline(Device* d, PipelineDesc* desc);
-void           destroy_pipeline(Device* d, PipelineHandle h);
+PipelineHandle pipeline_create(Device* d, PipelineDesc* desc);
+void           pipeline_destroy(Device* d, PipelineHandle h);
 
 void bind_pipeline(Device* d, PipelineHandle h);
 void bind_vertex_buffer(Device* d, BufferHandle h);

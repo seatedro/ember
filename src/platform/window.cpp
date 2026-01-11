@@ -13,7 +13,7 @@ internal void glfw_error_callback(int error, const char* desc) {
     LOG_ERROR("glfw", "[%d] %s", error, desc);
 }
 
-b32 create_window(Window* w, u32 width, u32 height, const char* title) {
+b32 window_create(Window* w, const WindowConfig* cfg) {
     glfwSetErrorCallback(glfw_error_callback);
 
     if (glfwInit() != GLFW_TRUE) {
@@ -37,7 +37,7 @@ b32 create_window(Window* w, u32 width, u32 height, const char* title) {
 #error "No RHI backend defined"
 #endif
 
-    GLFWwindow* handle = glfwCreateWindow(width, height, title, null, null);
+    GLFWwindow* handle = glfwCreateWindow(cfg->width, cfg->height, cfg->title, null, null);
     if (!handle) {
         LOG_ERROR("window", "failed to create window");
         glfwTerminate();
@@ -57,16 +57,16 @@ b32 create_window(Window* w, u32 width, u32 height, const char* title) {
 #endif
 
     w->handle = handle;
-    w->height = height;
-    w->width = width;
+    w->height = cfg->height;
+    w->width = cfg->width;
     w->should_close = false;
 
-    LOG_INFO("window", "created window : %dx%d", width, height);
+    LOG_INFO("window", "created window : %dx%d", cfg->width, cfg->height);
 
     return true;
 }
 
-void destroy_window(Window* w) {
+void window_destroy(Window* w) {
     if (w->handle) {
         glfwDestroyWindow((GLFWwindow*)w->handle);
         glfwTerminate();
@@ -74,11 +74,16 @@ void destroy_window(Window* w) {
     }
 }
 
-void poll_events(Window* w) {
+void window_poll_events(Window* w) {
     glfwPollEvents();
     w->should_close = glfwWindowShouldClose((GLFWwindow*)w->handle);
 }
 
-void swap_buffers(Window* w) { glfwSwapBuffers((GLFWwindow*)w->handle); }
+void window_swap_buffers(Window* w) { glfwSwapBuffers((GLFWwindow*)w->handle); }
+
+f64 window_get_time(Window* w) {
+    (void)w;
+    return glfwGetTime();
+}
 
 } // namespace ember

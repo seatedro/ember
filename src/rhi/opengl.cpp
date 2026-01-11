@@ -102,7 +102,7 @@ internal u32 compare_to_gl(CompareFn fn) {
     }
 }
 
-Device* create_device(Window* window) {
+Device* device_create(Window* window) {
     g_device = {};
     g_device.window = window;
     g_device.bound_pipeline.id = HANDLE_INVALID_ID;
@@ -112,9 +112,9 @@ Device* create_device(Window* window) {
     return &g_device;
 }
 
-void destroy_device(Device* d) { *d = {}; }
+void device_destroy(Device* d) { *d = {}; }
 
-BufferHandle create_buffer(Device* d, BufferDesc* desc) {
+BufferHandle buffer_create(Device* d, BufferDesc* desc) {
     EMBER_ASSERT(d);
     EMBER_ASSERT(desc);
     EMBER_ASSERT(desc->size > 0);
@@ -136,7 +136,7 @@ BufferHandle create_buffer(Device* d, BufferDesc* desc) {
     return { id };
 }
 
-void destroy_buffer(Device* d, BufferHandle h) {
+void buffer_destroy(Device* d, BufferHandle h) {
     EMBER_ASSERT(d);
     if (!handle_valid(h))
         return;
@@ -207,7 +207,7 @@ internal u32 compile_shader(const char* src, u32 type, const char* name) {
     return shader;
 }
 
-ShaderHandle create_shader(Device* d, ShaderDesc* desc) {
+ShaderHandle shader_create(Device* d, ShaderDesc* desc) {
     u32 vs = compile_shader(desc->vertex_src, GL_VERTEX_SHADER, desc->name);
     u32 fs = compile_shader(desc->fragment_src, GL_FRAGMENT_SHADER, desc->name);
 
@@ -248,13 +248,13 @@ ShaderHandle create_shader(Device* d, ShaderDesc* desc) {
     return { id };
 }
 
-void destroy_shader(Device* d, ShaderHandle h) {
+void shader_destroy(Device* d, ShaderHandle h) {
     Shader* sh = d->shaders.get(h.id);
     glDeleteProgram(sh->program);
     GL_CHECK();
 }
 
-PipelineHandle create_pipeline(Device* d, PipelineDesc* desc) {
+PipelineHandle pipeline_create(Device* d, PipelineDesc* desc) {
     EMBER_ASSERT(d);
     EMBER_ASSERT(desc);
     EMBER_ASSERT(handle_valid(desc->shader));
@@ -277,7 +277,7 @@ PipelineHandle create_pipeline(Device* d, PipelineDesc* desc) {
     return { id };
 }
 
-void destroy_pipeline(Device* d, PipelineHandle h) {
+void pipeline_destroy(Device* d, PipelineHandle h) {
     Pipeline* pip = d->pipelines.get(h.id);
     glDeleteVertexArrays(1, &pip->vao);
     GL_CHECK();
