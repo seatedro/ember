@@ -33,6 +33,7 @@ struct Pipeline {
     DepthState   depth;
     RasterState  raster;
     Primitive    primitive;
+    BlendState   blend;
     u32          vao;
 };
 
@@ -109,6 +110,54 @@ internal u32 compare_to_gl(CompareFn fn) {
     case CompareFn::Always:
         return GL_ALWAYS;
     }
+}
+
+internal u32 blend_factor_to_gl(BlendFactor f) {
+    switch (f) {
+    case BlendFactor::Zero:
+        return GL_ZERO;
+    case BlendFactor::One:
+        return GL_ONE;
+    case BlendFactor::SrcColor:
+        return GL_SRC_COLOR;
+    case BlendFactor::OneMinusSrcColor:
+        return GL_ONE_MINUS_SRC_COLOR;
+    case BlendFactor::DstColor:
+        return GL_DST_COLOR;
+    case BlendFactor::OneMinusDstColor:
+        return GL_ONE_MINUS_DST_COLOR;
+    case BlendFactor::SrcAlpha:
+        return GL_SRC_ALPHA;
+    case BlendFactor::OneMinusSrcAlpha:
+        return GL_ONE_MINUS_SRC_ALPHA;
+    case BlendFactor::DstAlpha:
+        return GL_DST_ALPHA;
+    case BlendFactor::OneMinusDstAlpha:
+        return GL_ONE_MINUS_DST_ALPHA;
+    case BlendFactor::SrcAlphaSaturate:
+        return GL_SRC_ALPHA_SATURATE;
+    case BlendFactor::ConstantColor:
+        return GL_CONSTANT_COLOR;
+    case BlendFactor::OneMinusConstantColor:
+        return GL_ONE_MINUS_CONSTANT_COLOR;
+    }
+    return GL_ONE;
+}
+
+internal u32 blend_op_to_gl(BlendOp op) {
+    switch (op) {
+    case BlendOp::Add:
+        return GL_FUNC_ADD;
+    case BlendOp::Subtract:
+        return GL_FUNC_SUBTRACT;
+    case BlendOp::ReverseSubtract:
+        return GL_FUNC_REVERSE_SUBTRACT;
+    case BlendOp::Min:
+        return GL_MIN;
+    case BlendOp::Max:
+        return GL_MAX;
+    }
+    return GL_FUNC_ADD;
 }
 
 Device* device_create(Window* window) {
@@ -193,6 +242,42 @@ void set_uniform_mat4(Device* d, ShaderHandle sh, const char* name, mat4* m) {
     i32 loc = get_uniform_location(d, sh, name);
     if (loc >= 0) {
         glUniformMatrix4fv(loc, 1, GL_FALSE, m->data);
+    }
+}
+
+void set_uniform_i32(Device* d, ShaderHandle sh, const char* name, i32 value) {
+    Shader* s = d->shaders.get(sh.id);
+    glUseProgram(s->program);
+    i32 loc = get_uniform_location(d, sh, name);
+    if (loc >= 0) {
+        glUniform1i(loc, value);
+    }
+}
+
+void set_uniform_f32(Device* d, ShaderHandle sh, const char* name, f32 value) {
+    Shader* s = d->shaders.get(sh.id);
+    glUseProgram(s->program);
+    i32 loc = get_uniform_location(d, sh, name);
+    if (loc >= 0) {
+        glUniform1f(loc, value);
+    }
+}
+
+void set_uniform_vec3(Device* d, ShaderHandle sh, const char* name, vec3* v) {
+    Shader* s = d->shaders.get(sh.id);
+    glUseProgram(s->program);
+    i32 loc = get_uniform_location(d, sh, name);
+    if (loc >= 0) {
+        glUniform3fv(loc, 1, &v->x);
+    }
+}
+
+void set_uniform_vec4(Device* d, ShaderHandle sh, const char* name, vec4* v) {
+    Shader* s = d->shaders.get(sh.id);
+    glUseProgram(s->program);
+    i32 loc = get_uniform_location(d, sh, name);
+    if (loc >= 0) {
+        glUniform4fv(loc, 1, &v->x);
     }
 }
 
@@ -328,6 +413,17 @@ void bind_pipeline(Device* d, PipelineHandle h) {
     } else {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
+
+    if (pip->blend.enabled) {
+        glEnable(GL_BLEND);
+        glBlendEquationSeparate(
+            blend_op_to_gl(pip->blend.op_rgb), blend_op_to_gl(pip->blend.op_alpha));
+        glBlendFuncSeparate(blend_factor_to_gl(pip->blend.src_rgb),
+            blend_factor_to_gl(pip->blend.dst_rgb), blend_factor_to_gl(pip->blend.src_alpha),
+            blend_factor_to_gl(pip->blend.dst_alpha));
+    } else {
+        glDisable(GL_BLEND);
+    }
 }
 
 void bind_vertex_buffer(Device* d, BufferHandle h) {
@@ -386,6 +482,25 @@ void draw(Device* d, DrawConfig* cfg) {
             (void*)(uintptr_t)(cfg->first_index * sizeof(u32)));
     } else {
         glDrawArrays(prim, cfg->first_vertex, cfg->vertex_count);
+    }
+}
+
+void present(Device* d) {
+    EMBER_ASSERT(d);
+    EMBER_ASSERT(d->window);
+    window_swap_buffers(d->window);
+}
+
+void set_scissor(u32 x, u32 y, u32 w, u32 h) {
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x, y, w, h);
+}
+
+void set_scissor_enabled(b32 enabled) {
+    if (enabled) {
+        glEnable(GL_SCISSOR_TEST);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
     }
 }
 

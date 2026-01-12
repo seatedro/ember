@@ -66,6 +66,22 @@ enum class CompareFn : u32 {
 enum class Primitive : u32 { Triangles, Lines, Points };
 enum class Winding : u32 { CW, CCW };
 enum class VertexFormat : u32 { F32 = 1, F32x2 = 2, F32x3 = 3, F32x4 = 4 };
+enum class BlendFactor : u32 {
+    Zero,
+    One,
+    SrcColor,
+    OneMinusSrcColor,
+    DstColor,
+    OneMinusDstColor,
+    SrcAlpha,
+    OneMinusSrcAlpha,
+    DstAlpha,
+    OneMinusDstAlpha,
+    SrcAlphaSaturate,
+    ConstantColor,
+    OneMinusConstantColor,
+};
+enum class BlendOp : u32 { Add, Subtract, ReverseSubtract, Min, Max };
 
 struct VertexAttrib {
     VertexFormat format;
@@ -90,11 +106,76 @@ struct RasterState {
     b32      wireframe;
 };
 
+struct BlendState {
+    b32         enabled;
+    BlendFactor src_rgb;
+    BlendFactor dst_rgb;
+    BlendOp     op_rgb;
+    BlendFactor src_alpha;
+    BlendFactor dst_alpha;
+    BlendOp     op_alpha;
+};
+
+namespace BlendPresets {
+
+    constexpr BlendState Opaque = {
+        .enabled = false,
+        .src_rgb = BlendFactor::One,
+        .dst_rgb = BlendFactor::Zero,
+        .op_rgb = BlendOp::Add,
+        .src_alpha = BlendFactor::One,
+        .dst_alpha = BlendFactor::Zero,
+        .op_alpha = BlendOp::Add,
+    };
+
+    constexpr BlendState Alpha = {
+        .enabled = true,
+        .src_rgb = BlendFactor::SrcAlpha,
+        .dst_rgb = BlendFactor::OneMinusSrcAlpha,
+        .op_rgb = BlendOp::Add,
+        .src_alpha = BlendFactor::One,
+        .dst_alpha = BlendFactor::OneMinusSrcAlpha,
+        .op_alpha = BlendOp::Add,
+    };
+
+    constexpr BlendState Additive = {
+        .enabled = true,
+        .src_rgb = BlendFactor::SrcAlpha,
+        .dst_rgb = BlendFactor::One,
+        .op_rgb = BlendOp::Add,
+        .src_alpha = BlendFactor::One,
+        .dst_alpha = BlendFactor::One,
+        .op_alpha = BlendOp::Add,
+    };
+
+    constexpr BlendState Multiply = {
+        .enabled = true,
+        .src_rgb = BlendFactor::DstColor,
+        .dst_rgb = BlendFactor::Zero,
+        .op_rgb = BlendOp::Add,
+        .src_alpha = BlendFactor::DstAlpha,
+        .dst_alpha = BlendFactor::Zero,
+        .op_alpha = BlendOp::Add,
+    };
+
+    constexpr BlendState PremultipliedAlpha = {
+        .enabled = true,
+        .src_rgb = BlendFactor::One,
+        .dst_rgb = BlendFactor::OneMinusSrcAlpha,
+        .op_rgb = BlendOp::Add,
+        .src_alpha = BlendFactor::One,
+        .dst_alpha = BlendFactor::OneMinusSrcAlpha,
+        .op_alpha = BlendOp::Add,
+    };
+
+} // namespace BlendPresets
+
 struct PipelineConfig {
     ShaderHandle shader;
     VertexLayout layout;
     DepthState   depth;
     RasterState  raster;
+    BlendState   blend;
     Primitive    primitive;
 };
 
@@ -142,10 +223,18 @@ void bind_vertex_buffer(Device* d, BufferHandle h);
 void bind_index_buffer(Device* d, BufferHandle h);
 
 void set_uniform_mat4(Device* d, ShaderHandle sh, const char* name, mat4* m);
+void set_uniform_i32(Device* d, ShaderHandle sh, const char* name, i32 value);
+void set_uniform_f32(Device* d, ShaderHandle sh, const char* name, f32 value);
+void set_uniform_vec3(Device* d, ShaderHandle sh, const char* name, vec3* v);
+void set_uniform_vec4(Device* d, ShaderHandle sh, const char* name, vec4* v);
 
 void set_viewport(u32 x, u32 y, u32 w, u32 h);
 void clear(f32 r, f32 g, f32 b, f32 a, f32 depth);
 void draw(Device* d, DrawConfig* desc);
+void present(Device* d);
+
+void set_scissor(u32 x, u32 y, u32 w, u32 h);
+void set_scissor_enabled(b32 enabled);
 
 TextureHandle texture_create(Device* d, const TextureConfig* cfg);
 void          texture_destroy(Device* d, TextureHandle handle);
