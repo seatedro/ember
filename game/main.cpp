@@ -1,6 +1,6 @@
-#include "GLFW/glfw3.h"
 #include "core/core.h"
 #include "core/math.h"
+#include "ember.h"
 #include "platform/window.h"
 #include "rhi/rhi.h"
 #include <cstdlib>
@@ -95,104 +95,115 @@ global const char* frag_src = R"(
 )";
 #endif
 
-int main() {
-    Window       w = Window {};
-    WindowConfig cfg = {
-        .title = "ember",
-        .width = 1280,
-        .height = 720,
-        .vsync = true,
-        .fullscreen = false,
-    };
-    b32 ok = window_create(&w, &cfg);
+struct GameState {
+    PipelineHandle pip;
+    BufferHandle   vbo;
+    BufferHandle   ibo;
+    ShaderHandle   shader;
 
-    if (!ok) {
-        LOG_ERROR("main", "window failed to create");
-        return 1;
-    }
+    mat4 proj;
+    mat4 view;
+    f32  rx;
+    f32  ry;
+};
 
-    Device* d = device_create(&w);
-    if (!d) {
-        LOG_ERROR("main", "failed to create rhi device");
-        window_destroy(&w);
-    }
+void game_init(void* userdata) {
+    GameState* game = (GameState*)userdata;
+    Device*    d = ember_context()->device;
+    Window*    w = ember_context()->window;
 
     BufferConfig vb_desc = { .type = BufferType::Vertex,
         .usage = BufferUsage::Static,
         .data = cube_verts,
         .size = sizeof(cube_verts) };
 
-    BufferHandle vbo = buffer_create(d, &vb_desc);
+    game->vbo = buffer_create(d, &vb_desc);
 
     BufferConfig ib_desc = { .type = BufferType::Index,
         .usage = BufferUsage::Static,
         .data = cube_indices,
         .size = sizeof(cube_indices) };
 
-    BufferHandle ibo = buffer_create(d, &ib_desc);
+    game->ibo = buffer_create(d, &ib_desc);
 
     ShaderConfig sh_desc
         = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
 
-    ShaderHandle shader = shader_create(d, &sh_desc);
+    game->shader = shader_create(d, &sh_desc);
 
-    VertexAttrib attribs[] = {
+    VertexLayout layout = { .attribs = {
         { .format = VertexFormat::F32x3, .offset = 0 }, // pos
         { .format = VertexFormat::F32x3, .offset = sizeof(f32) * 3 } // color
-    };
-
-    VertexLayout layout = { .attribs = attribs, .attrib_count = 2, .stride = sizeof(f32) * 6 };
+    }, .attrib_count = 2, .stride = sizeof(f32) * 6 };
 
     PipelineConfig pip_desc = {
-        .shader = shader,
+        .shader = game->shader,
         .layout = layout,
         .depth = { .test_enabled = true, .write_enabled = true, .compare = CompareFn::Less },
         .raster = { .cull = CullMode::Back, .winding = Winding::CCW, .wireframe = false },
+        .blend = BlendPresets::Opaque,
         .primitive = Primitive::Triangles,
     };
 
-    PipelineHandle pipeline = pipeline_create(d, &pip_desc);
+    game->pip = pipeline_create(d, &pip_desc);
 
-    f32  aspect = (f32)w.width / (f32)w.height;
-    mat4 proj = perspective(0.785f, aspect, 0.1f, 100.0f); // 45deg
-    mat4 view = look_at({ 0, 1.5f, 4 }, { 0, 0, 0 }, { 0, 1, 0 });
-
-    f64 last_time = glfwGetTime();
-
-    while (!w.should_close) {
-        window_poll_events(&w);
-
-        f64 now = window_get_time(&w);
-        f32 dt = (f32)(now - last_time);
-        last_time = now;
-
-        static f32 rx = 0.0f, ry = 0.0f;
-        rx += dt * 1.0f;
-        ry += dt * 2.0f;
-        mat4 model = rotate_y(ry) * rotate_x(rx);
-        mat4 mvp = proj * view * model;
-
-        set_viewport(0, 0, w.width, w.height);
-        clear(0.1f, 0.1f, 0.1f, 1.0f, 1.0f);
-
-        bind_pipeline(d, pipeline);
-        bind_vertex_buffer(d, vbo);
-        bind_index_buffer(d, ibo);
-        set_uniform_mat4(d, shader, "u_mvp", &mvp);
-
-        DrawConfig dd = {};
-        dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
-        draw(d, &dd);
-
-        window_swap_buffers(&w);
-    }
-
-    pipeline_destroy(d, pipeline);
-    shader_destroy(d, shader);
-    buffer_destroy(d, ibo);
-    buffer_destroy(d, vbo);
-    device_destroy(d);
-    window_destroy(&w);
-
-    return 0;
+    f32 aspect = (f32)w->width / (f32)w->height;
+    game->proj = perspective(0.785f, aspect, 0.1f, 100.0f); // 45deg
+    game->view = look_at({ 0, 1.5f, 4 }, { 0, 0, 0 }, { 0, 1, 0 });
+    game->rx = 0.0f;
+    game->ry = 0.0f;
 }
+
+void game_update(void* userdata, f32 dt) {
+    GameState* game = (GameState*)userdata;
+
+    game->rx += dt * 1.0f;
+    game->ry += dt * 2.0f;
+}
+
+void game_draw(void* userdata) {
+    GameState* game = (GameState*)userdata;
+    Device*    d = ember_context()->device;
+    Window*    w = ember_context()->window;
+
+    mat4 model = rotate_x(game->rx) * rotate_y(game->ry);
+    mat4 mvp = game->proj * game->view * model;
+
+    set_viewport(0, 0, w->width, w->height);
+    clear(0.1f, 0.1f, 0.1f, 1.0f, 1.0f);
+
+    bind_pipeline(d, game->pip);
+    bind_vertex_buffer(d, game->vbo);
+    bind_index_buffer(d, game->ibo);
+    set_uniform_mat4(d, game->shader, "u_mvp", &mvp);
+
+    DrawConfig dd = {};
+    dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
+    draw(d, &dd);
+}
+
+void game_quit(void* userdata) {
+    GameState* game = (GameState*)userdata;
+    Device*    dev = ember_context()->device;
+
+    pipeline_destroy(dev, game->pip);
+    shader_destroy(dev, game->shader);
+    buffer_destroy(dev, game->ibo);
+    buffer_destroy(dev, game->vbo);
+}
+
+global GameState g_state;
+
+EmberConfig cfg = {
+    .title = "ember",
+    .width = 1280,
+    .height = 720,
+    .vsync = true,
+    .sample_count = 0,
+    .fixed_timestep = 0,
+    .userdata = &g_state,
+    .init = game_init,
+    .update = game_update,
+    .draw = game_draw,
+    .quit = game_quit,
+};

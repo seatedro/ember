@@ -3,7 +3,8 @@
 #include "core/math.h"
 #include "platform/window.h"
 
-#define HANDLE_INVALID_ID UINT32_MAX
+#define HANDLE_INVALID_ID  UINT32_MAX
+#define MAX_VERTEX_ATTRIBS 16
 
 namespace ember {
 
@@ -89,9 +90,9 @@ struct VertexAttrib {
 };
 
 struct VertexLayout {
-    VertexAttrib* attribs;
-    u32           attrib_count;
-    u32           stride;
+    VertexAttrib attribs[MAX_VERTEX_ATTRIBS];
+    u32          attrib_count;
+    u32          stride;
 };
 
 struct DepthState {
