@@ -32,10 +32,10 @@ struct EmberContext {
 
 void ember_run(EmberConfig* cfg);
 
-f32           ember_frame_duration();
-f64           ember_elapsed_time();
-u64           ember_frame_count();
+f32 ember_frame_duration();
+f64 ember_elapsed_time();
+u64 ember_frame_count();
 EmberContext* ember_context();
-void          ember_request_quit();
+void ember_request_quit();
 
 } // namespace ember

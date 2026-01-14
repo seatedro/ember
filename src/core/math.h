@@ -32,9 +32,9 @@ inline vec3 operator*(f32 s, vec3 a) { return { a.x * s, a.y * s, a.z * s }; }
 
 mat4 operator*(mat4 a, mat4 b);
 
-f32  dot(vec3 a, vec3 b);
+f32 dot(vec3 a, vec3 b);
 vec3 cross(vec3 a, vec3 b);
-f32  length(vec3 v);
+f32 length(vec3 v);
 vec3 normalize(vec3 v);
 
 mat4 identity();

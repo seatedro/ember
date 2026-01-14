@@ -1,7 +1,9 @@
 #include "core/core.h"
+#include "core/file.h"
 #include "platform/window.h"
 #include "rhi.h"
 #include <cstdint>
+#include <cstring>
 #include <glad/glad.h>
 #include <utility>
 
@@ -281,6 +283,162 @@ void set_uniform_vec4(Device* d, ShaderHandle sh, const char* name, vec4* v) {
     }
 }
 
+// internal u32 shader_link_program(u32 vert, u32 frag, const char* name) {
+//     u32 prog = glCreateProgram();
+//     glAttachShader(prog, vert);
+//     glAttachShader(prog, frag);
+//     glLinkProgram(prog);
+//     GL_CHECK();
+//
+//     i32 ok = 0;
+//     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+//     if (!ok) {
+//         char log[512];
+//         glGetProgramInfoLog(prog, sizeof(log), null, log);
+//         LOG_ERROR("rhi", "shader link error (%s): %s", name, log);
+//         glDeleteProgram(prog);
+//         return 0;
+//     }
+//
+//     glDetachShader(prog, vert);
+//     glDetachShader(prog, frag);
+//
+//     return prog;
+// }
+
+ShaderHandle shader_load_files(
+    Arena*      arena,
+    Device*     device,
+    const char* vert_path,
+    const char* frag_path,
+    const char* name
+) {
+    u64 mark = arena->used;
+
+    EmberFile vert_file = read_file_text(arena, vert_path);
+    EmberFile frag_file = read_file_text(arena, frag_path);
+
+    if (!vert_file.success || !frag_file.success) {
+        arena->used = mark; // rollback arena
+        return { HANDLE_INVALID_ID };
+    }
+
+    ShaderConfig shader_cfg = {
+        .vertex_src = (const char*)vert_file.data,
+        .fragment_src = (const char*)frag_file.data,
+        .name = name,
+    };
+
+    ShaderHandle handle = shader_create(device, &shader_cfg);
+
+    arena->used = mark; // rollback arena
+
+    return handle;
+}
+
+internal b32 parse_combined_shader(
+    const char*  src,
+    const char** out_vert,
+    u64*         out_vert_len,
+    const char** out_frag,
+    u64*         out_frag_len
+) {
+    const char* vert_start = null;
+    const char* frag_start = null;
+    const char* vert_end = null;
+    const char* frag_end = null;
+
+    const char* cursor = src;
+    while (*cursor) {
+        if (strncmp(cursor, "#pragma stage:", 14) == 0) {
+            cursor += 14;
+
+            while (*cursor == ' ' || *cursor == '\t')
+                cursor++;
+
+            if (strncmp(cursor, "vertex", 6) == 0 || strncmp(cursor, "vert", 4) == 0) {
+                while (*cursor && *cursor != '\n')
+                    cursor++;
+                if (*cursor == '\n')
+                    cursor++;
+                vert_start = cursor;
+            } else if (strncmp(cursor, "fragment", 8) == 0 || strncmp(cursor, "frag", 4) == 0) {
+                if (vert_start && !vert_end) {
+                    vert_end = cursor - 14;
+                    while (vert_end > vert_start
+                           && (*(vert_end - 1) == ' ' || *(vert_end - 1) == '\n')) {
+                        vert_end--;
+                    }
+                }
+                while (*cursor && *cursor != '\n')
+                    cursor++;
+                if (*cursor == '\n')
+                    cursor++;
+                frag_start = cursor;
+            }
+        }
+
+        if (*cursor)
+            cursor++;
+    }
+
+    if (frag_start)
+        frag_end = cursor;
+
+    if (!vert_start || !frag_start) {
+        LOG_ERROR("shader", "missing #pragma stage:vertex or #pragma stage:fragment");
+        return false;
+    }
+
+    *out_vert = vert_start;
+    *out_vert_len = (u64)(vert_end - vert_start);
+    *out_frag = frag_start;
+    *out_frag_len = (u64)(frag_end - frag_start);
+
+    return true;
+}
+
+ShaderHandle
+shader_load_combined(Arena* arena, Device* device, const char* path, const char* name) {
+    u64 mark = arena->used;
+
+    EmberFile file = read_file_text(arena, path);
+    if (!file.success) {
+        arena->used = mark;
+        return { HANDLE_INVALID_ID };
+    }
+
+    const char* src = (const char*)file.data;
+    const char* vert_src = null;
+    const char* frag_src = null;
+    u64         vert_len = 0;
+    u64         frag_len = 0;
+
+    if (!parse_combined_shader(src, &vert_src, &vert_len, &frag_src, &frag_len)) {
+        arena->used = mark;
+        return { HANDLE_INVALID_ID };
+    }
+
+    char* vert_copy = Arena::alloc_array<char>(arena, vert_len + 1);
+    char* frag_copy = Arena::alloc_array<char>(arena, frag_len + 1);
+    memcpy(vert_copy, vert_src, vert_len);
+    memcpy(frag_copy, frag_src, vert_len);
+    vert_copy[vert_len] = '\0';
+    frag_copy[frag_len] = '\0';
+
+    ShaderConfig config = {
+        .vertex_src = vert_copy,
+        .fragment_src = frag_copy,
+        .name = name,
+    };
+
+    ShaderHandle handle = shader_create(device, &config);
+
+    arena->used = mark;
+
+    return handle;
+}
+
 internal u32 compile_shader(const char* src, u32 type, const char* name) {
     u32 shader = glCreateShader(type);
     glShaderSource(shader, 1, &src, null);
@@ -417,10 +575,14 @@ void bind_pipeline(Device* d, PipelineHandle h) {
     if (pip->blend.enabled) {
         glEnable(GL_BLEND);
         glBlendEquationSeparate(
-            blend_op_to_gl(pip->blend.op_rgb), blend_op_to_gl(pip->blend.op_alpha));
-        glBlendFuncSeparate(blend_factor_to_gl(pip->blend.src_rgb),
-            blend_factor_to_gl(pip->blend.dst_rgb), blend_factor_to_gl(pip->blend.src_alpha),
-            blend_factor_to_gl(pip->blend.dst_alpha));
+            blend_op_to_gl(pip->blend.op_rgb), blend_op_to_gl(pip->blend.op_alpha)
+        );
+        glBlendFuncSeparate(
+            blend_factor_to_gl(pip->blend.src_rgb),
+            blend_factor_to_gl(pip->blend.dst_rgb),
+            blend_factor_to_gl(pip->blend.src_alpha),
+            blend_factor_to_gl(pip->blend.dst_alpha)
+        );
     } else {
         glDisable(GL_BLEND);
     }
@@ -444,8 +606,14 @@ void bind_vertex_buffer(Device* d, BufferHandle h) {
 
         glEnableVertexAttribArray(i);
         // TODO: need to add some helpers when we add more vertex formats
-        glVertexAttribPointer(i, std::to_underlying(a->format), GL_FLOAT, GL_FALSE,
-            pip->layout.stride, (void*)(uintptr_t)a->offset);
+        glVertexAttribPointer(
+            i,
+            std::to_underlying(a->format),
+            GL_FLOAT,
+            GL_FALSE,
+            pip->layout.stride,
+            (void*)(uintptr_t)a->offset
+        );
     }
     GL_CHECK();
 
@@ -478,8 +646,12 @@ void draw(Device* d, DrawConfig* cfg) {
     GLenum    prim = primitive_to_gl(pip->primitive);
 
     if (cfg->index_count > 0) {
-        glDrawElements(prim, cfg->index_count, GL_UNSIGNED_INT,
-            (void*)(uintptr_t)(cfg->first_index * sizeof(u32)));
+        glDrawElements(
+            prim,
+            cfg->index_count,
+            GL_UNSIGNED_INT,
+            (void*)(uintptr_t)(cfg->first_index * sizeof(u32))
+        );
     } else {
         glDrawArrays(prim, cfg->first_vertex, cfg->vertex_count);
     }

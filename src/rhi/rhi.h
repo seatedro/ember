@@ -208,16 +208,19 @@ struct Device; // opaque type, defined per backend
 
 // API
 Device* device_create(Window* window);
-void    device_destroy(Device* d);
+void device_destroy(Device* d);
 
 BufferHandle buffer_create(Device* d, BufferConfig* cfg);
-void         buffer_destroy(Device* d, BufferHandle h);
+void buffer_destroy(Device* d, BufferHandle h);
 
 ShaderHandle shader_create(Device* d, ShaderConfig* cfg);
-void         shader_destroy(Device* d, ShaderHandle h);
+ShaderHandle
+shader_load_from_files(Arena* arena, Device* device, const char* vert_path, const char* frag_path);
+ShaderHandle shader_load_combined(Arena* arena, Device* device, const char* path, const char* name);
+void shader_destroy(Device* d, ShaderHandle h);
 
 PipelineHandle pipeline_create(Device* d, PipelineConfig* cfg);
-void           pipeline_destroy(Device* d, PipelineHandle h);
+void pipeline_destroy(Device* d, PipelineHandle h);
 
 void bind_pipeline(Device* d, PipelineHandle h);
 void bind_vertex_buffer(Device* d, BufferHandle h);
@@ -238,8 +241,8 @@ void set_scissor(u32 x, u32 y, u32 w, u32 h);
 void set_scissor_enabled(b32 enabled);
 
 TextureHandle texture_create(Device* d, const TextureConfig* cfg);
-void          texture_destroy(Device* d, TextureHandle handle);
-void          texture_bind(Device* d, TextureHandle handle, u32 slot);
-void          texture_update(Device* d, TextureHandle handle, const void* data);
+void texture_destroy(Device* d, TextureHandle handle);
+void texture_bind(Device* d, TextureHandle handle, u32 slot);
+void texture_update(Device* d, TextureHandle handle, const void* data);
 
 } // namespace ember

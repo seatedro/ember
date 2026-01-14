@@ -51,50 +51,6 @@ global u32 cube_indices[] = {
 };
 // clang-format on
 
-#if defined(__APPLE__)
-global const char* vert_src = R"(
-    #version 410 core
-    layout(location = 0) in vec3 a_position;
-    layout(location = 1) in vec3 a_color;
-    uniform mat4 u_mvp;
-    out vec3 v_color;
-    void main() {
-        gl_Position = u_mvp * vec4(a_position, 1.0);
-        v_color = a_color;
-    }
-)";
-
-global const char* frag_src = R"(
-    #version 410 core
-    in vec3 v_color;
-    out vec4 frag_color;
-    void main() {
-        frag_color = vec4(v_color, 1.0);
-    }
-)";
-#else
-global const char* vert_src = R"(
-    #version 460 core
-    layout(location = 0) in vec3 a_position;
-    layout(location = 1) in vec3 a_color;
-    uniform mat4 u_mvp;
-    out vec3 v_color;
-    void main() {
-        gl_Position = u_mvp * vec4(a_position, 1.0);
-        v_color = a_color;
-    }
-)";
-
-global const char* frag_src = R"(
-    #version 460 core
-    in vec3 v_color;
-    out vec4 frag_color;
-    void main() {
-        frag_color = vec4(v_color, 1.0);
-    }
-)";
-#endif
-
 struct GameState {
     PipelineHandle pip;
     BufferHandle   vbo;
@@ -111,25 +67,23 @@ void game_init(void* userdata) {
     GameState* game = (GameState*)userdata;
     Device*    d = ember_context()->device;
     Window*    w = ember_context()->window;
+    Arena*     arena = &ember_context()->frame_arena;
 
     BufferConfig vb_desc = { .type = BufferType::Vertex,
-        .usage = BufferUsage::Static,
-        .data = cube_verts,
-        .size = sizeof(cube_verts) };
+                             .usage = BufferUsage::Static,
+                             .data = cube_verts,
+                             .size = sizeof(cube_verts) };
 
     game->vbo = buffer_create(d, &vb_desc);
 
     BufferConfig ib_desc = { .type = BufferType::Index,
-        .usage = BufferUsage::Static,
-        .data = cube_indices,
-        .size = sizeof(cube_indices) };
+                             .usage = BufferUsage::Static,
+                             .data = cube_indices,
+                             .size = sizeof(cube_indices) };
 
     game->ibo = buffer_create(d, &ib_desc);
 
-    ShaderConfig sh_desc
-        = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
-
-    game->shader = shader_create(d, &sh_desc);
+    game->shader = shader_load_combined(arena, d, "shaders/basic.glsl", "basic");
 
     VertexLayout layout = { .attribs = {
         { .format = VertexFormat::F32x3, .offset = 0 }, // pos

@@ -108,8 +108,8 @@ struct Arena {
     static Arena create(u64 size);
     static void* push(Arena* a, u64 size);
     static void* push_zero(Arena* a, u64 size);
-    static void  reset(Arena* a);
-    static void  destroy(Arena* a);
+    static void reset(Arena* a);
+    static void destroy(Arena* a);
 
     template <typename T>
     static T* alloc(Arena* a) {
