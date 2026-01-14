@@ -6,7 +6,7 @@
 
 namespace ember {
 
-Arena Arena::create(u64 size) {
+Arena arena_create(u64 size) {
     Arena a = {};
     a.base = (u8*)malloc(size);
     a.size = size;
@@ -14,25 +14,25 @@ Arena Arena::create(u64 size) {
     return a;
 };
 
-void Arena::destroy(Arena* a) {
+void arena_destroy(Arena* a) {
     free(a->base);
     a = null;
 }
 
-void* Arena::push(Arena* a, u64 size) {
+void* arena_push(Arena* a, u64 size) {
     EMBER_ASSERT(a->used + size <= a->size);
     void* ptr = a->base + a->used;
     a->used += size;
     return ptr;
 }
 
-void* Arena::push_zero(Arena* a, u64 size) {
-    void* ptr = push(a, size);
+void* arena_push_zero(Arena* a, u64 size) {
+    void* ptr = arena_push(a, size);
     memset(ptr, 0, size);
     return ptr;
 }
 
-void Arena::reset(Arena* a) { a->used = 0; }
+void arena_reset(Arena* a) { a->used = 0; }
 
 void log(LogLevel level, const char* tag, const char* fmt, ...) {
     const char* level_str[] = { "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL" };

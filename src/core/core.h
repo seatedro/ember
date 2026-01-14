@@ -104,23 +104,23 @@ struct Arena {
     u8* base;
     u64 size;
     u64 used;
-
-    static Arena create(u64 size);
-    static void* push(Arena* a, u64 size);
-    static void* push_zero(Arena* a, u64 size);
-    static void reset(Arena* a);
-    static void destroy(Arena* a);
-
-    template <typename T>
-    static T* alloc(Arena* a) {
-        return (T*)push_zero(a, sizeof(T));
-    }
-
-    template <typename T>
-    static T* alloc_array(Arena* a, u64 count) {
-        return (T*)push_zero(a, sizeof(T) * count);
-    }
 };
+
+Arena arena_create(u64 size);
+void* arena_push(Arena* a, u64 size);
+void* arena_push_zero(Arena* a, u64 size);
+void arena_reset(Arena* a);
+void arena_destroy(Arena* a);
+
+template <typename T>
+T* arena_alloc(Arena* a) {
+    return (T*)arena_push_zero(a, sizeof(T));
+}
+
+template <typename T>
+T* arena_alloc_array(Arena* a, u64 count) {
+    return (T*)arena_push_zero(a, sizeof(T) * count);
+}
 
 enum class LogLevel { Trace, Debug, Info, Warn, Error, Panic };
 

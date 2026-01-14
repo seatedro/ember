@@ -419,8 +419,8 @@ shader_load_combined(Arena* arena, Device* device, const char* path, const char*
         return { HANDLE_INVALID_ID };
     }
 
-    char* vert_copy = Arena::alloc_array<char>(arena, vert_len + 1);
-    char* frag_copy = Arena::alloc_array<char>(arena, frag_len + 1);
+    char* vert_copy = arena_alloc_array<char>(arena, vert_len + 1);
+    char* frag_copy = arena_alloc_array<char>(arena, frag_len + 1);
     memcpy(vert_copy, vert_src, vert_len);
     memcpy(frag_copy, frag_src, vert_len);
     vert_copy[vert_len] = '\0';

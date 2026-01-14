@@ -17,7 +17,7 @@ EmberFile read_file_binary(Arena* arena, const char* path) {
     result.size = (u64)ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    result.data = Arena::alloc_array<u8>(arena, result.size);
+    result.data = arena_alloc_array<u8>(arena, result.size);
     if (!result.data) {
         LOG_ERROR("file", "arena allocation failed for: %s", path);
         return result;
@@ -32,7 +32,7 @@ EmberFile read_file_binary(Arena* arena, const char* path) {
 EmberFile read_file_text(Arena* arena, const char* path) {
     EmberFile result = read_file_binary(arena, path);
     if (result.success) {
-        u8* null_term = Arena::alloc<u8>(arena);
+        u8* null_term = arena_alloc<u8>(arena);
         *null_term = '\0';
         result.size++;
     }
