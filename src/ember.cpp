@@ -89,8 +89,8 @@ void ember_run(EmberConfig* cfg) {
     g_ctx.device = dev;
     defer(device_destroy(dev));
 
-    g_ctx.frame_arena = arena_create(MB(1));
-    defer(arena_destroy(&g_ctx.frame_arena));
+    g_ctx.frame_arena = Arena::create(MB(1));
+    defer(Arena::destroy(&g_ctx.frame_arena));
 
     g_ctx.running = true;
     g_ctx.frame_count = 0;
@@ -128,7 +128,7 @@ void ember_run(EmberConfig* cfg) {
             ember_update(frame_time);
         }
 
-        arena_reset(&g_ctx.frame_arena);
+        Arena::reset(&g_ctx.frame_arena);
 
         set_viewport(0, 0, win.width, win.height);
         ember_draw();

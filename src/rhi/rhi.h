@@ -29,6 +29,7 @@ inline b32 handle_valid(ShaderHandle h) { return h.id != HANDLE_INVALID_ID; }
 inline b32 handle_valid(PipelineHandle h) { return h.id != HANDLE_INVALID_ID; }
 
 enum class BufferType : u32 { Vertex, Index, Uniform };
+enum class IndexType : u32 { U16, U32 };
 // clang-format off
 enum class BufferUsage : u32 {
     Static,  // upload once
@@ -224,7 +225,7 @@ void pipeline_destroy(Device* d, PipelineHandle h);
 
 void bind_pipeline(Device* d, PipelineHandle h);
 void bind_vertex_buffer(Device* d, BufferHandle h);
-void bind_index_buffer(Device* d, BufferHandle h);
+void bind_index_buffer(Device* d, BufferHandle h, IndexType t);
 
 void set_uniform_mat4(Device* d, ShaderHandle sh, const char* name, mat4* m);
 void set_uniform_i32(Device* d, ShaderHandle sh, const char* name, i32 value);

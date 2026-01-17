@@ -55,6 +55,8 @@ struct Device {
     BufferHandle   bound_vbo;
     BufferHandle   bound_ibo;
 
+    IndexType bound_index_type;
+
     Window* window;
 };
 
@@ -68,6 +70,16 @@ internal u32 buffer_type_to_gl(BufferType t) {
         return GL_ELEMENT_ARRAY_BUFFER;
     case BufferType::Uniform:
         return GL_UNIFORM_BUFFER;
+    }
+}
+internal u32 index_type_to_gl(IndexType t) {
+    switch (t) {
+    case IndexType::U16:
+        return GL_UNSIGNED_SHORT;
+        ;
+    case IndexType::U32:
+        return GL_UNSIGNED_INT;
+        ;
     }
 }
 
@@ -419,8 +431,8 @@ shader_load_combined(Arena* arena, Device* device, const char* path, const char*
         return { HANDLE_INVALID_ID };
     }
 
-    char* vert_copy = arena_alloc_array<char>(arena, vert_len + 1);
-    char* frag_copy = arena_alloc_array<char>(arena, frag_len + 1);
+    char* vert_copy = Arena::alloc_array<char>(arena, vert_len + 1);
+    char* frag_copy = Arena::alloc_array<char>(arena, frag_len + 1);
     memcpy(vert_copy, vert_src, vert_len);
     memcpy(frag_copy, frag_src, vert_len);
     vert_copy[vert_len] = '\0';
@@ -620,7 +632,7 @@ void bind_vertex_buffer(Device* d, BufferHandle h) {
     d->bound_vbo = h;
 }
 
-void bind_index_buffer(Device* d, BufferHandle h) {
+void bind_index_buffer(Device* d, BufferHandle h, IndexType t) {
     EMBER_ASSERT(d);
     EMBER_ASSERT(handle_valid(h));
 
@@ -631,6 +643,7 @@ void bind_index_buffer(Device* d, BufferHandle h) {
     GL_CHECK();
 
     d->bound_ibo = h;
+    d->bound_index_type = t;
 }
 
 void set_viewport(u32 x, u32 y, u32 w, u32 h) { glViewport(x, y, w, h); }
@@ -649,7 +662,7 @@ void draw(Device* d, DrawConfig* cfg) {
         glDrawElements(
             prim,
             cfg->index_count,
-            GL_UNSIGNED_INT,
+            index_type_to_gl(d->bound_index_type),
             (void*)(uintptr_t)(cfg->first_index * sizeof(u32))
         );
     } else {
