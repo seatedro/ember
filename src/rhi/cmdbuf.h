@@ -16,21 +16,6 @@ enum class CmdOp : u32 {
     BindUniformBlock,
     BindTexture,
     Draw,
-    DrawIndexed
-};
-
-struct ClearValue {
-    f32 color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    f32 depth = 1.0f;
-    u8  stencil = 0;
-};
-
-enum ClearFlags : u32 {
-    CLEAR_FLAG_NONE = 0,
-    CLEAR_FLAG_COLOR = 1 << 0,
-    CLEAR_FLAG_DEPTH = 1 << 1,
-    CLEAR_FLAG_STENCIL = 1 << 2,
-    All = CLEAR_FLAG_COLOR | CLEAR_FLAG_DEPTH | CLEAR_FLAG_STENCIL,
 };
 
 struct CommandBuffer {

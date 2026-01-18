@@ -191,7 +191,7 @@ struct ByteBuffer {
     template <typename T>
     pub void write(ByteBuffer* buf, const T& value) {
         reserve(buf, sizeof(T));
-        memcpy(buf->data + buf->size, &value, &value, sizeof(T));
+        memcpy(buf->data + buf->size, &value, sizeof(T));
         buf->size += sizeof(T);
     }
 };

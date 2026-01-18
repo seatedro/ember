@@ -22,11 +22,25 @@ struct Buffer {
     u64        size;
 };
 
+struct ShaderUniformMember {
+    i32         location;
+    UniformType type;
+    u32         offset;
+};
+
+struct ShaderUniformBlock {
+    ShaderUniformMember members[16];
+    u32                 member_count;
+    u32                 size;
+};
+
 struct Shader {
-    u32 program;
-    u32 uniform_hashes[64];
-    i32 uniform_locations[64];
-    u32 uniform_count;
+    u32                program;
+    u32                uniform_hashes[64];
+    i32                uniform_locations[64];
+    u32                uniform_count;
+    ShaderUniformBlock uniform_blocks[8];
+    u32                block_count;
 };
 
 struct Pipeline {
@@ -174,6 +188,45 @@ internal u32 blend_op_to_gl(BlendOp op) {
     return GL_FUNC_ADD;
 }
 
+internal void apply_clear(ClearFlags flags, const ClearValue* clear) {
+    if (flags & CLEAR_FLAG_COLOR)
+        glClearColor(clear->color[0], clear->color[1], clear->color[2], clear->color[3]);
+    if (flags & CLEAR_FLAG_DEPTH)
+        glClearDepth(clear->depth);
+    if (flags & CLEAR_FLAG_STENCIL)
+        glClearStencil(clear->stencil);
+
+    GLbitfield gl_flags = 0;
+    if (flags & CLEAR_FLAG_COLOR)
+        gl_flags |= GL_COLOR_BUFFER_BIT;
+    if (flags & CLEAR_FLAG_DEPTH)
+        gl_flags |= GL_DEPTH_BUFFER_BIT;
+    if (flags & CLEAR_FLAG_STENCIL)
+        gl_flags |= GL_STENCIL_BUFFER_BIT;
+
+    if (gl_flags)
+        glClear(gl_flags);
+}
+
+internal void shader_cache_uniform_blocks(Shader* sh, const ShaderConfig* shader_cfg) {
+    sh->block_count = shader_cfg->block_count;
+    for (u32 b = 0; b < shader_cfg->block_count; b++) {
+        const UniformBlockLayout* layout = &shader_cfg->blocks[b];
+        ShaderUniformBlock*       block = &sh->uniform_blocks[b];
+        block->member_count = layout->member_count;
+        block->size = layout->size;
+        for (u32 i = 0; i < layout->member_count; i++) {
+            const UniformMember* m = &layout->members[i];
+            block->members[i] = {
+                .location = glGetUniformLocation(sh->program, m->name),
+                .type = m->type,
+                .offset = m->offset,
+
+            };
+        }
+    }
+}
+
 Device* device_create(Window* window) {
     g_device = {};
     g_device.window = window;
@@ -319,11 +372,14 @@ void set_uniform_vec4(Device* d, ShaderHandle sh, const char* name, vec4* v) {
 // }
 
 ShaderHandle shader_load_files(
-    Arena*      arena,
-    Device*     device,
-    const char* vert_path,
-    const char* frag_path,
-    const char* name
+    Arena*                    arena,
+    Device*                   device,
+    const char*               vert_path,
+    const char*               frag_path,
+    const char*               name,
+    const UniformBlockLayout* blocks,
+    u32                       block_count
+
 ) {
     u64 mark = arena->used;
 
@@ -339,6 +395,8 @@ ShaderHandle shader_load_files(
         .vertex_src = (const char*)vert_file.data,
         .fragment_src = (const char*)frag_file.data,
         .name = name,
+        .blocks = blocks,
+        .block_count = block_count,
     };
 
     ShaderHandle handle = shader_create(device, &shader_cfg);
@@ -410,8 +468,14 @@ internal b32 parse_combined_shader(
     return true;
 }
 
-ShaderHandle
-shader_load_combined(Arena* arena, Device* device, const char* path, const char* name) {
+ShaderHandle shader_load_combined(
+    Arena*                    arena,
+    Device*                   device,
+    const char*               path,
+    const char*               name,
+    const UniformBlockLayout* blocks,
+    u32                       block_count
+) {
     u64 mark = arena->used;
 
     EmberFile file = read_file_text(arena, path);
@@ -434,7 +498,7 @@ shader_load_combined(Arena* arena, Device* device, const char* path, const char*
     char* vert_copy = Arena::alloc_array<char>(arena, vert_len + 1);
     char* frag_copy = Arena::alloc_array<char>(arena, frag_len + 1);
     memcpy(vert_copy, vert_src, vert_len);
-    memcpy(frag_copy, frag_src, vert_len);
+    memcpy(frag_copy, frag_src, frag_len);
     vert_copy[vert_len] = '\0';
     frag_copy[frag_len] = '\0';
 
@@ -442,6 +506,8 @@ shader_load_combined(Arena* arena, Device* device, const char* path, const char*
         .vertex_src = vert_copy,
         .fragment_src = frag_copy,
         .name = name,
+        .blocks = blocks,
+        .block_count = block_count,
     };
 
     ShaderHandle handle = shader_create(device, &config);
@@ -507,6 +573,11 @@ ShaderHandle shader_create(Device* d, ShaderConfig* cfg) {
     Shader* sh = d->shaders.get(id);
     sh->program = prog;
     sh->uniform_count = 0;
+    sh->block_count = 0;
+
+    if (cfg->blocks && cfg->block_count > 0) {
+        shader_cache_uniform_blocks(sh, cfg);
+    }
 
     LOG_INFO("rhi", "shader '%s' created", cfg->name);
     return { id };
@@ -600,7 +671,7 @@ void bind_pipeline(Device* d, PipelineHandle h) {
     }
 }
 
-void bind_vertex_buffer(Device* d, BufferHandle h) {
+void bind_vertex_buffer(Device* d, BufferHandle h, u32 offset) {
     EMBER_ASSERT(d);
     EMBER_ASSERT(handle_valid(h));
     EMBER_ASSERT(handle_valid(d->bound_pipeline));
@@ -624,7 +695,7 @@ void bind_vertex_buffer(Device* d, BufferHandle h) {
             GL_FLOAT,
             GL_FALSE,
             pip->layout.stride,
-            (void*)(uintptr_t)a->offset
+            (void*)(uintptr_t)(offset + a->offset)
         );
     }
     GL_CHECK();
@@ -646,28 +717,57 @@ void bind_index_buffer(Device* d, BufferHandle h, IndexType t) {
     d->bound_index_type = t;
 }
 
+void bind_uniform_block(Device* d, u32 slot, const void* data, u32 size) {
+    EMBER_ASSERT(d);
+    EMBER_ASSERT(handle_valid(d->bound_pipeline));
+
+    Pipeline* pip = d->pipelines.get(d->bound_pipeline.id);
+    Shader*   sh = d->shaders.get(pip->shader.id);
+
+    EMBER_ASSERT(slot < sh->block_count);
+    ShaderUniformBlock* block = &sh->uniform_blocks[slot];
+    EMBER_ASSERT(size == block->size);
+
+    glUseProgram(sh->program);
+
+    const u8* base = (const u8*)data;
+    for (u32 i = 0; i < block->member_count; i++) {
+        const ShaderUniformMember* m = &block->members[i];
+        if (m->location < 0)
+            continue;
+        const u8* ptr = base + m->offset;
+        switch (m->type) {
+        case UniformType::F32:
+            glUniform1f(m->location, *(const f32*)ptr);
+            break;
+        case UniformType::I32:
+            glUniform1i(m->location, *(const i32*)ptr);
+            break;
+        case UniformType::Vec3:
+            glUniform3fv(m->location, 1, (const f32*)ptr);
+            break;
+        case UniformType::Vec4:
+            glUniform4fv(m->location, 1, (const f32*)ptr);
+            break;
+        case UniformType::Mat4:
+            glUniformMatrix4fv(
+                m->location,
+                1,
+                GL_FALSE, // transpose
+                (const f32*)ptr
+            );
+            break;
+        }
+    }
+    GL_CHECK();
+}
+
 void set_viewport(u32 x, u32 y, u32 w, u32 h) { glViewport(x, y, w, h); }
 
 void clear(f32 r, f32 g, f32 b, f32 a, f32 depth) {
     glClearColor(r, g, b, a);
     glClearDepth(depth);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-}
-
-void draw(Device* d, DrawConfig* cfg) {
-    Pipeline* pip = d->pipelines.get(d->bound_pipeline.id);
-    GLenum    prim = primitive_to_gl(pip->primitive);
-
-    if (cfg->index_count > 0) {
-        glDrawElements(
-            prim,
-            cfg->index_count,
-            index_type_to_gl(d->bound_index_type),
-            (void*)(uintptr_t)(cfg->first_index * sizeof(u32))
-        );
-    } else {
-        glDrawArrays(prim, cfg->first_vertex, cfg->vertex_count);
-    }
 }
 
 void present(Device* d) {
@@ -687,6 +787,61 @@ void set_scissor_enabled(b32 enabled) {
     } else {
         glDisable(GL_SCISSOR_TEST);
     }
+}
+
+void begin_pass(Device* d, ClearFlags flags, const ClearValue* clear) {
+    (void)d;
+    apply_clear(flags, clear);
+}
+
+void clear_pass(Device* d, ClearFlags flags, const ClearValue* clear) {
+    (void)d;
+    apply_clear(flags, clear);
+}
+
+void end_pass(Device* d) { (void)d; }
+
+void draw_submit(Device* d, const DrawConfig* draw_cfg) {
+    Pipeline* pip = d->pipelines.get(d->bound_pipeline.id);
+    GLenum    prim = primitive_to_gl(pip->primitive);
+    b32       indexed = draw_cfg->index_count;
+    u32       instances = draw_cfg->instance_count > 0 ? draw_cfg->instance_count : 1;
+
+    if (indexed) {
+        GLenum index_type = index_type_to_gl(d->bound_index_type);
+        u32    index_size = d->bound_index_type == IndexType::U16 ? 2 : 4;
+        if (instances > 1) {
+            glDrawElementsInstancedBaseVertex(
+                prim,
+                draw_cfg->index_count,
+                index_type,
+                (void*)(uintptr_t)(draw_cfg->first_index * index_size),
+                instances,
+                draw_cfg->base_vertex
+            );
+        } else {
+            glDrawElementsBaseVertex(
+                prim,
+                draw_cfg->index_count,
+                index_type,
+                (void*)(uintptr_t)(draw_cfg->first_index * index_size),
+                draw_cfg->base_vertex
+            );
+        }
+        return;
+    }
+
+    if (instances > 1) {
+        glDrawArraysInstanced(prim, draw_cfg->first_vertex, draw_cfg->vertex_count, instances);
+    } else {
+        glDrawArrays(prim, draw_cfg->first_vertex, draw_cfg->vertex_count);
+    }
+}
+
+void texture_bind(Device* d, TextureHandle handle, u32 slot) {
+    (void)d;
+    (void)handle;
+    (void)slot;
 }
 
 } // namespace ember
