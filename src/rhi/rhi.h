@@ -24,11 +24,35 @@ struct TextureHandle {
     u32 id;
 };
 
+struct DrawConfig {
+    u32 first_vertex;
+    u32 vertex_count;
+    u32 first_index;
+    u32 index_count;
+    u32 instance_count;
+    i32 base_vertex;
+};
+
+struct ClearValue {
+    f32 color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    f32 depth = 1.0f;
+    u8  stencil = 0;
+};
+
+enum ClearFlags : u32 {
+    CLEAR_FLAG_NONE = 0,
+    CLEAR_FLAG_COLOR = 1 << 0,
+    CLEAR_FLAG_DEPTH = 1 << 1,
+    CLEAR_FLAG_STENCIL = 1 << 2,
+    ALL = CLEAR_FLAG_COLOR | CLEAR_FLAG_DEPTH | CLEAR_FLAG_STENCIL,
+};
+
 inline b32 handle_valid(BufferHandle h) { return h.id != HANDLE_INVALID_ID; }
 inline b32 handle_valid(ShaderHandle h) { return h.id != HANDLE_INVALID_ID; }
 inline b32 handle_valid(PipelineHandle h) { return h.id != HANDLE_INVALID_ID; }
 
 enum class BufferType : u32 { Vertex, Index, Uniform };
+enum class IndexType : u32 { U16, U32 };
 // clang-format off
 enum class BufferUsage : u32 {
     Static,  // upload once
@@ -46,11 +70,26 @@ struct BufferConfig {
 
 enum class ShaderStage : u32 { Vertex, Fragment, Compute };
 
-// TODO: make this use the fs
-struct ShaderConfig {
-    const char* vertex_src;
-    const char* fragment_src;
+enum class UniformType : u32 { F32, I32, Vec3, Vec4, Mat4 };
+
+struct UniformMember {
     const char* name;
+    UniformType type;
+    u32         offset;
+};
+
+struct UniformBlockLayout {
+    const UniformMember* members;
+    u32                  member_count;
+    u32                  size;
+};
+
+struct ShaderConfig {
+    const char*               vertex_src;
+    const char*               fragment_src;
+    const char*               name;
+    const UniformBlockLayout* blocks;
+    u32                       block_count;
 };
 
 enum class CullMode : u32 { None, Front, Back };
@@ -180,13 +219,6 @@ struct PipelineConfig {
     Primitive    primitive;
 };
 
-struct DrawConfig {
-    u32 vertex_count;
-    u32 index_count;
-    u32 first_vertex;
-    u32 first_index;
-};
-
 enum class TextureFormat : u32 { R8, RG8, RGB8, RGBA8, Depth24Stencil8 };
 enum class TextureFilter : u32 { Nearest, Linear };
 enum class TextureWrap : u32 { Repeat, Clamp, Mirror };
@@ -208,20 +240,38 @@ struct Device; // opaque type, defined per backend
 
 // API
 Device* device_create(Window* window);
-void    device_destroy(Device* d);
+void device_destroy(Device* d);
 
 BufferHandle buffer_create(Device* d, BufferConfig* cfg);
-void         buffer_destroy(Device* d, BufferHandle h);
+void buffer_destroy(Device* d, BufferHandle h);
 
 ShaderHandle shader_create(Device* d, ShaderConfig* cfg);
-void         shader_destroy(Device* d, ShaderHandle h);
+ShaderHandle shader_load_from_files(
+    Arena*                    arena,
+    Device*                   device,
+    const char*               vert_path,
+    const char*               frag_path,
+    const UniformBlockLayout* blocks,
+    u32                       block_count
+
+);
+ShaderHandle shader_load_combined(
+    Arena*                    arena,
+    Device*                   device,
+    const char*               path,
+    const char*               name,
+    const UniformBlockLayout* blocks,
+    u32                       block_count
+);
+void shader_destroy(Device* d, ShaderHandle h);
 
 PipelineHandle pipeline_create(Device* d, PipelineConfig* cfg);
-void           pipeline_destroy(Device* d, PipelineHandle h);
+void pipeline_destroy(Device* d, PipelineHandle h);
 
 void bind_pipeline(Device* d, PipelineHandle h);
-void bind_vertex_buffer(Device* d, BufferHandle h);
-void bind_index_buffer(Device* d, BufferHandle h);
+void bind_vertex_buffer(Device* d, BufferHandle h, u32 offset);
+void bind_index_buffer(Device* d, BufferHandle h, IndexType t);
+void bind_uniform_block(Device* d, u32 slot, const void* data, u32 size);
 
 void set_uniform_mat4(Device* d, ShaderHandle sh, const char* name, mat4* m);
 void set_uniform_i32(Device* d, ShaderHandle sh, const char* name, i32 value);
@@ -231,15 +281,20 @@ void set_uniform_vec4(Device* d, ShaderHandle sh, const char* name, vec4* v);
 
 void set_viewport(u32 x, u32 y, u32 w, u32 h);
 void clear(f32 r, f32 g, f32 b, f32 a, f32 depth);
-void draw(Device* d, DrawConfig* desc);
 void present(Device* d);
 
 void set_scissor(u32 x, u32 y, u32 w, u32 h);
 void set_scissor_enabled(b32 enabled);
 
+void begin_pass(Device* d, ClearFlags flags, const ClearValue* clear);
+void clear_pass(Device* d, ClearFlags flags, const ClearValue* clear);
+void end_pass(Device* d);
+void draw_submit(Device* d, const DrawConfig* cfg);
+
+// TODO
 TextureHandle texture_create(Device* d, const TextureConfig* cfg);
-void          texture_destroy(Device* d, TextureHandle handle);
-void          texture_bind(Device* d, TextureHandle handle, u32 slot);
-void          texture_update(Device* d, TextureHandle handle, const void* data);
+void texture_destroy(Device* d, TextureHandle handle);
+void texture_bind(Device* d, TextureHandle handle, u32 slot);
+void texture_update(Device* d, TextureHandle handle, const void* data);
 
 } // namespace ember

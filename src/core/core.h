@@ -1,9 +1,12 @@
 #pragma once
+#include <cstdlib>
+#include <cstring>
 #include <stdint.h>
 
 #define null     nullptr
 #define internal static
 #define global   static
+#define pub      static
 
 #ifdef EMBER_DEBUG
 #define EMBER_ASSERT(cond)                                                                         \
@@ -105,19 +108,41 @@ struct Arena {
     u64 size;
     u64 used;
 
-    static Arena create(u64 size);
-    static void* push(Arena* a, u64 size);
-    static void* push_zero(Arena* a, u64 size);
-    static void  reset(Arena* a);
-    static void  destroy(Arena* a);
+    pub Arena create(u64 size) {
+        Arena a = {};
+        a.base = (u8*)malloc(size);
+        a.size = size;
+        a.used = 0;
+        return a;
+    };
+
+    pub void destroy(Arena* a) {
+        free(a->base);
+        a = null;
+    }
+
+    pub void* push(Arena* a, u64 size) {
+        EMBER_ASSERT(a->used + size <= a->size);
+        void* ptr = a->base + a->used;
+        a->used += size;
+        return ptr;
+    }
+
+    pub void* push_zero(Arena* a, u64 size) {
+        void* ptr = push(a, size);
+        memset(ptr, 0, size);
+        return ptr;
+    }
+
+    pub void reset(Arena* a) { a->used = 0; }
 
     template <typename T>
-    static T* alloc(Arena* a) {
+    pub T* alloc(Arena* a) {
         return (T*)push_zero(a, sizeof(T));
     }
 
     template <typename T>
-    static T* alloc_array(Arena* a, u64 count) {
+    pub T* alloc_array(Arena* a, u64 count) {
         return (T*)push_zero(a, sizeof(T) * count);
     }
 };
@@ -125,5 +150,69 @@ struct Arena {
 enum class LogLevel { Trace, Debug, Info, Warn, Error, Panic };
 
 void log(LogLevel level, const char* tag, const char* fmt, ...);
+
+struct ByteBuffer {
+    u8* data;
+    u32 size;
+    u32 capacity;
+
+    pub ByteBuffer create(u32 initial_capacity = KB(64)) {
+        ByteBuffer buf = {};
+        buf.data = (u8*)malloc(initial_capacity);
+        buf.capacity = initial_capacity;
+        buf.size = 0;
+        return buf;
+    }
+
+    pub void destroy(ByteBuffer* buf) {
+        if (buf->data)
+            free(buf->data);
+        *buf = {};
+    }
+
+    pub void clear(ByteBuffer* buf) { buf->size = 0; }
+
+    pub void reserve(ByteBuffer* buf, u32 additional) {
+        if (buf->size + additional > buf->capacity) {
+            u32 new_capacity = buf->capacity * 2; // simple 2x alloc
+            while (new_capacity < buf->size + additional)
+                new_capacity *= 2;
+            buf->data = (u8*)realloc(buf->data, new_capacity);
+            buf->capacity = new_capacity;
+        }
+    }
+
+    pub void write_bytes(ByteBuffer* buf, const void* src, u32 len) {
+        reserve(buf, len);
+        memcpy(buf->data + buf->size, src, len);
+        buf->size += len;
+    }
+
+    template <typename T>
+    pub void write(ByteBuffer* buf, const T& value) {
+        reserve(buf, sizeof(T));
+        memcpy(buf->data + buf->size, &value, sizeof(T));
+        buf->size += sizeof(T);
+    }
+};
+
+struct ByteReader {
+    const u8* data;
+    u32       size;
+    u32       pos;
+
+    pub ByteReader from(const ByteBuffer* buf) { return { buf->data, buf->size, 0 }; }
+
+    template <typename T>
+    pub T read(ByteReader* r) {
+        EMBER_ASSERT(r->pos + sizeof(T) <= r->size);
+        T value;
+        memcpy(&value, r->data + r->pos, sizeof(T));
+        r->pos += sizeof(T);
+        return value;
+    }
+
+    pub b32 has_more(const ByteReader* r) { return r->pos < r->size; }
+};
 
 } // namespace ember

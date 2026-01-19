@@ -2,7 +2,9 @@
 #include "core/math.h"
 #include "ember.h"
 #include "platform/window.h"
+#include "rhi/cmdbuf.h"
 #include "rhi/rhi.h"
+#include <cstddef>
 #include <cstdlib>
 
 using namespace ember;
@@ -51,55 +53,26 @@ global u32 cube_indices[] = {
 };
 // clang-format on
 
-#if defined(__APPLE__)
-global const char* vert_src = R"(
-    #version 410 core
-    layout(location = 0) in vec3 a_position;
-    layout(location = 1) in vec3 a_color;
-    uniform mat4 u_mvp;
-    out vec3 v_color;
-    void main() {
-        gl_Position = u_mvp * vec4(a_position, 1.0);
-        v_color = a_color;
-    }
-)";
+struct PerObject {
+    mat4 mvp;
+};
 
-global const char* frag_src = R"(
-    #version 410 core
-    in vec3 v_color;
-    out vec4 frag_color;
-    void main() {
-        frag_color = vec4(v_color, 1.0);
-    }
-)";
-#else
-global const char* vert_src = R"(
-    #version 460 core
-    layout(location = 0) in vec3 a_position;
-    layout(location = 1) in vec3 a_color;
-    uniform mat4 u_mvp;
-    out vec3 v_color;
-    void main() {
-        gl_Position = u_mvp * vec4(a_position, 1.0);
-        v_color = a_color;
-    }
-)";
+global UniformMember per_object_members[] = {
+    { "u_mvp", UniformType::Mat4, offsetof(PerObject, mvp) },
+};
 
-global const char* frag_src = R"(
-    #version 460 core
-    in vec3 v_color;
-    out vec4 frag_color;
-    void main() {
-        frag_color = vec4(v_color, 1.0);
-    }
-)";
-#endif
+global UniformBlockLayout per_object_layout = {
+    .members = per_object_members,
+    .member_count = 1,
+    .size = sizeof(PerObject),
+};
 
 struct GameState {
     PipelineHandle pip;
     BufferHandle   vbo;
     BufferHandle   ibo;
     ShaderHandle   shader;
+    CommandBuffer  cmdbuf;
 
     mat4 proj;
     mat4 view;
@@ -111,25 +84,26 @@ void game_init(void* userdata) {
     GameState* game = (GameState*)userdata;
     Device*    d = ember_context()->device;
     Window*    w = ember_context()->window;
+    Arena*     arena = &ember_context()->frame_arena;
 
     BufferConfig vb_desc = { .type = BufferType::Vertex,
-        .usage = BufferUsage::Static,
-        .data = cube_verts,
-        .size = sizeof(cube_verts) };
+                             .usage = BufferUsage::Static,
+                             .data = cube_verts,
+                             .size = sizeof(cube_verts) };
 
     game->vbo = buffer_create(d, &vb_desc);
 
     BufferConfig ib_desc = { .type = BufferType::Index,
-        .usage = BufferUsage::Static,
-        .data = cube_indices,
-        .size = sizeof(cube_indices) };
+                             .usage = BufferUsage::Static,
+                             .data = cube_indices,
+                             .size = sizeof(cube_indices) };
 
     game->ibo = buffer_create(d, &ib_desc);
 
-    ShaderConfig sh_desc
-        = { .vertex_src = vert_src, .fragment_src = frag_src, .name = "basic shader" };
+    UniformBlockLayout blocks[] = { per_object_layout };
+    game->shader = shader_load_combined(arena, d, "shaders/basic.glsl", "basic", blocks, 1);
 
-    game->shader = shader_create(d, &sh_desc);
+    game->cmdbuf = CommandBuffer::create();
 
     VertexLayout layout = { .attribs = {
         { .format = VertexFormat::F32x3, .offset = 0 }, // pos
@@ -169,22 +143,29 @@ void game_draw(void* userdata) {
     mat4 model = rotate_x(game->rx) * rotate_y(game->ry);
     mat4 mvp = game->proj * game->view * model;
 
-    set_viewport(0, 0, w->width, w->height);
-    clear(0.1f, 0.1f, 0.1f, 1.0f, 1.0f);
+    CommandBuffer::reset(&game->cmdbuf);
 
-    bind_pipeline(d, game->pip);
-    bind_vertex_buffer(d, game->vbo);
-    bind_index_buffer(d, game->ibo);
-    set_uniform_mat4(d, game->shader, "u_mvp", &mvp);
+    ClearValue cv = { .color = { 0.1f, 0.1f, 0.1f, 1.0f }, .depth = 1.0f };
 
-    DrawConfig dd = {};
-    dd.index_count = sizeof(cube_indices) / sizeof(cube_indices[0]);
-    draw(d, &dd);
+    cmd_begin_pass(&game->cmdbuf, ClearFlags::ALL, &cv);
+    cmd_set_viewport(&game->cmdbuf, 0, 0, w->width, w->height);
+    cmd_bind_pipeline(&game->cmdbuf, game->pip);
+    cmd_bind_vertex_buffer(&game->cmdbuf, game->vbo, 0);
+    cmd_bind_index_buffer(&game->cmdbuf, game->ibo, IndexType::U32);
+
+    PerObject per_object = { .mvp = mvp };
+    cmd_bind_uniform_block(&game->cmdbuf, 0, &per_object, sizeof(per_object));
+
+    cmd_draw_indexed(&game->cmdbuf, sizeof(cube_indices) / sizeof(cube_indices[0]), 1, 0, 0);
+    cmd_end_pass(&game->cmdbuf);
+    cmd_submit(&game->cmdbuf, d);
 }
 
 void game_quit(void* userdata) {
     GameState* game = (GameState*)userdata;
     Device*    dev = ember_context()->device;
+
+    CommandBuffer::destroy(&game->cmdbuf);
 
     pipeline_destroy(dev, game->pip);
     shader_destroy(dev, game->shader);

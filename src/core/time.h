@@ -17,9 +17,9 @@ struct FrameTimer {
 };
 
 void clock_init(Clock* clock);
-u64  clock_now(Clock* clock);
-f64  clock_seconds(Clock* clock, u64 ticks);
-f64  clock_ms(Clock* clock, u64 ticks);
+u64 clock_now(Clock* clock);
+f64 clock_seconds(Clock* clock, u64 ticks);
+f64 clock_ms(Clock* clock, u64 ticks);
 
 void frame_timer_init(FrameTimer* timer, Clock* clock);
 void frame_timer_update(FrameTimer* timer, Clock* clock);
