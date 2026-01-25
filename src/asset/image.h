@@ -38,8 +38,8 @@ inline u32 read_be<u32>(const u8* p) {
     return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
 }
 
+Image load_img(Arena* arena, const char* path);
 Image load_bmp(Arena* arena, const u8* data, u64 size);
 Image load_png(Arena* arena, const u8* data, u64 size);
-Image load_img(Arena* arena, const char* path);
 
 } // namespace ember
