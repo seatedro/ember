@@ -15,3 +15,4 @@
 !.clang-format
 !.envrc
 !.nvim.lua
+!ols.json
