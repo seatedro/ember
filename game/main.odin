@@ -24,8 +24,16 @@ main :: proc() {
 	}
 	defer win.destroy(&window)
 
-	device := rhi.create_device()
-	defer rhi.destroy_device(&device)
+	device, device_error := rhi.create_device(win.gl_context(&window))
+	if device_error != .None {
+		log.errorf("Failed to create rendering device: %v", device_error)
+		return
+	}
+	defer {
+		if err := rhi.destroy_device(&device); err != .None {
+			log.errorf("Failed to destroy rendering device: %v", err)
+		}
+	}
 
 	clear_color := [4]f32{ 0.1, 0.1, 0.1, 1.0 }
 
@@ -38,6 +46,10 @@ main :: proc() {
 			if !window.minimized {
 				rhi.set_viewport(&device, window.width, window.height)
 			}
+		}
+
+		if window.minimized {
+			continue
 		}
 
 		rhi.clear(&device, clear_color, 1.0)

@@ -40,7 +40,67 @@ Buffer_Desc :: struct {
 	label:             string,
 }
 
-Backend_Buffer :: struct {}
+create_buffer :: proc(device: ^Device, desc: Buffer_Desc, initial_data: []u8 = nil) -> (Buffer_Handle, Error) {
+	if err := validate_device(device); err != .None {
+		return {}, err
+	}
+	if err := validate_buffer_desc(desc, len(initial_data)); err != .None {
+		return {}, err
+	}
+	index, slot := buffer_pool_reserve(&device.buffers)
+	if slot == nil {
+		return {}, .Pool_Exhausted
+	}
+	native, err := backend_create_buffer(desc, initial_data)
+	if err != .None {
+		buffer_pool_cancel(&device.buffers, index)
+		return {}, err
+	}
+	slot.size = desc.size
+	slot.usage = desc.usage
+	slot.native = native
+	return buffer_pool_publish(&device.buffers, index), .None
+}
+
+validate_buffer_desc :: proc(desc: Buffer_Desc, initial_data_size: int) -> Error {
+	if desc.size == 0 || desc.size > u64(max(int)) {
+		return .Invalid_Size
+	}
+	if desc.usage == {} {
+		return .Invalid_Usage
+	}
+	supported := Buffer_Usages{.Vertex, .Index}
+	if desc.usage - supported != {} {
+		return .Unsupported_Usage
+	}
+	if desc.memory_preference != .GPU {
+		return .Unsupported_Memory
+	}
+	if initial_data_size < 0 || u64(initial_data_size) > desc.size {
+		return .Initial_Data_Too_Large
+	}
+	return .None
+}
+
+// Wait for GPU reads to finish before recycling the buffer slot.
+destroy_buffer :: proc(device: ^Device, handle: Buffer_Handle) -> Error {
+	if err := validate_device(device); err != .None {
+		return err
+	}
+	slot := buffer_pool_lookup(&device.buffers, handle)
+	if slot == nil {
+		return .Invalid_Handle
+	}
+	if err := backend_wait_idle(); err != .None {
+		return err
+	}
+	if err := backend_destroy_buffer(&slot.native); err != .None {
+		return err
+	}
+	buffer_pool_retire(&device.buffers, handle)
+	buffer_pool_finish_retirement(&device.buffers, handle.index)
+	return .None
+}
 
 Buffer_Slot :: struct {
 	generation:      u32,
