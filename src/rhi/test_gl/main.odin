@@ -4,8 +4,8 @@ package rhi_gl_smoke
 
 import "core:fmt"
 import "core:log"
-import "ember:rhi"
 import win "ember:platform/window"
+import "ember:rhi"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
@@ -19,7 +19,12 @@ fail_buffer_data :: proc "c" (target: u32, size: int, data: rawptr, usage: u32) 
 	gl.impl_BindBuffer(max(u32), 0)
 }
 
-verify_contents :: proc(device: ^rhi.Device, handle: rhi.Buffer_Handle, expected: []u8, size: int) {
+verify_contents :: proc(
+	device: ^rhi.Device,
+	handle: rhi.Buffer_Handle,
+	expected: []u8,
+	size: int,
+) {
 	slot := rhi.buffer_pool_lookup(&device.buffers, handle)
 	assert(slot != nil)
 	assert(gl.IsBuffer(slot.native.id))
@@ -53,7 +58,9 @@ main :: proc() {
 	window := glfw.CreateWindow(32, 32, "Ember buffer smoke", nil, nil)
 	assert(window != nil)
 	defer glfw.DestroyWindow(window)
-	platform_window := win.Window{handle = window}
+	platform_window := win.Window {
+		handle = window,
+	}
 	platform_context := win.gl_context(&platform_window)
 
 	// Failed initialization releases the already allocated pool.
@@ -75,8 +82,16 @@ main :: proc() {
 	defer gl.DeleteBuffers(1, &sentinel)
 
 	bytes := [8]u8{1, 2, 3, 4, 250, 251, 252, 253}
-	vertex_desc := rhi.Buffer_Desc{size = 16, usage = {.Vertex}, label = "smoke vertices"}
-	index_desc := rhi.Buffer_Desc{size = 8, usage = {.Index}, label = "smoke indices"}
+	vertex_desc := rhi.Buffer_Desc {
+		size  = 16,
+		usage = {.Vertex},
+		label = "smoke vertices",
+	}
+	index_desc := rhi.Buffer_Desc {
+		size  = 8,
+		usage = {.Index},
+		label = "smoke indices",
+	}
 	invalid_desc := vertex_desc
 	invalid_desc.size = 0
 	invalid, invalid_error := rhi.create_buffer(&device, invalid_desc)
@@ -112,7 +127,10 @@ main :: proc() {
 	_, wrong_create := rhi.create_buffer(&device, vertex_desc)
 	assert(wrong_create == .Wrong_Context)
 	assert(rhi.destroy_buffer(&device, vertex) == .Wrong_Context)
-	_, wrong_shader_create := rhi.create_shader(&device, rhi.Shader_Desc{source = "void main() {}"})
+	_, wrong_shader_create := rhi.create_shader(
+		&device,
+		rhi.Shader_Desc{source = "void main() {}"},
+	)
 	assert(wrong_shader_create == .Wrong_Context)
 	assert(rhi.destroy_shader(&device, vertex_shader) == .Wrong_Context)
 	assert(rhi.destroy_device(&device) == .Wrong_Context)
@@ -149,5 +167,8 @@ main :: proc() {
 	_, dead_error := rhi.create_buffer(&device, vertex_desc)
 	assert(dead_error == .Device_Not_Initialized)
 	assert(gl.GetError() == gl.NO_ERROR)
-	fmt.println("OpenGL smoke passed: buffers, shader compilation/diagnostics, rollback, reuse, context checks, shutdown")
+	test_pipelines(platform_context)
+	fmt.println(
+		"OpenGL smoke passed: buffers, shader compilation/diagnostics, rollback, reuse, context checks, shutdown",
+	)
 }

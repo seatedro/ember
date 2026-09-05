@@ -1,8 +1,8 @@
 package rhi
 
-import "core:testing"
-import "core:mem"
 import "base:runtime"
+import "core:mem"
+import "core:testing"
 
 @(test)
 test_buffer_pool_lifecycle :: proc(t: ^testing.T) {
@@ -108,7 +108,10 @@ test_buffer_pool_generation_exhaustion :: proc(t: ^testing.T) {
 
 @(test)
 test_buffer_descriptor_validation :: proc(t: ^testing.T) {
-	valid := Buffer_Desc{size = 16, usage = {.Vertex, .Index}}
+	valid := Buffer_Desc {
+		size  = 16,
+		usage = {.Vertex, .Index},
+	}
 	testing.expect_value(t, validate_buffer_desc(valid, 0), Error.None)
 	testing.expect_value(t, validate_buffer_desc(valid, 8), Error.None)
 	testing.expect_value(t, validate_buffer_desc(valid, 16), Error.None)
@@ -143,16 +146,23 @@ test_buffer_descriptor_validation :: proc(t: ^testing.T) {
 }
 
 Failing_Allocator :: struct {
-	backing: mem.Allocator,
-	fail_on: int,
+	backing:     mem.Allocator,
+	fail_on:     int,
 	allocations: int,
-	live: int,
+	live:        int,
 }
 
 failing_allocator_proc :: proc(
-	data: rawptr, mode: mem.Allocator_Mode, size, alignment: int,
-	old_memory: rawptr, old_size: int, location: runtime.Source_Code_Location = #caller_location,
-) -> ([]u8, mem.Allocator_Error) {
+	data: rawptr,
+	mode: mem.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	location: runtime.Source_Code_Location = #caller_location,
+) -> (
+	[]u8,
+	mem.Allocator_Error,
+) {
 	state := cast(^Failing_Allocator)data
 	if mode == .Alloc || mode == .Alloc_Non_Zeroed {
 		state.allocations += 1
@@ -160,7 +170,15 @@ failing_allocator_proc :: proc(
 			return nil, .Out_Of_Memory
 		}
 	}
-	result, err := state.backing.procedure(state.backing.data, mode, size, alignment, old_memory, old_size, location)
+	result, err := state.backing.procedure(
+		state.backing.data,
+		mode,
+		size,
+		alignment,
+		old_memory,
+		old_size,
+		location,
+	)
 	if err == .None {
 		if (mode == .Alloc || mode == .Alloc_Non_Zeroed) && len(result) != 0 {
 			state.live += 1
@@ -174,9 +192,15 @@ failing_allocator_proc :: proc(
 @(test)
 test_buffer_pool_allocation_failure :: proc(t: ^testing.T) {
 	// The device allocates two arrays per resource pool.
-	for fail_on in 1 ..= 4 {
-		state := Failing_Allocator{backing = context.allocator, fail_on = fail_on}
-		allocator := mem.Allocator{procedure = failing_allocator_proc, data = &state}
+	for fail_on in 1 ..= 6 {
+		state := Failing_Allocator {
+			backing = context.allocator,
+			fail_on = fail_on,
+		}
+		allocator := mem.Allocator {
+			procedure = failing_allocator_proc,
+			data      = &state,
+		}
 		device, err := create_device({}, 2, allocator)
 		testing.expect_value(t, err, Error.Allocation_Failed)
 		testing.expect(t, !device.initialized)
@@ -196,10 +220,18 @@ test_context_is_current :: proc(id: rawptr) -> bool {
 
 @(test)
 test_device_context_initialization_failure :: proc(t: ^testing.T) {
-	state := Failing_Allocator{backing = context.allocator}
-	allocator := mem.Allocator{procedure = failing_allocator_proc, data = &state}
+	state := Failing_Allocator {
+		backing = context.allocator,
+	}
+	allocator := mem.Allocator {
+		procedure = failing_allocator_proc,
+		data      = &state,
+	}
 	current := false
-	platform_context := Device_Context{id = &current, is_current = test_context_is_current}
+	platform_context := Device_Context {
+		id         = &current,
+		is_current = test_context_is_current,
+	}
 
 	// Invalid/missing platform access must fail before invoking an OpenGL loader,
 	// and must release both pool allocations made during device initialization.

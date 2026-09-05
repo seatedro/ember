@@ -7,7 +7,7 @@ gl_context :: proc(window: ^Window) -> platform_gl.Context {
 	if window == nil || window.handle == nil {
 		return {}
 	}
-	return platform_gl.Context{
+	return platform_gl.Context {
 		id = rawptr(window.handle),
 		major = int(glfw.GetWindowAttrib(window.handle, glfw.CONTEXT_VERSION_MAJOR)),
 		minor = int(glfw.GetWindowAttrib(window.handle, glfw.CONTEXT_VERSION_MINOR)),

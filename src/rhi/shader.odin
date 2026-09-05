@@ -1,13 +1,10 @@
 package rhi
 
-import "core:mem"
 import "backend"
+import "core:mem"
 import "types"
 
-Shader_Handle :: struct {
-	index:      u32,
-	generation: u32,
-}
+Shader_Handle :: types.Shader_Handle
 
 Shader_State :: enum {
 	Free,
@@ -68,10 +65,10 @@ destroy_shader :: proc(device: ^Device, handle: Shader_Handle) -> Error {
 }
 
 Shader_Slot :: struct {
-	generation:      u32,
-	state:           Shader_State,
-	stage:           Shader_Stage,
-	native:          backend.Shader,
+	generation: u32,
+	state:      Shader_State,
+	stage:      Shader_Stage,
+	native:     backend.Shader,
 }
 
 Shader_Pool :: struct {

@@ -10,6 +10,8 @@ Device :: struct {
 	initialized: bool,
 	buffers:     Buffer_Pool,
 	shaders:     Shader_Pool,
+	pipelines:   Pipeline_Pool,
+	bindings:    Bindings,
 	native:      backend.Device,
 }
 
@@ -18,7 +20,11 @@ create_device :: proc(
 	buffer_capacity := 1024,
 	allocator := context.allocator,
 	shader_capacity := 128,
-) -> (Device, Error) {
+	pipeline_capacity := 128,
+) -> (
+	Device,
+	Error,
+) {
 	pool, pool_error := buffer_pool_create(buffer_capacity, allocator)
 	if pool_error != .None {
 		if pool_error == .Invalid_Capacity {
@@ -34,13 +40,30 @@ create_device :: proc(
 		}
 		return {}, .Allocation_Failed
 	}
+	pipelines, pipeline_error := pipeline_pool_create(pipeline_capacity, allocator)
+	if pipeline_error != .None {
+		shader_pool_destroy(&shaders)
+		buffer_pool_destroy(&pool)
+		if pipeline_error == .Invalid_Capacity {
+			return {}, .Invalid_Capacity
+		}
+		return {}, .Allocation_Failed
+	}
 	native, err := backend.create_device(platform_context)
 	if err != .None {
+		pipeline_pool_destroy(&pipelines)
 		shader_pool_destroy(&shaders)
 		buffer_pool_destroy(&pool)
 		return {}, err
 	}
-	return Device{initialized = true, buffers = pool, shaders = shaders, native = native}, .None
+	return Device {
+			initialized = true,
+			buffers = pool,
+			shaders = shaders,
+			pipelines = pipelines,
+			native = native,
+		},
+		.None
 }
 
 validate_device :: proc(device: ^Device) -> Error {
@@ -59,6 +82,15 @@ destroy_device :: proc(device: ^Device) -> Error {
 	}
 	if err := backend.wait_idle(); err != .None {
 		return err
+	}
+	for &slot, index in device.pipelines.slots {
+		if slot.state == .Live {
+			if err := backend.destroy_pipeline(&slot.native); err != .None {
+				return err
+			}
+			pipeline_pool_retire(&device.pipelines, Pipeline_Handle{u32(index), slot.generation})
+			pipeline_pool_finish_retirement(&device.pipelines, u32(index))
+		}
 	}
 	for &slot, index in device.buffers.slots {
 		if slot.state == .Live {
@@ -82,6 +114,8 @@ destroy_device :: proc(device: ^Device) -> Error {
 	assert(ok, "Device has an unfinished buffer operation")
 	ok = shader_pool_destroy(&device.shaders)
 	assert(ok, "Device has an unfinished shader operation")
+	ok = pipeline_pool_destroy(&device.pipelines)
+	assert(ok, "Device has an unfinished pipeline operation")
 	device^ = {}
 	return .None
 }

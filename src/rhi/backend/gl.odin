@@ -1,9 +1,9 @@
 package backend
 
-import "core:log"
-import "../types"
-import gl "vendor:OpenGL"
 import platform_gl "../../platform/gl_context"
+import "../types"
+import "core:log"
+import gl "vendor:OpenGL"
 
 Device_Context :: platform_gl.Context
 
@@ -19,6 +19,11 @@ Shader :: struct {
 	id: u32,
 }
 
+Pipeline :: struct {
+	program: u32,
+	vao:     u32,
+}
+
 // Use impl_* for operations with explicit error handling. The vendor's debug
 // wrappers consume glGetError themselves, which would hide allocation failures.
 check_errors :: proc(operation: string) -> types.Error {
@@ -31,7 +36,9 @@ check_errors :: proc(operation: string) -> types.Error {
 }
 
 create_device :: proc(platform_context: Device_Context) -> (Device, types.Error) {
-	backend := Device{platform_context = platform_context}
+	backend := Device {
+		platform_context = platform_context,
+	}
 	if err := validate_context(&backend); err != .None {
 		return {}, err
 	}
@@ -43,15 +50,46 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	}
 
 	gl.load_up_to(platform_context.major, platform_context.minor, platform_context.load_proc)
-	if gl.impl_GetError == nil || gl.impl_GetIntegerv == nil ||
-	   gl.impl_GenBuffers == nil || gl.impl_BindBuffer == nil ||
-	   gl.impl_BufferData == nil || gl.impl_BufferSubData == nil ||
-	   gl.impl_DeleteBuffers == nil || gl.impl_Finish == nil ||
-	   gl.impl_Enable == nil || gl.impl_Viewport == nil ||
-	   gl.impl_ClearColor == nil || gl.impl_ClearDepth == nil || gl.impl_Clear == nil ||
-	   gl.impl_CreateShader == nil || gl.impl_ShaderSource == nil ||
-	   gl.impl_CompileShader == nil || gl.impl_GetShaderiv == nil ||
-	   gl.impl_GetShaderInfoLog == nil || gl.impl_DeleteShader == nil {
+	if gl.impl_GetError == nil ||
+	   gl.impl_GetIntegerv == nil ||
+	   gl.impl_GenBuffers == nil ||
+	   gl.impl_BindBuffer == nil ||
+	   gl.impl_BufferData == nil ||
+	   gl.impl_BufferSubData == nil ||
+	   gl.impl_DeleteBuffers == nil ||
+	   gl.impl_Finish == nil ||
+	   gl.impl_Enable == nil ||
+	   gl.impl_Viewport == nil ||
+	   gl.impl_ClearColor == nil ||
+	   gl.impl_ClearDepth == nil ||
+	   gl.impl_Clear == nil ||
+	   gl.impl_CreateShader == nil ||
+	   gl.impl_ShaderSource == nil ||
+	   gl.impl_CompileShader == nil ||
+	   gl.impl_GetShaderiv == nil ||
+	   gl.impl_GetShaderInfoLog == nil ||
+	   gl.impl_DeleteShader == nil ||
+	   gl.impl_CreateProgram == nil ||
+	   gl.impl_DeleteProgram == nil ||
+	   gl.impl_AttachShader == nil ||
+	   gl.impl_DetachShader == nil ||
+	   gl.impl_LinkProgram == nil ||
+	   gl.impl_GetProgramiv == nil ||
+	   gl.impl_GetProgramInfoLog == nil ||
+	   gl.impl_UseProgram == nil ||
+	   gl.impl_GenVertexArrays == nil ||
+	   gl.impl_DeleteVertexArrays == nil ||
+	   gl.impl_BindVertexArray == nil ||
+	   gl.impl_VertexAttribPointer == nil ||
+	   gl.impl_EnableVertexAttribArray == nil ||
+	   gl.impl_DrawElements == nil ||
+	   gl.impl_Disable == nil ||
+	   gl.impl_DepthMask == nil ||
+	   gl.impl_DepthFunc == nil ||
+	   gl.impl_CullFace == nil ||
+	   gl.impl_FrontFace == nil ||
+	   gl.impl_PolygonMode == nil ||
+	   gl.impl_ColorMask == nil {
 		return {}, .Unsupported_Backend
 	}
 	if err := check_errors("before device initialization"); err != .None {
@@ -75,7 +113,8 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 
 validate_context :: proc(backend: ^Device) -> types.Error {
 	platform_context := backend.platform_context
-	if platform_context.id == nil || platform_context.is_current == nil ||
+	if platform_context.id == nil ||
+	   platform_context.is_current == nil ||
 	   !platform_context.is_current(platform_context.id) {
 		return .Wrong_Context
 	}
@@ -151,22 +190,37 @@ set_viewport :: proc(width, height: i32) {
 }
 
 clear :: proc(color: [4]f32, depth: f64) {
+	// A previous pipeline may have disabled depth writes. Clears still initialize
+	// the complete target; the next draw reapplies its pipeline's write state.
+	gl.DepthMask(true)
+	gl.ColorMask(true, true, true, true)
 	gl.ClearColor(color[0], color[1], color[2], color[3])
 	gl.ClearDepth(depth)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 }
 
-create_shader :: proc(desc: types.Shader_Desc, allocator := context.allocator) -> (Shader, types.Error) {
+create_shader :: proc(
+	desc: types.Shader_Desc,
+	allocator := context.allocator,
+) -> (
+	Shader,
+	types.Error,
+) {
 	kind: u32
 	switch desc.stage {
-	case .Vertex:   kind = gl.VERTEX_SHADER
-	case .Fragment: kind = gl.FRAGMENT_SHADER
-	case: return {}, .Unsupported_Shader_Stage
+	case .Vertex:
+		kind = gl.VERTEX_SHADER
+	case .Fragment:
+		kind = gl.FRAGMENT_SHADER
+	case:
+		return {}, .Unsupported_Shader_Stage
 	}
 	if err := check_errors("before shader creation"); err != .None {
 		return {}, err
 	}
-	native := Shader{id = gl.impl_CreateShader(kind)}
+	native := Shader {
+		id = gl.impl_CreateShader(kind),
+	}
 	succeeded := false
 	defer if !succeeded && native.id != 0 {
 		gl.impl_DeleteShader(native.id)
@@ -231,4 +285,197 @@ destroy_shader :: proc(native: ^Shader) -> types.Error {
 	}
 	native^ = {}
 	return .None
+}
+
+create_pipeline :: proc(
+	vertex, fragment: Shader,
+	label: string,
+	allocator := context.allocator,
+) -> (
+	Pipeline,
+	types.Error,
+) {
+	if err := check_errors("before pipeline creation"); err != .None {
+		return {}, err
+	}
+	native := Pipeline {
+		program = gl.impl_CreateProgram(),
+	}
+	succeeded := false
+	defer if !succeeded {
+		if native.vao != 0 {
+			gl.impl_DeleteVertexArrays(1, &native.vao)
+		}
+		if native.program != 0 {
+			gl.impl_DeleteProgram(native.program)
+		}
+	}
+	if err := check_errors("create program"); err != .None {
+		return {}, err
+	}
+	if native.program == 0 {
+		return {}, .Backend_Failed
+	}
+	gl.impl_AttachShader(native.program, vertex.id)
+	if err := check_errors("attach vertex shader"); err != .None {
+		return {}, err
+	}
+	defer gl.impl_DetachShader(native.program, vertex.id)
+	gl.impl_AttachShader(native.program, fragment.id)
+	if err := check_errors("attach fragment shader"); err != .None {
+		return {}, err
+	}
+	defer gl.impl_DetachShader(native.program, fragment.id)
+	gl.impl_LinkProgram(native.program)
+	if err := check_errors("link program"); err != .None {
+		return {}, err
+	}
+	linked: i32
+	gl.impl_GetProgramiv(native.program, gl.LINK_STATUS, &linked)
+	if err := check_errors("query program link"); err != .None {
+		return {}, err
+	}
+	if linked == 0 {
+		log.errorf("Pipeline link failed: %s", label)
+		log_length: i32
+		gl.impl_GetProgramiv(native.program, gl.INFO_LOG_LENGTH, &log_length)
+		if err := check_errors("query program log size"); err != .None {
+			return {}, err
+		}
+		if log_length > 1 {
+			bytes, allocation_error := make([]u8, int(log_length), allocator)
+			if allocation_error != .None {
+				return {}, .Allocation_Failed
+			}
+			defer delete(bytes, allocator)
+			written: i32
+			gl.impl_GetProgramInfoLog(native.program, log_length, &written, raw_data(bytes))
+			if err := check_errors("read program log"); err != .None {
+				return {}, err
+			}
+			log.error(string(bytes[:int(written)]))
+		}
+		return {}, .Pipeline_Link_Failed
+	}
+	previous_vao: i32
+	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
+	if err := check_errors("query vertex array binding"); err != .None {
+		return {}, err
+	}
+	defer gl.impl_BindVertexArray(u32(previous_vao))
+	gl.impl_GenVertexArrays(1, &native.vao)
+	if err := check_errors("create vertex array"); err != .None {
+		return {}, err
+	}
+	if native.vao == 0 {
+		return {}, .Backend_Failed
+	}
+	gl.impl_BindVertexArray(native.vao)
+	if err := check_errors("initialize vertex array"); err != .None {
+		return {}, err
+	}
+	succeeded = true
+	return native, .None
+}
+
+destroy_pipeline :: proc(native: ^Pipeline) -> types.Error {
+	if err := check_errors("before pipeline deletion"); err != .None {
+		return err
+	}
+	gl.impl_DeleteVertexArrays(1, &native.vao)
+	if err := check_errors("delete vertex array"); err != .None {
+		return err
+	}
+	native.vao = 0
+	gl.impl_DeleteProgram(native.program)
+	if err := check_errors("delete program"); err != .None {
+		return err
+	}
+	native.program = 0
+	return .None
+}
+
+draw_indexed :: proc(
+	pipeline: Pipeline,
+	settings: types.Pipeline_Settings,
+	vertex: Buffer,
+	vertex_offset: u64,
+	index: Buffer,
+	index_type: types.Index_Type,
+	index_offset: u64,
+	index_count: u32,
+) -> types.Error {
+	if err := check_errors("before indexed draw"); err != .None {
+		return err
+	}
+	previous_vao, previous_array, previous_program: i32
+	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
+	gl.impl_GetIntegerv(gl.ARRAY_BUFFER_BINDING, &previous_array)
+	gl.impl_GetIntegerv(gl.CURRENT_PROGRAM, &previous_program)
+	if err := check_errors("query draw bindings"); err != .None {
+		return err
+	}
+	defer {
+		gl.impl_BindVertexArray(u32(previous_vao))
+		gl.impl_BindBuffer(gl.ARRAY_BUFFER, u32(previous_array))
+		gl.impl_UseProgram(u32(previous_program))
+	}
+	gl.impl_UseProgram(pipeline.program)
+	gl.impl_BindVertexArray(pipeline.vao)
+	gl.impl_BindBuffer(gl.ARRAY_BUFFER, vertex.id)
+	for i in 0 ..< settings.layout.attribute_count {
+		attribute := settings.layout.attributes[i]
+		gl.impl_EnableVertexAttribArray(attribute.location)
+		gl.impl_VertexAttribPointer(
+			attribute.location,
+			i32(attribute.format) + 1,
+			gl.FLOAT,
+			false,
+			i32(settings.layout.stride),
+			uintptr(vertex_offset + u64(attribute.offset)),
+		)
+	}
+	gl.impl_BindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.id)
+	if settings.depth.test_enabled {
+		gl.impl_Enable(gl.DEPTH_TEST)
+	} else {
+		gl.impl_Disable(gl.DEPTH_TEST)
+	}
+	gl.impl_DepthMask(settings.depth.write_enabled)
+	comparisons := [types.Compare]u32 {
+		.Less          = gl.LESS,
+		.Less_Equal    = gl.LEQUAL,
+		.Equal         = gl.EQUAL,
+		.Greater       = gl.GREATER,
+		.Greater_Equal = gl.GEQUAL,
+		.Not_Equal     = gl.NOTEQUAL,
+		.Never         = gl.NEVER,
+		.Always        = gl.ALWAYS,
+	}
+	gl.impl_DepthFunc(comparisons[settings.depth.compare])
+	if settings.raster.cull == .None {
+		gl.impl_Disable(gl.CULL_FACE)
+	} else {
+		gl.impl_Enable(gl.CULL_FACE)
+		gl.impl_CullFace(gl.BACK if settings.raster.cull == .Back else gl.FRONT)
+	}
+	gl.impl_FrontFace(gl.CCW if settings.raster.winding == .CCW else gl.CW)
+	gl.impl_PolygonMode(gl.FRONT_AND_BACK, gl.LINE if settings.raster.wireframe else gl.FILL)
+	gl.impl_Disable(gl.BLEND)
+	gl.impl_ColorMask(true, true, true, true)
+	if err := check_errors("apply draw state"); err != .None {
+		return err
+	}
+	primitives := [types.Primitive]u32 {
+		.Triangles = gl.TRIANGLES,
+		.Lines     = gl.LINES,
+		.Points    = gl.POINTS,
+	}
+	gl.impl_DrawElements(
+		primitives[settings.primitive],
+		i32(index_count),
+		gl.UNSIGNED_SHORT if index_type == .U16 else gl.UNSIGNED_INT,
+		rawptr(uintptr(index_offset)),
+	)
+	return check_errors("draw indexed")
 }

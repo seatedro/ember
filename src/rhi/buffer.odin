@@ -1,7 +1,7 @@
 package rhi
 
-import "core:mem"
 import "backend"
+import "core:mem"
 import "types"
 
 Buffer_Handle :: struct {
@@ -22,7 +22,14 @@ Buffer_Usages :: types.Buffer_Usages
 Memory_Preference :: types.Memory_Preference
 Buffer_Desc :: types.Buffer_Desc
 
-create_buffer :: proc(device: ^Device, desc: Buffer_Desc, initial_data: []u8 = nil) -> (Buffer_Handle, Error) {
+create_buffer :: proc(
+	device: ^Device,
+	desc: Buffer_Desc,
+	initial_data: []u8 = nil,
+) -> (
+	Buffer_Handle,
+	Error,
+) {
 	if err := validate_device(device); err != .None {
 		return {}, err
 	}

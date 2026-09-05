@@ -10,6 +10,7 @@ Config :: struct {
 	width:  i32,
 	height: i32,
 	vsync:  bool,
+	hidden: bool,
 }
 
 Window :: struct {
@@ -45,6 +46,7 @@ create :: proc(window: ^Window, config: Config) -> bool {
 	}
 
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	glfw.WindowHint(glfw.VISIBLE, glfw.FALSE if config.hidden else glfw.TRUE)
 
 	title := strings.clone_to_cstring(config.title, context.temp_allocator)
 	handle := glfw.CreateWindow(config.width, config.height, title, nil, nil)
@@ -83,6 +85,10 @@ destroy :: proc(window: ^Window) {
 
 poll_events :: proc() {
 	glfw.PollEvents()
+}
+
+wait_events :: proc(timeout: f64) {
+	glfw.WaitEventsTimeout(timeout)
 }
 
 swap_buffers :: proc(window: ^Window) {

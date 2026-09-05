@@ -32,12 +32,18 @@ verify_shader :: proc(device: ^rhi.Device, handle: rhi.Shader_Handle, kind: u32)
 
 // Leaves both stages live for the device shutdown test.
 test_shaders :: proc(device: ^rhi.Device) -> (rhi.Shader_Handle, rhi.Shader_Handle) {
-	vertex_desc := rhi.Shader_Desc{
-		stage = .Vertex,
-		source = vertex_source_with_suffix[:len(vertex_source_with_suffix) - len("THIS MUST NOT COMPILE")],
-		label = "smoke vertex",
+	vertex_desc := rhi.Shader_Desc {
+		stage  = .Vertex,
+		source = vertex_source_with_suffix[:len(
+			vertex_source_with_suffix,
+		) - len("THIS MUST NOT COMPILE")],
+		label  = "smoke vertex",
 	}
-	fragment_desc := rhi.Shader_Desc{stage = .Fragment, source = fragment_source, label = "smoke fragment"}
+	fragment_desc := rhi.Shader_Desc {
+		stage  = .Fragment,
+		source = fragment_source,
+		label  = "smoke fragment",
+	}
 	invalid_desc := vertex_desc
 	invalid_desc.source = ""
 	_, empty_error := rhi.create_shader(device, invalid_desc)

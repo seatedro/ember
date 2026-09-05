@@ -25,7 +25,7 @@ esac
 
 BUILD="${BUILD:-debug}"
 OUT_DIR="build/$BUILD"
-ODIN_FLAGS="-collection:ember=src -out:$OUT_DIR/game"
+ODIN_FLAGS="-collection:ember=src -collection:game=game -out:$OUT_DIR/game"
 
 case "$BUILD" in
     debug)
@@ -46,5 +46,5 @@ esac
 mkdir -p "$OUT_DIR"
 
 echo "Building ember ($BUILD)"
-odin build game $ODIN_FLAGS
+odin build src/entrypoint $ODIN_FLAGS
 echo "done: $OUT_DIR/game"

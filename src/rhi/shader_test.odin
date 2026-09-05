@@ -55,7 +55,10 @@ test_shader_pool_lifecycle :: proc(t: ^testing.T) {
 
 @(test)
 test_shader_descriptor_validation :: proc(t: ^testing.T) {
-	desc := Shader_Desc{stage = .Vertex, source = "void main() {}"}
+	desc := Shader_Desc {
+		stage  = .Vertex,
+		source = "void main() {}",
+	}
 	testing.expect_value(t, validate_shader_desc(desc), Error.None)
 	desc.stage = .Fragment
 	testing.expect_value(t, validate_shader_desc(desc), Error.None)

@@ -18,6 +18,11 @@ Error :: enum {
 	Invalid_Shader_Source,
 	Unsupported_Shader_Stage,
 	Shader_Compile_Failed,
+	Pipeline_Link_Failed,
+	Invalid_Vertex_Layout,
+	Invalid_Pipeline_State,
+	Invalid_Buffer_Binding,
+	Invalid_Draw,
 }
 
 Buffer_Usage :: enum {
@@ -50,8 +55,93 @@ Shader_Stage :: enum {
 	Fragment,
 }
 
+Shader_Handle :: struct {
+	index:      u32,
+	generation: u32,
+}
+
 Shader_Desc :: struct {
 	stage:  Shader_Stage,
 	source: string,
 	label:  string,
+}
+
+MAX_VERTEX_ATTRIBUTES :: 16
+
+Vertex_Format :: enum {
+	F32,
+	F32x2,
+	F32x3,
+	F32x4,
+}
+Vertex_Attribute :: struct {
+	location: u32,
+	format:   Vertex_Format,
+	offset:   u32,
+}
+
+Vertex_Layout :: struct {
+	attributes:      [MAX_VERTEX_ATTRIBUTES]Vertex_Attribute,
+	attribute_count: u32,
+	stride:          u32,
+}
+
+Compare :: enum {
+	Less,
+	Less_Equal,
+	Equal,
+	Greater,
+	Greater_Equal,
+	Not_Equal,
+	Never,
+	Always,
+}
+Cull_Mode :: enum {
+	None,
+	Back,
+	Front,
+}
+Winding :: enum {
+	CCW,
+	CW,
+}
+Primitive :: enum {
+	Triangles,
+	Lines,
+	Points,
+}
+Index_Type :: enum {
+	U16,
+	U32,
+}
+
+Depth_State :: struct {
+	test_enabled:  bool,
+	write_enabled: bool,
+	compare:       Compare,
+}
+
+Raster_State :: struct {
+	cull:      Cull_Mode,
+	winding:   Winding,
+	wireframe: bool,
+}
+
+Pipeline_Settings :: struct {
+	layout:    Vertex_Layout,
+	depth:     Depth_State,
+	raster:    Raster_State,
+	primitive: Primitive,
+}
+
+Pipeline_Desc :: struct {
+	vertex_shader:   Shader_Handle,
+	fragment_shader: Shader_Handle,
+	settings:        Pipeline_Settings,
+	label:           string,
+}
+
+Draw_Indexed_Desc :: struct {
+	index_count: u32,
+	first_index: u32,
 }
