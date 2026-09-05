@@ -173,7 +173,8 @@ failing_allocator_proc :: proc(
 
 @(test)
 test_buffer_pool_allocation_failure :: proc(t: ^testing.T) {
-	for fail_on in 1 ..= 2 {
+	// The device allocates two arrays per resource pool.
+	for fail_on in 1 ..= 4 {
 		state := Failing_Allocator{backing = context.allocator, fail_on = fail_on}
 		allocator := mem.Allocator{procedure = failing_allocator_proc, data = &state}
 		device, err := create_device({}, 2, allocator)

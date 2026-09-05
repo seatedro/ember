@@ -1,6 +1,8 @@
 package rhi
 
 import "core:mem"
+import "backend"
+import "types"
 
 Buffer_Handle :: struct {
 	index:      u32,
@@ -15,30 +17,10 @@ Buffer_State :: enum {
 	Exhausted,
 }
 
-Buffer_Usage :: enum {
-	Vertex,
-	Index,
-	Uniform,
-	Storage,
-	Indirect,
-	Copy_Source,
-	Copy_Destination,
-}
-
-Buffer_Usages :: bit_set[Buffer_Usage]
-
-Memory_Preference :: enum {
-	GPU,
-	Upload,
-	Readback,
-}
-
-Buffer_Desc :: struct {
-	size:              u64,
-	usage:             Buffer_Usages,
-	memory_preference: Memory_Preference,
-	label:             string,
-}
+Buffer_Usage :: types.Buffer_Usage
+Buffer_Usages :: types.Buffer_Usages
+Memory_Preference :: types.Memory_Preference
+Buffer_Desc :: types.Buffer_Desc
 
 create_buffer :: proc(device: ^Device, desc: Buffer_Desc, initial_data: []u8 = nil) -> (Buffer_Handle, Error) {
 	if err := validate_device(device); err != .None {
@@ -51,7 +33,7 @@ create_buffer :: proc(device: ^Device, desc: Buffer_Desc, initial_data: []u8 = n
 	if slot == nil {
 		return {}, .Pool_Exhausted
 	}
-	native, err := backend_create_buffer(desc, initial_data)
+	native, err := backend.create_buffer(desc, initial_data)
 	if err != .None {
 		buffer_pool_cancel(&device.buffers, index)
 		return {}, err
@@ -91,10 +73,10 @@ destroy_buffer :: proc(device: ^Device, handle: Buffer_Handle) -> Error {
 	if slot == nil {
 		return .Invalid_Handle
 	}
-	if err := backend_wait_idle(); err != .None {
+	if err := backend.wait_idle(); err != .None {
 		return err
 	}
-	if err := backend_destroy_buffer(&slot.native); err != .None {
+	if err := backend.destroy_buffer(&slot.native); err != .None {
 		return err
 	}
 	buffer_pool_retire(&device.buffers, handle)
@@ -108,7 +90,7 @@ Buffer_Slot :: struct {
 	size:            u64,
 	usage:           Buffer_Usages,
 	last_submission: u64,
-	native:          Backend_Buffer,
+	native:          backend.Buffer,
 }
 
 Buffer_Pool :: struct {

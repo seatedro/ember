@@ -3,6 +3,7 @@
 package rhi_gl_smoke
 
 import "core:fmt"
+import "core:log"
 import "ember:rhi"
 import win "ember:platform/window"
 import gl "vendor:OpenGL"
@@ -39,6 +40,9 @@ verify_contents :: proc(device: ^rhi.Device, handle: rhi.Buffer_Handle, expected
 }
 
 main :: proc() {
+	logger := log.create_console_logger()
+	defer log.destroy_console_logger(logger)
+	context.logger = logger
 	assert(bool(glfw.Init()))
 	defer glfw.Terminate()
 	glfw.WindowHint(glfw.VISIBLE, glfw.FALSE)
@@ -56,7 +60,7 @@ main :: proc() {
 	missing, missing_error := rhi.create_device(platform_context, 2)
 	assert(missing_error == .Wrong_Context && !missing.initialized)
 	glfw.MakeContextCurrent(window)
-	device, err := rhi.create_device(platform_context, 2)
+	device, err := rhi.create_device(platform_context, 2, shader_capacity = 2)
 	assert(err == .None)
 	defer assert(rhi.destroy_device(&device) == .None)
 	major, minor: i32
@@ -101,12 +105,16 @@ main :: proc() {
 	verify_contents(&device, index, bytes[:], 8)
 	_, full_error := rhi.create_buffer(&device, vertex_desc)
 	assert(full_error == .Pool_Exhausted)
+	vertex_shader, fragment_shader := test_shaders(&device)
 
 	// Missing context must preserve live buffers and device ownership.
 	glfw.MakeContextCurrent(nil)
 	_, wrong_create := rhi.create_buffer(&device, vertex_desc)
 	assert(wrong_create == .Wrong_Context)
 	assert(rhi.destroy_buffer(&device, vertex) == .Wrong_Context)
+	_, wrong_shader_create := rhi.create_shader(&device, rhi.Shader_Desc{source = "void main() {}"})
+	assert(wrong_shader_create == .Wrong_Context)
+	assert(rhi.destroy_shader(&device, vertex_shader) == .Wrong_Context)
 	assert(rhi.destroy_device(&device) == .Wrong_Context)
 	assert(device.initialized)
 
@@ -116,6 +124,7 @@ main :: proc() {
 	defer glfw.DestroyWindow(other_window)
 	glfw.MakeContextCurrent(other_window)
 	assert(rhi.destroy_buffer(&device, vertex) == .Wrong_Context)
+	assert(rhi.destroy_shader(&device, vertex_shader) == .Wrong_Context)
 	assert(rhi.destroy_device(&device) == .Wrong_Context)
 	glfw.MakeContextCurrent(window)
 
@@ -130,11 +139,15 @@ main :: proc() {
 
 	index_id := rhi.buffer_pool_lookup(&device.buffers, index).native.id
 	replacement_id := rhi.buffer_pool_lookup(&device.buffers, replacement).native.id
+	vertex_shader_id := rhi.shader_pool_lookup(&device.shaders, vertex_shader).native.id
+	fragment_shader_id := rhi.shader_pool_lookup(&device.shaders, fragment_shader).native.id
 	assert(rhi.destroy_device(&device) == .None)
 	assert(!gl.IsBuffer(index_id) && !gl.IsBuffer(replacement_id))
+	assert(!gl.IsShader(vertex_shader_id) && !gl.IsShader(fragment_shader_id))
 	assert(!device.initialized && len(device.buffers.slots) == 0)
+	assert(len(device.shaders.slots) == 0)
 	_, dead_error := rhi.create_buffer(&device, vertex_desc)
 	assert(dead_error == .Device_Not_Initialized)
 	assert(gl.GetError() == gl.NO_ERROR)
-	fmt.println("OpenGL buffer smoke passed: upload/readback, bindings, rollback, reuse, context checks, shutdown")
+	fmt.println("OpenGL smoke passed: buffers, shader compilation/diagnostics, rollback, reuse, context checks, shutdown")
 }
