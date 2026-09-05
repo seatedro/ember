@@ -1,0 +1,221 @@
+package rhi
+
+import "core:mem"
+
+Buffer_Handle :: struct {
+	index:      u32,
+	generation: u32,
+}
+
+Buffer_State :: enum {
+	Free,
+	Reserved,
+	Live,
+	Retiring,
+	Exhausted,
+}
+
+Buffer_Usage :: enum {
+	Vertex,
+	Index,
+	Uniform,
+	Storage,
+	Indirect,
+	Copy_Source,
+	Copy_Destination,
+}
+
+Buffer_Usages :: bit_set[Buffer_Usage]
+
+Memory_Preference :: enum {
+	GPU,
+	Upload,
+	Readback,
+}
+
+Buffer_Desc :: struct {
+	size:              u64,
+	usage:             Buffer_Usages,
+	memory_preference: Memory_Preference,
+	label:             string,
+}
+
+Backend_Buffer :: struct {}
+
+Buffer_Slot :: struct {
+	generation:      u32,
+	state:           Buffer_State,
+	size:            u64,
+	usage:           Buffer_Usages,
+	last_submission: u64,
+	native:          Backend_Buffer,
+}
+
+Buffer_Pool :: struct {
+	slots:        []Buffer_Slot,
+	free_indices: []u32,
+	free_count:   int,
+	allocator:    mem.Allocator,
+}
+
+Buffer_Pool_Error :: enum {
+	None,
+	Invalid_Capacity,
+	Allocation_Failed,
+}
+
+buffer_pool_create :: proc(
+	capacity: int,
+	allocator := context.allocator,
+) -> (
+	Buffer_Pool,
+	Buffer_Pool_Error,
+) {
+	if capacity <= 0 ||
+	   u64(capacity) > u64(max(u32)) ||
+	   capacity > max(int) / size_of(Buffer_Slot) {
+		return {}, .Invalid_Capacity
+	}
+
+	slots, slots_error := make([]Buffer_Slot, capacity, allocator)
+	if slots_error != .None {
+		return {}, .Allocation_Failed
+	}
+
+	free_indices, free_indices_error := make([]u32, capacity, allocator)
+	if free_indices_error != .None {
+		delete(slots, allocator)
+		return {}, .Allocation_Failed
+	}
+
+	for i in 0 ..< capacity {
+		slots[i].generation = 1
+		slots[i].state = .Free
+
+		free_indices[i] = u32(capacity - i - 1)
+	}
+
+	return Buffer_Pool {
+			slots = slots,
+			free_indices = free_indices,
+			free_count = capacity,
+			allocator = allocator,
+		},
+		.None
+}
+
+buffer_pool_reserve :: proc(pool: ^Buffer_Pool) -> (index: u32, slot: ^Buffer_Slot) {
+	if pool.free_count == 0 {
+		return 0, nil
+	}
+
+	pool.free_count -= 1
+	index = pool.free_indices[pool.free_count]
+	slot = &pool.slots[index]
+
+	assert(slot.state == .Free)
+	assert(slot.generation != 0)
+
+	slot.state = .Reserved
+	return index, slot
+}
+
+buffer_pool_publish :: proc(pool: ^Buffer_Pool, index: u32) -> Buffer_Handle {
+	slot := &pool.slots[index]
+	assert(slot.state == .Reserved)
+
+	slot.state = .Live
+	return Buffer_Handle{index = index, generation = slot.generation}
+}
+
+buffer_pool_return_slot :: proc(pool: ^Buffer_Pool, index: u32) {
+	generation := pool.slots[index].generation
+
+	pool.slots[index] = Buffer_Slot {
+		generation = generation,
+		state      = .Free,
+	}
+
+	assert(pool.free_count < len(pool.free_indices))
+	pool.free_indices[pool.free_count] = index
+	pool.free_count += 1
+}
+
+buffer_pool_cancel :: proc(pool: ^Buffer_Pool, index: u32) {
+	assert(pool.slots[index].state == .Reserved)
+	buffer_pool_return_slot(pool, index)
+}
+
+buffer_pool_lookup :: proc(pool: ^Buffer_Pool, handle: Buffer_Handle) -> ^Buffer_Slot {
+	if handle.generation == 0 {
+		return nil
+	}
+
+	if uint(handle.index) >= uint(len(pool.slots)) {
+		return nil
+	}
+
+	slot := &pool.slots[handle.index]
+
+	if slot.state != .Live || slot.generation != handle.generation {
+		return nil
+	}
+
+	return slot
+}
+
+buffer_pool_mark_used :: proc(pool: ^Buffer_Pool, handle: Buffer_Handle, submission: u64) -> bool {
+	slot := buffer_pool_lookup(pool, handle)
+	if slot == nil {
+		return false
+	}
+
+	slot.last_submission = max(slot.last_submission, submission)
+	return true
+}
+
+buffer_pool_retire :: proc(pool: ^Buffer_Pool, handle: Buffer_Handle) -> bool {
+	slot := buffer_pool_lookup(pool, handle)
+	if slot == nil {
+		return false
+	}
+
+	slot.state = .Retiring
+
+	if slot.generation == max(u32) {
+		// Mark generation overflow so retirement never makes an old handle valid again.
+		slot.generation = 0
+	} else {
+		slot.generation += 1
+	}
+
+	return true
+}
+
+buffer_pool_finish_retirement :: proc(pool: ^Buffer_Pool, index: u32) {
+	slot := &pool.slots[index]
+	assert(slot.state == .Retiring)
+
+	if slot.generation == 0 {
+		slot^ = Buffer_Slot {
+			state = .Exhausted,
+		}
+		return
+	}
+
+	buffer_pool_return_slot(pool, index)
+}
+
+buffer_pool_destroy :: proc(pool: ^Buffer_Pool) -> bool {
+	for slot in pool.slots {
+		if slot.state != .Free && slot.state != .Exhausted {
+			return false
+		}
+	}
+
+	delete(pool.slots, pool.allocator)
+	delete(pool.free_indices, pool.allocator)
+	pool^ = {}
+
+	return true
+}
