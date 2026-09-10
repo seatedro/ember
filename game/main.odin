@@ -6,7 +6,7 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return engine.Config {
-		title = "Ember",
+		title = "Ember - drag to orbit, scroll to zoom, R resets, Escape closes",
 		width = 1280,
 		height = 720,
 		vsync = true,

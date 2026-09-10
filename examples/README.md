@@ -1,6 +1,8 @@
 # Examples
 
-Run from the repository root. `./build.sh` builds the default sphere demo.
+Run from the repository root. `./build.sh` builds the default sphere demo:
+left drag orbits, scroll zooms, `R` resets, and Escape closes.
+See [camera](../src/camera/README.md) for the data and math.
 
 ## Input
 

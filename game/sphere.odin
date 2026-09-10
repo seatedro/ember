@@ -3,9 +3,11 @@ package game
 import "core:log"
 import "core:math"
 import "core:mem"
+import "ember:camera"
 import emath "ember:core/math"
 import "ember:engine"
 import "ember:geometry"
+import "ember:input"
 import "ember:rhi"
 
 State :: struct {
@@ -15,6 +17,9 @@ State :: struct {
 	uniforms:    rhi.Buffer_Handle,
 	index_count: u32,
 	angle:       f32,
+	orbit:       camera.Orbit,
+	camera:      camera.Camera,
+	grid:        Grid,
 }
 
 // Two column-major mat4 values match the shader's std140 Per_Object block.
@@ -26,6 +31,8 @@ Per_Object :: struct {
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {}
+	game.orbit = INITIAL_ORBIT
+	game.camera = camera.from_orbit(game.orbit)
 	device := app.device
 
 	mesh, mesh_error := geometry.create_sphere()
@@ -114,11 +121,18 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			label = "sphere",
 		},
 	)
-	return check(err, "create pipeline")
+	if !check(err, "create pipeline") {
+		return false
+	}
+	return create_grid(&game.grid, device)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	game := cast(^State)userdata
+	update_camera(game, app)
+	if input.pressed(app.input, .Escape) {
+		engine.request_quit(app)
+	}
 	game.angle += dt * 0.05
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
@@ -130,7 +144,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	device := app.device
 
 	model := emath.rotation_y(game.angle) * emath.rotation_x(-0.2)
-	view := emath.look_at({0, 0.35, 3.3}, {0, 0, 0}, {0, 1, 0})
+	view := camera.view(game.camera)
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
 	data := [1]Per_Object{{mvp = projection * view * model, model = model}}
 
@@ -142,6 +156,9 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	rhi.clear(device, {0.1, 0.1, 0.1, 1}, 1)
+	if !draw_grid(&game.grid, device, projection * view) {
+		return false
+	}
 	if !check(rhi.bind_pipeline(device, game.pipeline), "bind pipeline") {
 		return false
 	}
@@ -163,6 +180,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	destroy_grid(&game.grid, app.device)
 
 	if game.pipeline.generation != 0 {
 		check(rhi.destroy_pipeline(app.device, game.pipeline), "destroy pipeline")
