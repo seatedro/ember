@@ -1,5 +1,6 @@
 package window
 
+import "../../input"
 import "base:runtime"
 import "core:log"
 import "core:strings"
@@ -19,6 +20,7 @@ Window :: struct {
 	height:              i32,
 	framebuffer_resized: bool,
 	minimized:           bool,
+	input:               input.State,
 }
 
 glfw_callback_context: runtime.Context
@@ -66,6 +68,7 @@ create :: proc(window: ^Window, config: Config) -> bool {
 	window.handle = handle
 	glfw.SetWindowUserPointer(handle, rawptr(window))
 	glfw.SetFramebufferSizeCallback(handle, framebuffer_size_callback)
+	init_input(window)
 
 	window.width, window.height = glfw.GetFramebufferSize(handle)
 	window.framebuffer_resized = true

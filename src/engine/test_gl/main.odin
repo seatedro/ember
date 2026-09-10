@@ -4,12 +4,15 @@ package engine_gl_smoke
 import engine ".."
 import "core:fmt"
 import "core:time"
+import "ember:input"
 import game "game:."
 import gl "vendor:OpenGL"
+import "vendor:glfw"
 
 Mode :: enum {
 	Normal,
 	Fixed,
+	Input,
 	Init_Failure,
 	Draw_Failure,
 	Quit_During_Init,
@@ -45,6 +48,9 @@ on_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if h.mode == .Fixed {
 		assert(abs(dt - 0.001) < 0.000001)
 	}
+	if h.mode == .Input {
+		check_update_input(app)
+	}
 	if h.game_config.update != nil {
 		h.game_config.update(app, h.game_config.userdata, dt)
 	}
@@ -60,6 +66,13 @@ on_draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 	assert(app.frame_count == u64(h.draw_count))
 	assert(h.game_config.draw(app, h.game_config.userdata))
+	if h.mode == .Input {
+		// Update has consumed the tap before drawing.
+		assert(!input.pressed(app.input, .F25) && !input.released(app.input, .F25))
+		if app.frame_count == 0 {
+			inject_tap()
+		}
+	}
 
 	// Read the actual game's back buffer before engine presentation.
 	center, corner: [4]u8
@@ -121,13 +134,34 @@ main :: proc() {
 			assert(err == .Draw_Failed && h.draw_count == 0)
 		case .Quit_During_Init:
 			assert(err == .None && h.draw_count == 0 && h.update_count == 0)
-		case .Normal, .Fixed:
+		case .Normal, .Fixed, .Input:
 			assert(err == .None && h.draw_count == 3 && h.update_count > 0)
 		}
 		assert(h.init_count == 1 && h.quit_count == 1)
 	}
 
 	fmt.println(
-		"Engine smoke passed: game pixels, variable/fixed updates, quit requests, failure cleanup",
+		"Engine smoke passed: game pixels, variable/fixed updates, input delivery, quit, failure cleanup",
 	)
+}
+
+check_update_input :: proc(app: ^engine.Context) {
+	expected := app.frame_count == 1
+	assert(input.pressed(app.input, .F25) == expected)
+	assert(input.released(app.input, .F25) == expected)
+	assert(!input.down(app.input, .F25))
+}
+
+inject_tap :: proc() {
+	// Events delivered during drawing must survive until the next update.
+	// Invoke registered callbacks only; do not send system keyboard events.
+	handle := glfw.GetCurrentContext()
+	key := glfw.SetKeyCallback(handle, nil)
+	focus := glfw.SetWindowFocusCallback(handle, nil)
+	assert(key != nil && focus != nil)
+	glfw.SetKeyCallback(handle, key)
+	glfw.SetWindowFocusCallback(handle, focus)
+	focus(handle, 1)
+	key(handle, glfw.KEY_F25, 0, glfw.PRESS, 0)
+	key(handle, glfw.KEY_F25, 0, glfw.RELEASE, 0)
 }

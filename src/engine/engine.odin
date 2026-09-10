@@ -1,5 +1,6 @@
 package engine
 
+import "../input"
 import win "../platform/window"
 import "../rhi"
 import "core:log"
@@ -26,6 +27,7 @@ Context :: struct {
 	elapsed_time:  f64,
 	frame_count:   u64,
 	running:       bool,
+	input:         ^input.State,
 }
 
 Error :: enum {
@@ -69,6 +71,7 @@ run :: proc(config: Config) -> (result: Error) {
 		return .Window_Failed
 	}
 	defer win.destroy(&window)
+
 	device, device_error := rhi.create_device(win.gl_context(&window))
 	if device_error != .None {
 		log.errorf("Failed to create rendering device: %v", device_error)
@@ -82,15 +85,18 @@ run :: proc(config: Config) -> (result: Error) {
 			}
 		}
 	}
+
 	app := Context {
 		device  = &device,
 		width   = window.width,
 		height  = window.height,
 		running = true,
+		input   = &window.input,
 	}
 	defer if config.quit != nil {
 		config.quit(&app, config.userdata)
 	}
+
 	if config.init != nil && !config.init(&app, config.userdata) {
 		log.error("Game initialization failed")
 		return .Init_Failed
@@ -120,17 +126,7 @@ run :: proc(config: Config) -> (result: Error) {
 		last_time = now
 		app.delta_time = f32(dt)
 		app.elapsed_time += dt
-		if config.update != nil {
-			if config.fixed_timestep > 0 {
-				accumulator += dt
-				for accumulator >= config.fixed_timestep && app.running {
-					config.update(&app, config.userdata, f32(config.fixed_timestep))
-					accumulator -= config.fixed_timestep
-				}
-			} else {
-				config.update(&app, config.userdata, f32(dt))
-			}
-		}
+		run_updates(config, &app, dt, &accumulator)
 		if !app.running {
 			break
 		}
@@ -142,4 +138,22 @@ run :: proc(config: Config) -> (result: Error) {
 		app.frame_count += 1
 	}
 	return .None
+}
+
+@(private)
+run_updates :: proc(config: Config, app: ^Context, dt: f64, accumulator: ^f64) {
+	if config.update == nil {
+		return
+	}
+	if config.fixed_timestep > 0 {
+		accumulator^ += dt
+		for accumulator^ >= config.fixed_timestep && app.running {
+			config.update(app, config.userdata, f32(config.fixed_timestep))
+			input.clear(app.input)
+			accumulator^ -= config.fixed_timestep
+		}
+	} else {
+		config.update(app, config.userdata, f32(dt))
+		input.clear(app.input)
+	}
 }
