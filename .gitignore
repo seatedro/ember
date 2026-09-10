@@ -3,6 +3,8 @@
 !src/**
 !game
 !game/**
+!examples
+!examples/**
 !vendor
 !vendor/**
 !assets

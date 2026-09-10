@@ -126,7 +126,7 @@ test_buffer_descriptor_validation :: proc(t: ^testing.T) {
 	desc.usage = {}
 	testing.expect_value(t, validate_buffer_desc(desc, 0), Error.Invalid_Usage)
 	for usage in Buffer_Usage {
-		if usage == .Vertex || usage == .Index {
+		if usage == .Vertex || usage == .Index || usage == .Uniform {
 			continue
 		}
 		desc.usage = {.Vertex, usage}
@@ -246,4 +246,20 @@ test_device_context_initialization_failure :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, Error.Unsupported_Backend)
 	testing.expect(t, !device.initialized)
 	testing.expect_value(t, state.live, 0)
+}
+
+@(test)
+test_buffer_update_ranges :: proc(t: ^testing.T) {
+	testing.expect_value(
+		t,
+		validate_buffer_desc({size = 128, usage = {.Uniform}}, 128),
+		Error.None,
+	)
+	testing.expect_value(t, validate_buffer_range(16, 0, 16), Error.None)
+	testing.expect_value(t, validate_buffer_range(16, 16, 0), Error.None)
+	testing.expect_value(t, validate_buffer_range(16, 12, 4), Error.None)
+	testing.expect_value(t, validate_buffer_range(16, 12, 5), Error.Invalid_Buffer_Range)
+	testing.expect_value(t, validate_buffer_range(16, max(u64), 0), Error.Invalid_Buffer_Range)
+	device: Device
+	testing.expect_value(t, update_buffer(&device, {}, 0, nil), Error.Device_Not_Initialized)
 }

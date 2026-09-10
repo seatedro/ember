@@ -7,12 +7,31 @@ Index_Type :: types.Index_Type
 Draw_Indexed_Desc :: types.Draw_Indexed_Desc
 
 Bindings :: struct {
-	pipeline:      Pipeline_Handle,
-	vertex_buffer: Buffer_Handle,
-	vertex_offset: u64,
-	index_buffer:  Buffer_Handle,
-	index_offset:  u64,
-	index_type:    Index_Type,
+	pipeline:        Pipeline_Handle,
+	vertex_buffer:   Buffer_Handle,
+	vertex_offset:   u64,
+	index_buffer:    Buffer_Handle,
+	index_offset:    u64,
+	index_type:      Index_Type,
+	uniform_buffers: [MAX_UNIFORM_BINDINGS]Buffer_Handle,
+}
+
+bind_uniform_buffer :: proc(device: ^Device, binding: u32, handle: Buffer_Handle) -> Error {
+	if err := validate_device(device); err != .None {
+		return err
+	}
+	if binding >= MAX_UNIFORM_BINDINGS {
+		return .Invalid_Uniform_Binding
+	}
+	slot := buffer_pool_lookup(&device.buffers, handle)
+	if slot == nil {
+		return .Invalid_Handle
+	}
+	if .Uniform not_in slot.usage {
+		return .Invalid_Buffer_Binding
+	}
+	device.bindings.uniform_buffers[binding] = handle
+	return .None
 }
 
 // Resolve handles again at draw time: a bound resource may have been destroyed.
@@ -117,6 +136,21 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		return err
 	}
 	width := u64(2) if bindings.index_type == .U16 else u64(4)
+	uniforms: [MAX_UNIFORM_BINDINGS]backend.Buffer
+	for required_size, binding in pipeline.uniform_sizes {
+		if required_size == 0 {
+			continue
+		}
+		uniform := buffer_pool_lookup(&device.buffers, bindings.uniform_buffers[binding])
+		if uniform == nil {
+			return .Invalid_Handle
+		}
+		if .Uniform not_in uniform.usage || uniform.size < required_size {
+			return .Invalid_Buffer_Binding
+		}
+		uniforms[binding] = uniform.native
+	}
+
 	return backend.draw_indexed(
 		pipeline.native,
 		pipeline.settings,
@@ -126,5 +160,6 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		bindings.index_type,
 		bindings.index_offset + u64(desc.first_index) * width,
 		desc.index_count,
+		uniforms,
 	)
 }

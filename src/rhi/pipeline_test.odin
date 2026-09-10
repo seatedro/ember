@@ -142,3 +142,21 @@ test_indexed_draw_ranges :: proc(t: ^testing.T) {
 	device: Device
 	testing.expect_value(t, draw_indexed(&device, {index_count = 3}), Error.Device_Not_Initialized)
 }
+
+@(test)
+test_uniform_block_declarations :: proc(t: ^testing.T) {
+	valid := [2]Uniform_Block_Desc{{name = "Frame", binding = 0}, {name = "Object", binding = 2}}
+	testing.expect_value(t, validate_uniform_blocks(valid[:]), Error.None)
+	invalid := valid
+	invalid[1].binding = 0
+	testing.expect_value(t, validate_uniform_blocks(invalid[:]), Error.Invalid_Uniform_Binding)
+	invalid = valid
+	invalid[1].name = "Frame"
+	testing.expect_value(t, validate_uniform_blocks(invalid[:]), Error.Invalid_Uniform_Binding)
+	invalid = valid
+	invalid[0].binding = MAX_UNIFORM_BINDINGS
+	testing.expect_value(t, validate_uniform_blocks(invalid[:]), Error.Invalid_Uniform_Binding)
+	invalid = valid
+	invalid[0].name = "Frame\x00suffix"
+	testing.expect_value(t, validate_uniform_blocks(invalid[:]), Error.Invalid_Uniform_Binding)
+}

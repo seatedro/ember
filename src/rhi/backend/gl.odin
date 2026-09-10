@@ -3,6 +3,7 @@ package backend
 import platform_gl "../../platform/gl_context"
 import "../types"
 import "core:log"
+import "core:strings"
 import gl "vendor:OpenGL"
 
 Device_Context :: platform_gl.Context
@@ -20,8 +21,9 @@ Shader :: struct {
 }
 
 Pipeline :: struct {
-	program: u32,
-	vao:     u32,
+	program:       u32,
+	vao:           u32,
+	uniform_sizes: [types.MAX_UNIFORM_BINDINGS]u64,
 }
 
 // Use impl_* for operations with explicit error handling. The vendor's debug
@@ -89,7 +91,12 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_CullFace == nil ||
 	   gl.impl_FrontFace == nil ||
 	   gl.impl_PolygonMode == nil ||
-	   gl.impl_ColorMask == nil {
+	   gl.impl_ColorMask == nil ||
+	   gl.impl_GetUniformBlockIndex == nil ||
+	   gl.impl_UniformBlockBinding == nil ||
+	   gl.impl_GetActiveUniformBlockiv == nil ||
+	   gl.impl_BindBufferBase == nil ||
+	   gl.impl_GetIntegeri_v == nil {
 		return {}, .Unsupported_Backend
 	}
 	if err := check_errors("before device initialization"); err != .None {
@@ -150,7 +157,8 @@ create_buffer :: proc(desc: types.Buffer_Desc, initial_data: []u8) -> (Buffer, t
 	if err := check_errors("bind buffer"); err != .None {
 		return {}, err
 	}
-	gl.impl_BufferData(gl.COPY_WRITE_BUFFER, int(desc.size), nil, gl.STATIC_DRAW)
+	hint: u32 = gl.DYNAMIC_DRAW if .Uniform in desc.usage else gl.STATIC_DRAW
+	gl.impl_BufferData(gl.COPY_WRITE_BUFFER, int(desc.size), nil, hint)
 	if err := check_errors("allocate buffer"); err != .None {
 		log.errorf("Buffer allocation failed: %s (%d bytes)", desc.label, desc.size)
 		return {}, err
@@ -290,6 +298,7 @@ destroy_shader :: proc(native: ^Shader) -> types.Error {
 create_pipeline :: proc(
 	vertex, fragment: Shader,
 	label: string,
+	uniform_blocks: []types.Uniform_Block_Desc,
 	allocator := context.allocator,
 ) -> (
 	Pipeline,
@@ -357,6 +366,10 @@ create_pipeline :: proc(
 		}
 		return {}, .Pipeline_Link_Failed
 	}
+	if err := configure_uniform_blocks(&native, uniform_blocks, allocator); err != .None {
+		return {}, err
+	}
+
 	previous_vao: i32
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
 	if err := check_errors("query vertex array binding"); err != .None {
@@ -404,6 +417,7 @@ draw_indexed :: proc(
 	index_type: types.Index_Type,
 	index_offset: u64,
 	index_count: u32,
+	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
 ) -> types.Error {
 	if err := check_errors("before indexed draw"); err != .None {
 		return err
@@ -412,10 +426,32 @@ draw_indexed :: proc(
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
 	gl.impl_GetIntegerv(gl.ARRAY_BUFFER_BINDING, &previous_array)
 	gl.impl_GetIntegerv(gl.CURRENT_PROGRAM, &previous_program)
+	previous_uniform: i32
+	previous_uniforms: [types.MAX_UNIFORM_BINDINGS]i32
+	gl.impl_GetIntegerv(gl.UNIFORM_BUFFER_BINDING, &previous_uniform)
+	for size, binding in pipeline.uniform_sizes {
+		if size != 0 {
+			gl.impl_GetIntegeri_v(
+				gl.UNIFORM_BUFFER_BINDING,
+				u32(binding),
+				&previous_uniforms[binding],
+			)
+		}
+	}
 	if err := check_errors("query draw bindings"); err != .None {
 		return err
 	}
 	defer {
+		for size, binding in pipeline.uniform_sizes {
+			if size != 0 {
+				gl.impl_BindBufferBase(
+					gl.UNIFORM_BUFFER,
+					u32(binding),
+					u32(previous_uniforms[binding]),
+				)
+			}
+		}
+		gl.impl_BindBuffer(gl.UNIFORM_BUFFER, u32(previous_uniform))
 		gl.impl_BindVertexArray(u32(previous_vao))
 		gl.impl_BindBuffer(gl.ARRAY_BUFFER, u32(previous_array))
 		gl.impl_UseProgram(u32(previous_program))
@@ -436,6 +472,9 @@ draw_indexed :: proc(
 		)
 	}
 	gl.impl_BindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.id)
+	if err := bind_uniforms(pipeline, uniforms); err != .None {
+		return err
+	}
 	if settings.depth.test_enabled {
 		gl.impl_Enable(gl.DEPTH_TEST)
 	} else {
@@ -478,4 +517,90 @@ draw_indexed :: proc(
 		rawptr(uintptr(index_offset)),
 	)
 	return check_errors("draw indexed")
+}
+
+update_buffer :: proc(native: Buffer, offset: u64, data: []u8) -> types.Error {
+	if err := check_errors("before buffer update"); err != .None {
+		return err
+	}
+
+	previous: i32
+	gl.impl_GetIntegerv(gl.COPY_WRITE_BUFFER_BINDING, &previous)
+	if err := check_errors("query update binding"); err != .None {
+		return err
+	}
+	defer gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, u32(previous))
+
+	gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, native.id)
+	if err := check_errors("bind update buffer"); err != .None {
+		return err
+	}
+	// BufferSubData copies the bytes and synchronizes earlier uses implicitly.
+	gl.impl_BufferSubData(gl.COPY_WRITE_BUFFER, int(offset), len(data), raw_data(data))
+	return check_errors("update buffer")
+}
+
+configure_uniform_blocks :: proc(
+	pipeline: ^Pipeline,
+	blocks: []types.Uniform_Block_Desc,
+	allocator := context.allocator,
+) -> types.Error {
+	active_count: i32
+	gl.impl_GetProgramiv(pipeline.program, gl.ACTIVE_UNIFORM_BLOCKS, &active_count)
+	if err := check_errors("query uniform blocks"); err != .None {
+		return err
+	}
+	if int(active_count) != len(blocks) {
+		log.errorf(
+			"Pipeline declares %d uniform blocks, shader uses %d",
+			len(blocks),
+			active_count,
+		)
+		return .Invalid_Uniform_Binding
+	}
+
+	for block in blocks {
+		name, allocation_error := strings.clone_to_cstring(block.name, allocator)
+		if allocation_error != .None {
+			return .Allocation_Failed
+		}
+		defer delete(name, allocator)
+
+		index := gl.impl_GetUniformBlockIndex(pipeline.program, name)
+		if err := check_errors("find uniform block"); err != .None {
+			return err
+		}
+		if index == gl.INVALID_INDEX {
+			log.errorf("Shader uniform block not found: %s", block.name)
+			return .Invalid_Uniform_Binding
+		}
+
+		size: i32
+		gl.impl_GetActiveUniformBlockiv(pipeline.program, index, gl.UNIFORM_BLOCK_DATA_SIZE, &size)
+		gl.impl_UniformBlockBinding(pipeline.program, index, block.binding)
+		if err := check_errors("configure uniform block"); err != .None {
+			return err
+		}
+		if size <= 0 {
+			return .Invalid_Uniform_Binding
+		}
+		pipeline.uniform_sizes[block.binding] = u64(size)
+	}
+	return .None
+}
+
+pipeline_uniform_sizes :: proc(pipeline: Pipeline) -> [types.MAX_UNIFORM_BINDINGS]u64 {
+	return pipeline.uniform_sizes
+}
+
+bind_uniforms :: proc(
+	pipeline: Pipeline,
+	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
+) -> types.Error {
+	for size, binding in pipeline.uniform_sizes {
+		if size != 0 {
+			gl.impl_BindBufferBase(gl.UNIFORM_BUFFER, u32(binding), uniforms[binding].id)
+		}
+	}
+	return check_errors("bind uniform buffers")
 }

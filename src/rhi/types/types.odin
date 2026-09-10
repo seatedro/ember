@@ -23,6 +23,8 @@ Error :: enum {
 	Invalid_Pipeline_State,
 	Invalid_Buffer_Binding,
 	Invalid_Draw,
+	Invalid_Buffer_Range,
+	Invalid_Uniform_Binding,
 }
 
 Buffer_Usage :: enum {
@@ -139,6 +141,14 @@ Pipeline_Desc :: struct {
 	fragment_shader: Shader_Handle,
 	settings:        Pipeline_Settings,
 	label:           string,
+	uniform_blocks:  []Uniform_Block_Desc,
+}
+
+MAX_UNIFORM_BINDINGS :: 8
+
+Uniform_Block_Desc :: struct {
+	name:    string,
+	binding: u32,
 }
 
 Draw_Indexed_Desc :: struct {

@@ -49,7 +49,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	vertex, vertex_error := rhi.create_shader(
 		device,
-		{stage = .Vertex, source = #load("../shaders/triangle.vert"), label = "triangle vertex"},
+		{stage = .Vertex, source = #load("shaders/triangle.vert"), label = "triangle vertex"},
 	)
 	if !check(vertex_error, "compile vertex shader") {
 		return false
@@ -58,11 +58,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	fragment, fragment_error := rhi.create_shader(
 		device,
-		{
-			stage = .Fragment,
-			source = #load("../shaders/triangle.frag"),
-			label = "triangle fragment",
-		},
+		{stage = .Fragment, source = #load("shaders/triangle.frag"), label = "triangle fragment"},
 	)
 	if !check(fragment_error, "compile fragment shader") {
 		return false

@@ -168,7 +168,8 @@ main :: proc() {
 	assert(dead_error == .Device_Not_Initialized)
 	assert(gl.GetError() == gl.NO_ERROR)
 	test_pipelines(platform_context)
+	test_uniforms(platform_context)
 	fmt.println(
-		"OpenGL smoke passed: buffers, shader compilation/diagnostics, rollback, reuse, context checks, shutdown",
+		"OpenGL smoke passed: buffers, shaders, pipelines, uniform updates, pixels, cleanup",
 	)
 }

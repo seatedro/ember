@@ -45,6 +45,9 @@ on_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if h.mode == .Fixed {
 		assert(abs(dt - 0.001) < 0.000001)
 	}
+	if h.game_config.update != nil {
+		h.game_config.update(app, h.game_config.userdata, dt)
+	}
 	if app.frame_count >= 3 {
 		engine.request_quit(app)
 	}
@@ -62,7 +65,8 @@ on_draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	center, corner: [4]u8
 	gl.ReadPixels(app.width / 2, app.height / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, &center)
 	gl.ReadPixels(0, app.height - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, &corner)
-	assert(center[0] > 40 && center[1] > 40 && center[2] > 40)
+	difference := abs(int(center[0]) - 26) + abs(int(center[1]) - 26) + abs(int(center[2]) - 26)
+	assert(difference > 30 && center[3] == 255)
 	for i in 0 ..< 3 {
 		assert(abs(int(corner[i]) - 26) <= 2)
 	}

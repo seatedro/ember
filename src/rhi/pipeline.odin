@@ -2,6 +2,7 @@ package rhi
 
 import "backend"
 import "core:mem"
+import "core:strings"
 import "types"
 
 Pipeline_Handle :: struct {
@@ -27,12 +28,15 @@ Depth_State :: types.Depth_State
 Raster_State :: types.Raster_State
 Pipeline_Settings :: types.Pipeline_Settings
 Pipeline_Desc :: types.Pipeline_Desc
+Uniform_Block_Desc :: types.Uniform_Block_Desc
+MAX_UNIFORM_BINDINGS :: types.MAX_UNIFORM_BINDINGS
 
 Pipeline_Slot :: struct {
-	generation: u32,
-	state:      Pipeline_State,
-	settings:   Pipeline_Settings,
-	native:     backend.Pipeline,
+	generation:    u32,
+	state:         Pipeline_State,
+	settings:      Pipeline_Settings,
+	uniform_sizes: [MAX_UNIFORM_BINDINGS]u64,
+	native:        backend.Pipeline,
 }
 
 Pipeline_Pool :: struct {
@@ -242,6 +246,9 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	if err := validate_pipeline_settings(desc.settings); err != .None {
 		return {}, err
 	}
+	if err := validate_uniform_blocks(desc.uniform_blocks); err != .None {
+		return {}, err
+	}
 	vertex := shader_pool_lookup(&device.shaders, desc.vertex_shader)
 	fragment := shader_pool_lookup(&device.shaders, desc.fragment_shader)
 	if vertex == nil || fragment == nil {
@@ -258,6 +265,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		vertex.native,
 		fragment.native,
 		desc.label,
+		desc.uniform_blocks,
 		device.pipelines.allocator,
 	)
 	if err != .None {
@@ -266,7 +274,27 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	}
 	slot.native = native
 	slot.settings = desc.settings
+	slot.uniform_sizes = backend.pipeline_uniform_sizes(native)
 	return pipeline_pool_publish(&device.pipelines, index), .None
+}
+
+validate_uniform_blocks :: proc(blocks: []Uniform_Block_Desc) -> Error {
+	if len(blocks) > MAX_UNIFORM_BINDINGS {
+		return .Invalid_Uniform_Binding
+	}
+	for block, i in blocks {
+		if block.binding >= MAX_UNIFORM_BINDINGS ||
+		   len(block.name) == 0 ||
+		   strings.contains(block.name, "\x00") {
+			return .Invalid_Uniform_Binding
+		}
+		for previous in blocks[:i] {
+			if previous.binding == block.binding || previous.name == block.name {
+				return .Invalid_Uniform_Binding
+			}
+		}
+	}
+	return .None
 }
 
 destroy_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {

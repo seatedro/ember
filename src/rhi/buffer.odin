@@ -58,7 +58,7 @@ validate_buffer_desc :: proc(desc: Buffer_Desc, initial_data_size: int) -> Error
 	if desc.usage == {} {
 		return .Invalid_Usage
 	}
-	supported := Buffer_Usages{.Vertex, .Index}
+	supported := Buffer_Usages{.Vertex, .Index, .Uniform}
 	if desc.usage - supported != {} {
 		return .Unsupported_Usage
 	}
@@ -69,6 +69,31 @@ validate_buffer_desc :: proc(desc: Buffer_Desc, initial_data_size: int) -> Error
 		return .Initial_Data_Too_Large
 	}
 	return .None
+}
+
+validate_buffer_range :: proc(size, offset: u64, data_size: int) -> Error {
+	if data_size < 0 || offset > size || u64(data_size) > size - offset {
+		return .Invalid_Buffer_Range
+	}
+	return .None
+}
+
+// Copies the bytes before returning; the backend orders the update against GPU reads.
+update_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64, data: []u8) -> Error {
+	if err := validate_device(device); err != .None {
+		return err
+	}
+	slot := buffer_pool_lookup(&device.buffers, handle)
+	if slot == nil {
+		return .Invalid_Handle
+	}
+	if err := validate_buffer_range(slot.size, offset, len(data)); err != .None {
+		return err
+	}
+	if len(data) == 0 {
+		return .None
+	}
+	return backend.update_buffer(slot.native, offset, data)
 }
 
 // Wait for GPU reads to finish before recycling the buffer slot.

@@ -6,13 +6,12 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return engine.Config {
-		title = "Ember",
+		title = "Ember - Triangle",
 		width = 1280,
 		height = 720,
 		vsync = true,
 		userdata = &state,
 		init = init,
-		update = update,
 		draw = draw,
 		quit = quit,
 	}
