@@ -1,16 +1,13 @@
 {
   pkgs ? import <nixpkgs> { },
 }:
-pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
+pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
-    clang-tools
-    bear
-    pkg-config
+    odin
   ];
   buildInputs = with pkgs; [
     glfw
     libGL
   ];
   LD_LIBRARY_PATH = "/run/opengl-driver/lib";
-  hardeningDisable = [ "fortify" ];
 }
