@@ -22,6 +22,7 @@ State :: struct {
 	grid:        Grid,
 }
 
+// mvp means model-view-projection.
 // Two column-major mat4 values match the shader's std140 Per_Object block.
 Per_Object :: struct {
 	mvp:   emath.Mat4,
@@ -144,7 +145,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	device := app.device
 
 	model := emath.rotation_y(game.angle) * emath.rotation_x(-0.2)
-	view := camera.view(game.camera)
+	view := camera.view_matrix(game.camera)
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
 	data := [1]Per_Object{{mvp = projection * view * model, model = model}}
 

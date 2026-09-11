@@ -3,21 +3,26 @@ package ember_math
 import stdmath "core:math"
 
 // Unit quaternions represent rotations. 1 is identity; a*b applies b, then a.
-Quat :: quaternion128
+Quaternion :: quaternion128
 
-quat_axis_angle :: proc(angle: f32, axis: Vec3) -> Quat {
-	vector := normalize(axis) * stdmath.sin(angle / 2)
-	return quaternion(x = vector.x, y = vector.y, z = vector.z, w = stdmath.cos(angle / 2))
+// Build a rotation by angle_radians; this function normalizes the axis.
+quaternion_angle_axis :: proc(angle_radians: f32, axis: Vec3) -> Quaternion {
+	vector := normalize(axis) * stdmath.sin(angle_radians / 2)
+	return quaternion(x = vector.x, y = vector.y, z = vector.z, w = stdmath.cos(angle_radians / 2))
 }
 
-quat_normalize :: proc(q: Quat) -> Quat {
-	magnitude := abs(q)
+quaternion_normalize :: proc(orientation: Quaternion) -> Quaternion {
+	magnitude := abs(orientation)
 	assert(magnitude > 0, "Cannot normalize zero quaternion")
-	return q / Quat(magnitude)
+	return orientation / Quaternion(magnitude)
 }
 
-// q must be unit length. A vector rotates as q * (v, 0) * conjugate(q).
-quat_rotate :: proc(q: Quat, v: Vec3) -> Vec3 {
-	rotated := q * quaternion(x = v.x, y = v.y, z = v.z, w = f32(0)) * conj(q)
+// The orientation must have unit length.
+// Apply it to a direction using the quaternion and its conjugate.
+quaternion_rotate :: proc(orientation: Quaternion, vector: Vec3) -> Vec3 {
+	rotated :=
+		orientation *
+		quaternion(x = vector.x, y = vector.y, z = vector.z, w = f32(0)) *
+		conj(orientation)
 	return Vec3(rotated.xyz)
 }

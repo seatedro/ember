@@ -21,24 +21,25 @@ expect_point :: proc(t: ^testing.T, actual, expected: emath.Vec4) {
 test_view_inverts_camera_pose_with_roll :: proc(t: ^testing.T) {
 	camera := Camera {
 		position    = {3, -2, 5},
-		orientation = emath.quat_axis_angle(
+		orientation = emath.quaternion_angle_axis(
 			0.6,
 			{0, 1, 0},
-		) * emath.quat_axis_angle(0.9, {0, 0, 1}),
+		) * emath.quaternion_angle_axis(0.9, {0, 0, 1}),
 	}
 	local := emath.Vec3{2, 1, -4}
-	world := camera.position + emath.quat_rotate(camera.orientation, local)
+	world := camera.position + emath.quaternion_rotate(camera.orientation, local)
 	expect_point(
 		t,
-		view(camera) * emath.Vec4{world.x, world.y, world.z, 1},
+		view_matrix(camera) * emath.Vec4{world.x, world.y, world.z, 1},
 		{local.x, local.y, local.z, 1},
 	)
 	expect_point(
 		t,
-		view(camera) * emath.Vec4{camera.position.x, camera.position.y, camera.position.z, 1},
+		view_matrix(camera) *
+		emath.Vec4{camera.position.x, camera.position.y, camera.position.z, 1},
 		{0, 0, 0, 1},
 	)
-	expect_point(t, view({orientation = 1}) * emath.Vec4{2, 3, 4, 1}, {2, 3, 4, 1})
+	expect_point(t, view_matrix({orientation = 1}) * emath.Vec4{2, 3, 4, 1}, {2, 3, 4, 1})
 }
 
 @(test)
@@ -56,7 +57,8 @@ test_orbit_distance_center_and_projection :: proc(t: ^testing.T) {
 				t,
 				abs(emath.length(camera.position - orbit.target) - orbit.distance) < 0.0001,
 			)
-			center := view(camera) * emath.Vec4{orbit.target.x, orbit.target.y, orbit.target.z, 1}
+			center :=
+				view_matrix(camera) * emath.Vec4{orbit.target.x, orbit.target.y, orbit.target.z, 1}
 			expect_point(t, center, {0, 0, -orbit.distance, 1})
 			for aspect in ([3]f32{0.5, 1, 2}) {
 				clip := emath.perspective(1, aspect, 0.1, 100) * center

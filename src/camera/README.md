@@ -10,12 +10,12 @@ pose := camera.from_orbit(camera.Orbit {
     pitch = 0.2,
     distance = 4,
 })
-view := camera.view(pose)
+view := camera.view_matrix(pose)
 projection := emath.perspective(fov_y, aspect, near, far)
 mvp := projection * view * model
 ```
 
-- `view` inverts the pose: rotation becomes `Rᵀ`, translation becomes `-Rᵀ * position`.
+- `view_matrix` inverts the pose: rotation becomes `Rᵀ`, translation becomes `-Rᵀ * position`.
 - `Orbit` stores target, yaw, pitch, and positive distance. Angles are radians.
 - `from_orbit` derives the pose. Input bindings and navigation limits belong to the caller.
 - Projection stays separate. Supply the aspect ratio of the rendering target.

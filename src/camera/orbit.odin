@@ -11,11 +11,11 @@ Orbit :: struct {
 
 from_orbit :: proc(orbit: Orbit) -> Camera {
 	assert(orbit.distance > 0)
-	yaw := emath.quat_axis_angle(orbit.yaw, {0, 1, 0})
-	pitch := emath.quat_axis_angle(-orbit.pitch, {1, 0, 0})
-	orientation := emath.quat_normalize(yaw * pitch)
+	yaw := emath.quaternion_angle_axis(orbit.yaw, {0, 1, 0})
+	pitch := emath.quaternion_angle_axis(-orbit.pitch, {1, 0, 0})
+	orientation := emath.quaternion_normalize(yaw * pitch)
 	return Camera {
-		position = orbit.target + emath.quat_rotate(orientation, {0, 0, orbit.distance}),
+		position = orbit.target + emath.quaternion_rotate(orientation, {0, 0, orbit.distance}),
 		orientation = orientation,
 	}
 }
