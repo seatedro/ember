@@ -3,7 +3,10 @@
 Run from the repository root. `./build.sh` builds the default sphere demo:
 left drag orbits, scroll zooms, `R` resets, and Escape closes.
 The game supplies geometry, camera, and transforms to the
-[renderer](../src/renderer/renderer.odin), which owns shaders, pipelines, and GPU draws.
+[renderer](../src/renderer/renderer.odin), which owns pipelines and GPU draws.
+The demo loads `game/assets/shaders/banded.vert` and `.frag` at runtime, so run it
+from the repository root. The [shader library](../src/shaders/library.odin) owns
+and reuses the compiled stages.
 See [camera](../src/camera/README.md) for the data and math.
 
 ## Input

@@ -4,6 +4,7 @@ import "../camera"
 import emath "../core/math"
 import "../geometry"
 import "../rhi"
+import "../shaders"
 import "core:mem"
 
 Error :: rhi.Error
@@ -20,25 +21,13 @@ Per_Object :: struct {
 	mvp, normals: emath.Mat4,
 }
 
-create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
+create :: proc(device: ^rhi.Device, shader: shaders.Shader) -> (renderer: Renderer, err: Error) {
 	renderer.device = device
-	vertex, vertex_error := rhi.create_shader(
-		device,
-		{stage = .Vertex, source = #load("shaders/sphere.vert"), label = "mesh vertex"},
-	)
-	if vertex_error != .None {return {}, vertex_error}
-	defer rhi.destroy_shader(device, vertex)
-	fragment, fragment_error := rhi.create_shader(
-		device,
-		{stage = .Fragment, source = #load("shaders/sphere.frag"), label = "mesh fragment"},
-	)
-	if fragment_error != .None {return {}, fragment_error}
-	defer rhi.destroy_shader(device, fragment)
 	renderer.pipeline, err = rhi.create_pipeline(
 		device,
 		{
-			vertex_shader = vertex,
-			fragment_shader = fragment,
+			vertex_shader = shader.vertex,
+			fragment_shader = shader.fragment,
 			settings = {
 				layout = {
 					stride = size_of(geometry.Vertex),

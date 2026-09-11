@@ -8,8 +8,16 @@ import "ember:geometry"
 import win "ember:platform/window"
 import render "ember:renderer"
 import "ember:rhi"
+import shader "ember:shaders"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
+
+load_shader :: proc(device: ^rhi.Device) -> (shader.Library, shader.Shader) {
+	library := shader.create(device)
+	program, err := shader.load(&library, "game/assets/shaders/banded")
+	assert(err == .None)
+	return library, program
+}
 
 test_failed_creation :: proc(platform_context: rhi.Device_Context) {
 	// Renderer creation reaches the uniform allocation after building its pipeline.
@@ -17,25 +25,29 @@ test_failed_creation :: proc(platform_context: rhi.Device_Context) {
 	assert(err == .None)
 	occupied, occupied_error := rhi.create_buffer(&device, {size = 4, usage = {.Vertex}})
 	assert(occupied_error == .None)
-	failed, failure := render.create(&device)
+	library, program := load_shader(&device)
+	failed, failure := render.create(&device, program)
 	assert(failure == .Pool_Exhausted && failed == render.Renderer{})
 	assert(device.buffers.free_count == 0)
-	assert(device.shaders.free_count == len(device.shaders.slots))
+	assert(device.shaders.free_count == len(device.shaders.slots) - 2)
 	assert(device.pipelines.free_count == len(device.pipelines.slots))
 	assert(rhi.destroy_buffer(&device, occupied) == .None)
+	assert(shader.destroy(&library) == .None)
 	assert(rhi.destroy_device(&device) == .None)
 
 	// Grid creation allocates buffers, then fails to obtain a second pipeline.
 	device, err = rhi.create_device(platform_context, 4, pipeline_capacity = 1)
 	assert(err == .None)
-	renderer, renderer_error := render.create(&device)
+	library, program = load_shader(&device)
+	renderer, renderer_error := render.create(&device, program)
 	assert(renderer_error == .None)
 	grid, grid_error := render.create_grid(&renderer)
 	assert(grid_error == .Pool_Exhausted && grid == render.Grid{})
 	assert(device.buffers.free_count == 3)
-	assert(device.shaders.free_count == len(device.shaders.slots))
+	assert(device.shaders.free_count == len(device.shaders.slots) - 2)
 	assert(render.destroy(&renderer) == .None)
 	assert(device.pipelines.free_count == 1)
+	assert(shader.destroy(&library) == .None)
 	assert(rhi.destroy_device(&device) == .None)
 }
 
@@ -66,18 +78,21 @@ main :: proc() {
 	// Only one buffer slot remains after creating the renderer.
 	small, err := rhi.create_device(platform_context, 2)
 	assert(err == .None)
-	small_renderer, small_error := render.create(&small)
+	small_library, small_program := load_shader(&small)
+	small_renderer, small_error := render.create(&small, small_program)
 	assert(small_error == .None)
 	failed, failure := render.create_mesh(&small_renderer, vertices[:], indices[:])
 	assert(failure == .Pool_Exhausted && failed == render.Mesh{})
 	assert(small.buffers.free_count == 1)
 	assert(render.destroy(&small_renderer) == .None)
+	assert(shader.destroy(&small_library) == .None)
 	assert(rhi.destroy_device(&small) == .None)
 
 	device, device_error := rhi.create_device(platform_context, 6)
 	assert(device_error == .None)
 	defer assert(rhi.destroy_device(&device) == .None)
-	renderer, renderer_error := render.create(&device)
+	library, program := load_shader(&device)
+	renderer, renderer_error := render.create(&device, program)
 	assert(renderer_error == .None)
 	invalid_indices := [3]u32{0, 1, 3}
 	invalid, invalid_error := render.create_mesh(&renderer, vertices[:], invalid_indices[:])
@@ -150,8 +165,10 @@ main :: proc() {
 	assert(render.destroy_mesh(&renderer, &mesh) == .None)
 	assert(render.destroy_grid(&renderer, &grid) == .None)
 	assert(render.destroy(&renderer) == .None)
+	assert(shader.destroy(&library) == .None)
 	assert(device.buffers.free_count == 6)
 	assert(device.pipelines.free_count == len(device.pipelines.slots))
+	assert(device.shaders.free_count == len(device.shaders.slots))
 	fmt.println(
 		"Renderer smoke passed: creation rollback, mesh/grid ownership, three transforms, pixels, cleanup",
 	)

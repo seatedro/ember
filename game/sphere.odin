@@ -8,8 +8,10 @@ import "ember:engine"
 import "ember:geometry"
 import "ember:input"
 import render "ember:renderer"
+import shader "ember:shaders"
 
 State :: struct {
+	shaders:   shader.Library,
 	renderer:  render.Renderer,
 	mesh:      render.Mesh,
 	grid:      render.Grid,
@@ -29,8 +31,14 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game.orbit = INITIAL_ORBIT
 	game.camera = camera.from_orbit(game.orbit)
 
+	game.shaders = shader.create(app.device)
+	banded, shader_error := shader.load(&game.shaders, "game/assets/shaders/banded")
+	if shader_error != .None {
+		log.errorf("Load banded shader: %v", shader_error)
+		return false
+	}
 	err: render.Error
-	game.renderer, err = render.create(app.device)
+	game.renderer, err = render.create(app.device, banded)
 	if !check(err, "create renderer") {return false}
 	mesh, mesh_error := geometry.create_sphere()
 	if mesh_error != .None {
@@ -75,6 +83,8 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(render.destroy_grid(&game.renderer, &game.grid), "destroy grid")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 	check(render.destroy(&game.renderer), "destroy renderer")
+	if err := shader.destroy(&game.shaders);
+	   err != .None {log.errorf("Destroy shader library: %v", err)}
 	game^ = {}
 }
 
