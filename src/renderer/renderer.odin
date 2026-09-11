@@ -9,12 +9,10 @@ import "core:mem"
 Error :: rhi.Error
 
 Renderer :: struct {
-	device:            ^rhi.Device,
-	vertices, indices: rhi.Buffer_Handle,
-	index_count:       u32,
-	pipeline:          rhi.Pipeline_Handle,
-	uniforms:          rhi.Buffer_Handle,
-	view_projection:   emath.Mat4,
+	device:          ^rhi.Device,
+	pipeline:        rhi.Pipeline_Handle,
+	uniforms:        rhi.Buffer_Handle,
+	view_projection: emath.Mat4,
 }
 
 @(private)
@@ -22,58 +20,19 @@ Per_Object :: struct {
 	mvp, normals: emath.Mat4,
 }
 
-create :: proc(
-	device: ^rhi.Device,
-	vertices: []geometry.Sphere_Vertex,
-	indices: []u32,
-) -> (
-	renderer: Renderer,
-	err: Error,
-) {
+create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 	renderer.device = device
-	err = init_renderer(&renderer, vertices, indices)
-	if err != .None {destroy(&renderer)}
-	return
-}
-
-@(private)
-init_renderer :: proc(
-	renderer: ^Renderer,
-	vertices: []geometry.Sphere_Vertex,
-	indices: []u32,
-) -> Error {
-	if len(vertices) == 0 ||
-	   len(indices) == 0 ||
-	   u64(len(indices)) > u64(max(i32)) {return .Invalid_Size}
-	for index in indices {if u64(index) >= u64(len(vertices)) {return .Invalid_Draw}}
-	device := renderer.device
-	err: Error
-	vertex_bytes := mem.slice_to_bytes(vertices)
-	renderer.vertices, err = rhi.create_buffer(
-		device,
-		{size = u64(len(vertex_bytes)), usage = {.Vertex}, label = "vertices"},
-		vertex_bytes,
-	)
-	if err != .None {return err}
-	index_bytes := mem.slice_to_bytes(indices)
-	renderer.indices, err = rhi.create_buffer(
-		device,
-		{size = u64(len(index_bytes)), usage = {.Index}, label = "indices"},
-		index_bytes,
-	)
-	if err != .None {return err}
-	renderer.index_count = u32(len(indices))
 	vertex, vertex_error := rhi.create_shader(
 		device,
 		{stage = .Vertex, source = #load("shaders/sphere.vert"), label = "mesh vertex"},
 	)
-	if vertex_error != .None {return vertex_error}
+	if vertex_error != .None {return {}, vertex_error}
 	defer rhi.destroy_shader(device, vertex)
 	fragment, fragment_error := rhi.create_shader(
 		device,
 		{stage = .Fragment, source = #load("shaders/sphere.frag"), label = "mesh fragment"},
 	)
-	if fragment_error != .None {return fragment_error}
+	if fragment_error != .None {return {}, fragment_error}
 	defer rhi.destroy_shader(device, fragment)
 	renderer.pipeline, err = rhi.create_pipeline(
 		device,
@@ -82,18 +41,18 @@ init_renderer :: proc(
 			fragment_shader = fragment,
 			settings = {
 				layout = {
-					stride = size_of(geometry.Sphere_Vertex),
+					stride = size_of(geometry.Vertex),
 					attribute_count = 2,
 					attributes = {
 						0 = {
 							location = 0,
 							format = .F32x3,
-							offset = u32(offset_of(geometry.Sphere_Vertex, position)),
+							offset = u32(offset_of(geometry.Vertex, position)),
 						},
 						1 = {
 							location = 1,
 							format = .F32x3,
-							offset = u32(offset_of(geometry.Sphere_Vertex, normal)),
+							offset = u32(offset_of(geometry.Vertex, normal)),
 						},
 					},
 				},
@@ -104,12 +63,13 @@ init_renderer :: proc(
 			label = "mesh",
 		},
 	)
-	if err != .None {return err}
+	if err != .None {return {}, err}
 	renderer.uniforms, err = rhi.create_buffer(
 		device,
 		{size = size_of(Per_Object), usage = {.Uniform}, label = "mesh transforms"},
 	)
-	return err
+	if err != .None {destroy(&renderer)}
+	return
 }
 
 begin_frame :: proc(
@@ -124,7 +84,7 @@ begin_frame :: proc(
 	return .None
 }
 
-draw :: proc(renderer: ^Renderer, transform: emath.Transform) -> Error {
+draw_mesh :: proc(renderer: ^Renderer, mesh: ^Mesh, transform: emath.Transform) -> Error {
 	data := [1]Per_Object {
 		{
 			mvp = renderer.view_projection * emath.transform_matrix(transform),
@@ -136,9 +96,8 @@ draw :: proc(renderer: ^Renderer, transform: emath.Transform) -> Error {
 	   err != .None {return err}
 	if err := rhi.bind_pipeline(device, renderer.pipeline); err != .None {return err}
 	if err := rhi.bind_uniform_buffer(device, 0, renderer.uniforms); err != .None {return err}
-	if err := rhi.bind_vertex_buffer(device, renderer.vertices); err != .None {return err}
-	if err := rhi.bind_index_buffer(device, renderer.indices, .U32); err != .None {return err}
-	return rhi.draw_indexed(device, {index_count = renderer.index_count})
+	if err := bind_mesh(device, mesh); err != .None {return err}
+	return rhi.draw_indexed(device, {index_count = mesh.index_count})
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
@@ -146,14 +105,9 @@ destroy :: proc(renderer: ^Renderer) -> (result: Error) {
 		result = rhi.destroy_pipeline(renderer.device, renderer.pipeline)
 		if result == .None {renderer.pipeline = {}}
 	}
-	for handle in ([3]^rhi.Buffer_Handle {
-			&renderer.uniforms,
-			&renderer.indices,
-			&renderer.vertices,
-		}) {
-		if handle.generation == 0 {continue}
-		err := rhi.destroy_buffer(renderer.device, handle^)
-		if err == .None {handle^ = {}} else if result == .None {result = err}
+	if renderer.uniforms.generation != 0 {
+		err := rhi.destroy_buffer(renderer.device, renderer.uniforms)
+		if err == .None {renderer.uniforms = {}} else if result == .None {result = err}
 	}
 	if result == .None {renderer^ = {}}
 	return

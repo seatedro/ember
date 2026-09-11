@@ -11,6 +11,34 @@ import "ember:rhi"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
+test_failed_creation :: proc(platform_context: rhi.Device_Context) {
+	// Renderer creation reaches the uniform allocation after building its pipeline.
+	device, err := rhi.create_device(platform_context, 1)
+	assert(err == .None)
+	occupied, occupied_error := rhi.create_buffer(&device, {size = 4, usage = {.Vertex}})
+	assert(occupied_error == .None)
+	failed, failure := render.create(&device)
+	assert(failure == .Pool_Exhausted && failed == render.Renderer{})
+	assert(device.buffers.free_count == 0)
+	assert(device.shaders.free_count == len(device.shaders.slots))
+	assert(device.pipelines.free_count == len(device.pipelines.slots))
+	assert(rhi.destroy_buffer(&device, occupied) == .None)
+	assert(rhi.destroy_device(&device) == .None)
+
+	// Grid creation allocates buffers, then fails to obtain a second pipeline.
+	device, err = rhi.create_device(platform_context, 4, pipeline_capacity = 1)
+	assert(err == .None)
+	renderer, renderer_error := render.create(&device)
+	assert(renderer_error == .None)
+	grid, grid_error := render.create_grid(&renderer)
+	assert(grid_error == .Pool_Exhausted && grid == render.Grid{})
+	assert(device.buffers.free_count == 3)
+	assert(device.shaders.free_count == len(device.shaders.slots))
+	assert(render.destroy(&renderer) == .None)
+	assert(device.pipelines.free_count == 1)
+	assert(rhi.destroy_device(&device) == .None)
+}
+
 main :: proc() {
 	assert(bool(glfw.Init()))
 	defer glfw.Terminate()
@@ -19,7 +47,7 @@ main :: proc() {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 1)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
-	window := glfw.CreateWindow(64, 64, "Ember renderer smoke", nil, nil)
+	window := glfw.CreateWindow(128, 64, "Ember renderer smoke", nil, nil)
 	assert(window != nil)
 	defer glfw.DestroyWindow(window)
 	glfw.MakeContextCurrent(window)
@@ -27,49 +55,104 @@ main :: proc() {
 		handle = window,
 	}
 	platform_context := win.gl_context(&platform_window)
-	vertices := [3]geometry.Sphere_Vertex {
-		{{-0.5, -0.5, 0}, {0, 0, 1}},
-		{{0.5, -0.5, 0}, {0, 0, 1}},
-		{{0, 0.5, 0}, {0, 0, 1}},
+	test_failed_creation(platform_context)
+	vertices := [3]geometry.Vertex {
+		{{-0.2, -0.25, 0}, {0, 0, 1}},
+		{{0.2, -0.25, 0}, {0, 0, 1}},
+		{{0, 0.3, 0}, {0, 0, 1}},
 	}
 	indices := [3]u32{0, 1, 2}
-	// Exhaust the pool after one buffer has been created.
-	small, small_error := rhi.create_device(platform_context, 1)
+
+	// Only one buffer slot remains after creating the renderer.
+	small, err := rhi.create_device(platform_context, 2)
+	assert(err == .None)
+	small_renderer, small_error := render.create(&small)
 	assert(small_error == .None)
-	failed, failure := render.create(&small, vertices[:], indices[:])
-	assert(failure == .Pool_Exhausted && failed == render.Renderer{})
+	failed, failure := render.create_mesh(&small_renderer, vertices[:], indices[:])
+	assert(failure == .Pool_Exhausted && failed == render.Mesh{})
 	assert(small.buffers.free_count == 1)
+	assert(render.destroy(&small_renderer) == .None)
 	assert(rhi.destroy_device(&small) == .None)
 
-	device, err := rhi.create_device(platform_context, 6)
-	assert(err == .None)
+	device, device_error := rhi.create_device(platform_context, 6)
+	assert(device_error == .None)
 	defer assert(rhi.destroy_device(&device) == .None)
-	renderer, renderer_error := render.create(&device, vertices[:], indices[:])
+	renderer, renderer_error := render.create(&device)
 	assert(renderer_error == .None)
+	invalid_indices := [3]u32{0, 1, 3}
+	invalid, invalid_error := render.create_mesh(&renderer, vertices[:], invalid_indices[:])
+	assert(invalid_error == .Invalid_Draw && invalid == render.Mesh{})
+	_, empty_error := render.create_mesh(&renderer, vertices[:0], indices[:])
+	assert(empty_error == .Invalid_Size && device.buffers.free_count == 5)
+	mesh, mesh_error := render.create_mesh(&renderer, vertices[:], indices[:])
+	assert(mesh_error == .None)
 	grid, grid_error := render.create_grid(&renderer)
 	assert(grid_error == .None && device.buffers.free_count == 0)
+	// Drawing must use the uploaded copy, independent of these CPU slices.
 	vertices = {}
 	indices = {}
+	glfw.MakeContextCurrent(nil)
+	assert(render.destroy_mesh(&renderer, &mesh) == .Wrong_Context)
+	assert(mesh.vertices.generation != 0 && mesh.indices.generation != 0)
+	assert(render.destroy_grid(&renderer, &grid) == .Wrong_Context)
+	assert(grid.pipeline.generation != 0 && grid.uniforms.generation != 0)
+	assert(render.destroy(&renderer) == .Wrong_Context)
+	assert(renderer.pipeline.generation != 0 && renderer.uniforms.generation != 0)
+	glfw.MakeContextCurrent(window)
+
 	width, height := glfw.GetFramebufferSize(window)
 	rhi.set_viewport(&device, width, height)
 	assert(
-		render.begin_frame(&renderer, camera.Camera{orientation = 1}, emath.identity()) == .None,
+		render.begin_frame(
+			&renderer,
+			camera.Camera{orientation = 1},
+			emath.identity(),
+			{0, 0, 0, 1},
+		) ==
+		.None,
 	)
 	assert(render.draw_grid(&renderer, &grid) == .None)
-	assert(render.draw(&renderer, {orientation = 1, scale = {1, 1, 1}}) == .None)
-	pixel: [4]u8
-	gl.ReadPixels(width / 2, height / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, &pixel)
-	assert(int(pixel[2]) > int(pixel[0]) + 30)
+	for i in 0 ..< 3 {
+		scale := 0.7 + f32(i) * 0.25
+		transform := emath.Transform {
+			position    = {f32(i - 1) * 0.6, 0, 0},
+			orientation = emath.quaternion_angle_axis(f32(i - 1) * 0.4, {0, 0, 1}),
+			scale       = {scale, scale, scale},
+		}
+		assert(render.draw_mesh(&renderer, &mesh, transform) == .None)
+	}
+	// Read after every draw: all three placements must survive later uniform writes.
+	for i in 0 ..< 3 {
+		x := f32(i - 1) * 0.6
+		pixel: [4]u8
+		gl.ReadPixels(
+			i32((x * 0.5 + 0.5) * f32(width)),
+			height / 2,
+			1,
+			1,
+			gl.RGBA,
+			gl.UNSIGNED_BYTE,
+			&pixel,
+		)
+		assert(int(pixel[2]) > int(pixel[0]) + 30 && pixel[3] == 255)
+	}
+	assert(device.buffers.free_count == 0)
 	assert(gl.GetError() == gl.NO_ERROR)
-	glfw.MakeContextCurrent(nil)
-	assert(render.destroy_grid(&renderer, &grid) == .Wrong_Context)
-	assert(render.destroy(&renderer) == .Wrong_Context)
-	assert(renderer.pipeline.generation != 0 && renderer.vertices.generation != 0)
-	glfw.MakeContextCurrent(window)
+	borrowed := mesh
+	vertex_id := rhi.buffer_pool_lookup(&device.buffers, mesh.vertices).native.id
+	index_id := rhi.buffer_pool_lookup(&device.buffers, mesh.indices).native.id
+	assert(render.destroy_mesh(&renderer, &mesh) == .None)
+	assert(mesh == render.Mesh{} && !gl.IsBuffer(vertex_id) && !gl.IsBuffer(index_id))
+	assert(
+		render.draw_mesh(&renderer, &borrowed, {orientation = 1, scale = {1, 1, 1}}) ==
+		.Invalid_Handle,
+	)
+	assert(render.destroy_mesh(&renderer, &mesh) == .None)
 	assert(render.destroy_grid(&renderer, &grid) == .None)
 	assert(render.destroy(&renderer) == .None)
 	assert(device.buffers.free_count == 6)
 	assert(device.pipelines.free_count == len(device.pipelines.slots))
-	assert(device.shaders.free_count == len(device.shaders.slots))
-	fmt.println("Renderer smoke passed: upload rollback, pixels, grid bindings, cleanup")
+	fmt.println(
+		"Renderer smoke passed: creation rollback, mesh/grid ownership, three transforms, pixels, cleanup",
+	)
 }

@@ -3,13 +3,8 @@ package geometry
 import "core:math"
 import "core:mem"
 
-Sphere_Vertex :: struct {
-	position: [3]f32,
-	normal:   [3]f32,
-}
-
 Sphere_Mesh :: struct {
-	vertices:  []Sphere_Vertex,
+	vertices:  []Vertex,
 	indices:   []u32,
 	allocator: mem.Allocator,
 }
@@ -40,8 +35,7 @@ create_sphere :: proc(
 	}
 
 	ring_vertices := u64(segments) * u64(stacks - 1)
-	if ring_vertices > u64(max(u32)) - 2 ||
-	   ring_vertices + 2 > u64(max(int) / size_of(Sphere_Vertex)) {
+	if ring_vertices > u64(max(u32)) - 2 || ring_vertices + 2 > u64(max(int) / size_of(Vertex)) {
 		return {}, .Invalid_Resolution
 	}
 	index_count := ring_vertices * 6
@@ -49,7 +43,7 @@ create_sphere :: proc(
 		return {}, .Invalid_Resolution
 	}
 
-	vertices, vertex_error := make([]Sphere_Vertex, int(ring_vertices + 2), allocator)
+	vertices, vertex_error := make([]Vertex, int(ring_vertices + 2), allocator)
 	if vertex_error != .None {
 		return {}, .Allocation_Failed
 	}

@@ -5,9 +5,9 @@ import "../rhi"
 import "core:mem"
 
 Grid :: struct {
-	vertices, indices: rhi.Buffer_Handle,
-	uniforms:          rhi.Buffer_Handle,
-	pipeline:          rhi.Pipeline_Handle,
+	mesh:     Mesh,
+	uniforms: rhi.Buffer_Handle,
+	pipeline: rhi.Pipeline_Handle,
 }
 
 @(private)
@@ -54,18 +54,9 @@ init_grid :: proc(device: ^rhi.Device, grid: ^Grid) -> Error {
 		index = u32(i)
 	}
 
+
 	err: Error
-	grid.vertices, err = rhi.create_buffer(
-		device,
-		{size = size_of(vertices), usage = {.Vertex}, label = "grid vertices"},
-		mem.slice_to_bytes(vertices[:]),
-	)
-	if err != .None {return err}
-	grid.indices, err = rhi.create_buffer(
-		device,
-		{size = size_of(indices), usage = {.Index}, label = "grid indices"},
-		mem.slice_to_bytes(indices[:]),
-	)
+	grid.mesh, err = upload_mesh(device, vertices[:], indices[:])
 	if err != .None {return err}
 	grid.uniforms, err = rhi.create_buffer(
 		device,
@@ -122,10 +113,9 @@ draw_grid :: proc(renderer: ^Renderer, grid: ^Grid) -> Error {
 	if err := rhi.update_buffer(device, grid.uniforms, 0, mem.slice_to_bytes(data[:]));
 	   err != .None {return err}
 	if err := rhi.bind_pipeline(device, grid.pipeline); err != .None {return err}
-	if err := rhi.bind_vertex_buffer(device, grid.vertices); err != .None {return err}
-	if err := rhi.bind_index_buffer(device, grid.indices, .U32); err != .None {return err}
+	if err := bind_mesh(device, &grid.mesh); err != .None {return err}
 	if err := rhi.bind_uniform_buffer(device, 0, grid.uniforms); err != .None {return err}
-	return rhi.draw_indexed(device, {index_count = GRID_VERTEX_COUNT})
+	return rhi.draw_indexed(device, {index_count = grid.mesh.index_count})
 }
 
 destroy_grid :: proc(renderer: ^Renderer, grid: ^Grid) -> (result: Error) {
@@ -133,11 +123,11 @@ destroy_grid :: proc(renderer: ^Renderer, grid: ^Grid) -> (result: Error) {
 		result = rhi.destroy_pipeline(renderer.device, grid.pipeline)
 		if result == .None {grid.pipeline = {}}
 	}
-	for handle in ([3]^rhi.Buffer_Handle{&grid.uniforms, &grid.indices, &grid.vertices}) {
-		if handle.generation == 0 {continue}
-		err := rhi.destroy_buffer(renderer.device, handle^)
-		if err == .None {handle^ = {}} else if result == .None {result = err}
+	if grid.uniforms.generation != 0 {
+		err := rhi.destroy_buffer(renderer.device, grid.uniforms)
+		if err == .None {grid.uniforms = {}} else if result == .None {result = err}
 	}
+	if err := release_mesh(renderer.device, &grid.mesh); result == .None {result = err}
 	if result == .None {grid^ = {}}
 	return
 }

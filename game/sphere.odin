@@ -11,6 +11,7 @@ import render "ember:renderer"
 
 State :: struct {
 	renderer:  render.Renderer,
+	mesh:      render.Mesh,
 	grid:      render.Grid,
 	angle:     f32,
 	transform: emath.Transform,
@@ -29,14 +30,16 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game.camera = camera.from_orbit(game.orbit)
 
 	err: render.Error
+	game.renderer, err = render.create(app.device)
+	if !check(err, "create renderer") {return false}
 	mesh, mesh_error := geometry.create_sphere()
 	if mesh_error != .None {
 		log.errorf("Sphere generation failed: %v", mesh_error)
 		return false
 	}
 	defer geometry.destroy_sphere(&mesh)
-	game.renderer, err = render.create(app.device, mesh.vertices, mesh.indices)
-	if !check(err, "create renderer") {return false}
+	game.mesh, err = render.create_mesh(&game.renderer, mesh.vertices, mesh.indices)
+	if !check(err, "create mesh") {return false}
 	game.grid, err = render.create_grid(&game.renderer)
 	return check(err, "create grid")
 }
@@ -64,12 +67,13 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		"begin frame",
 	) {return false}
 	if !check(render.draw_grid(&game.renderer, &game.grid), "draw grid") {return false}
-	return check(render.draw(&game.renderer, game.transform), "draw sphere")
+	return check(render.draw_mesh(&game.renderer, &game.mesh, game.transform), "draw sphere")
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
 	check(render.destroy_grid(&game.renderer, &game.grid), "destroy grid")
+	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 	check(render.destroy(&game.renderer), "destroy renderer")
 	game^ = {}
 }
