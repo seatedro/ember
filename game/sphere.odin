@@ -11,14 +11,17 @@ import render "ember:renderer"
 import shader "ember:shaders"
 
 State :: struct {
-	shaders:   shader.Library,
-	renderer:  render.Renderer,
-	mesh:      render.Mesh,
-	grid:      render.Grid,
-	angle:     f32,
-	transform: emath.Transform,
-	orbit:     camera.Orbit,
-	camera:    camera.Camera,
+	shaders:         shader.Library,
+	renderer:        render.Renderer,
+	mesh:            render.Mesh,
+	pipeline:        render.Pipeline,
+	materials:       [2]render.Material,
+	active_material: int,
+	grid:            render.Grid,
+	angle:           f32,
+	transform:       emath.Transform,
+	orbit:           camera.Orbit,
+	camera:          camera.Camera,
 }
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
@@ -38,8 +41,14 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 	err: render.Error
-	game.renderer, err = render.create(app.device, banded)
+	game.renderer, err = render.create(app.device)
 	if !check(err, "create renderer") {return false}
+	game.pipeline, err = render.create_pipeline(&game.renderer, banded)
+	if !check(err, "create pipeline") {return false}
+	for parameters, i in BANDED_PALETTES {
+		game.materials[i], err = render.create_material(&game.renderer, banded, parameters)
+		if !check(err, "create material") {return false}
+	}
 	mesh, mesh_error := geometry.create_sphere()
 	if mesh_error != .None {
 		log.errorf("Sphere generation failed: %v", mesh_error)
@@ -58,6 +67,9 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if input.pressed(app.input, .Escape) {
 		engine.request_quit(app)
 	}
+	if input.pressed(app.input, .M) {
+		game.active_material = (game.active_material + 1) % len(game.materials)
+	}
 	game.angle += dt * 0.05
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
@@ -75,13 +87,26 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		"begin frame",
 	) {return false}
 	if !check(render.draw_grid(&game.renderer, &game.grid), "draw grid") {return false}
-	return check(render.draw_mesh(&game.renderer, &game.mesh, game.transform), "draw sphere")
+	return check(
+		render.draw_mesh(
+			&game.renderer,
+			&game.pipeline,
+			&game.mesh,
+			&game.materials[game.active_material],
+			game.transform,
+		),
+		"draw sphere",
+	)
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
 	check(render.destroy_grid(&game.renderer, &game.grid), "destroy grid")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
+	for &material in game.materials {
+		check(render.destroy_material(&game.renderer, &material), "destroy material")
+	}
+	check(render.destroy_pipeline(&game.renderer, &game.pipeline), "destroy pipeline")
 	check(render.destroy(&game.renderer), "destroy renderer")
 	if err := shader.destroy(&game.shaders);
 	   err != .None {log.errorf("Destroy shader library: %v", err)}

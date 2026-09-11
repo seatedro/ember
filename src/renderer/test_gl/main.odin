@@ -20,13 +20,13 @@ load_shader :: proc(device: ^rhi.Device) -> (shader.Library, shader.Shader) {
 }
 
 test_failed_creation :: proc(platform_context: rhi.Device_Context) {
-	// Renderer creation reaches the uniform allocation after building its pipeline.
+	// Renderer creation fails when no uniform buffer slot is available.
 	device, err := rhi.create_device(platform_context, 1)
 	assert(err == .None)
 	occupied, occupied_error := rhi.create_buffer(&device, {size = 4, usage = {.Vertex}})
 	assert(occupied_error == .None)
 	library, program := load_shader(&device)
-	failed, failure := render.create(&device, program)
+	failed, failure := render.create(&device)
 	assert(failure == .Pool_Exhausted && failed == render.Renderer{})
 	assert(device.buffers.free_count == 0)
 	assert(device.shaders.free_count == len(device.shaders.slots) - 2)
@@ -39,12 +39,15 @@ test_failed_creation :: proc(platform_context: rhi.Device_Context) {
 	device, err = rhi.create_device(platform_context, 4, pipeline_capacity = 1)
 	assert(err == .None)
 	library, program = load_shader(&device)
-	renderer, renderer_error := render.create(&device, program)
+	renderer, renderer_error := render.create(&device)
 	assert(renderer_error == .None)
+	pipeline, pipeline_error := render.create_pipeline(&renderer, program)
+	assert(pipeline_error == .None)
 	grid, grid_error := render.create_grid(&renderer)
 	assert(grid_error == .Pool_Exhausted && grid == render.Grid{})
 	assert(device.buffers.free_count == 3)
 	assert(device.shaders.free_count == len(device.shaders.slots) - 2)
+	assert(render.destroy_pipeline(&renderer, &pipeline) == .None)
 	assert(render.destroy(&renderer) == .None)
 	assert(device.pipelines.free_count == 1)
 	assert(shader.destroy(&library) == .None)
@@ -79,7 +82,7 @@ main :: proc() {
 	small, err := rhi.create_device(platform_context, 2)
 	assert(err == .None)
 	small_library, small_program := load_shader(&small)
-	small_renderer, small_error := render.create(&small, small_program)
+	small_renderer, small_error := render.create(&small)
 	assert(small_error == .None)
 	failed, failure := render.create_mesh(&small_renderer, vertices[:], indices[:])
 	assert(failure == .Pool_Exhausted && failed == render.Mesh{})
@@ -88,19 +91,24 @@ main :: proc() {
 	assert(shader.destroy(&small_library) == .None)
 	assert(rhi.destroy_device(&small) == .None)
 
-	device, device_error := rhi.create_device(platform_context, 6)
+	device, device_error := rhi.create_device(platform_context, 7)
 	assert(device_error == .None)
 	defer assert(rhi.destroy_device(&device) == .None)
 	library, program := load_shader(&device)
-	renderer, renderer_error := render.create(&device, program)
+	renderer, renderer_error := render.create(&device)
 	assert(renderer_error == .None)
+	pipeline, pipeline_error := render.create_pipeline(&renderer, program)
+	assert(pipeline_error == .None)
 	invalid_indices := [3]u32{0, 1, 3}
 	invalid, invalid_error := render.create_mesh(&renderer, vertices[:], invalid_indices[:])
 	assert(invalid_error == .Invalid_Draw && invalid == render.Mesh{})
 	_, empty_error := render.create_mesh(&renderer, vertices[:0], indices[:])
-	assert(empty_error == .Invalid_Size && device.buffers.free_count == 5)
+	assert(empty_error == .Invalid_Size && device.buffers.free_count == 6)
 	mesh, mesh_error := render.create_mesh(&renderer, vertices[:], indices[:])
 	assert(mesh_error == .None)
+	parameters := [2][4]f32{{0.12, 0.32, 0.65, 1}, {0.78, 0.52, 0.18, 1}}
+	material, material_error := render.create_material(&renderer, program, parameters)
+	assert(material_error == .None)
 	grid, grid_error := render.create_grid(&renderer)
 	assert(grid_error == .None && device.buffers.free_count == 0)
 	// Drawing must use the uploaded copy, independent of these CPU slices.
@@ -112,7 +120,9 @@ main :: proc() {
 	assert(render.destroy_grid(&renderer, &grid) == .Wrong_Context)
 	assert(grid.pipeline.generation != 0 && grid.uniforms.generation != 0)
 	assert(render.destroy(&renderer) == .Wrong_Context)
-	assert(renderer.pipeline.generation != 0 && renderer.uniforms.generation != 0)
+	assert(renderer.uniforms.generation != 0)
+	assert(render.destroy_pipeline(&renderer, &pipeline) == .Wrong_Context)
+	assert(pipeline.handle.generation != 0)
 	glfw.MakeContextCurrent(window)
 
 	width, height := glfw.GetFramebufferSize(window)
@@ -134,7 +144,7 @@ main :: proc() {
 			orientation = emath.quaternion_angle_axis(f32(i - 1) * 0.4, {0, 0, 1}),
 			scale       = {scale, scale, scale},
 		}
-		assert(render.draw_mesh(&renderer, &mesh, transform) == .None)
+		assert(render.draw_mesh(&renderer, &pipeline, &mesh, &material, transform) == .None)
 	}
 	// Read after every draw: all three placements must survive later uniform writes.
 	for i in 0 ..< 3 {
@@ -159,14 +169,22 @@ main :: proc() {
 	assert(render.destroy_mesh(&renderer, &mesh) == .None)
 	assert(mesh == render.Mesh{} && !gl.IsBuffer(vertex_id) && !gl.IsBuffer(index_id))
 	assert(
-		render.draw_mesh(&renderer, &borrowed, {orientation = 1, scale = {1, 1, 1}}) ==
+		render.draw_mesh(
+			&renderer,
+			&pipeline,
+			&borrowed,
+			&material,
+			{orientation = 1, scale = {1, 1, 1}},
+		) ==
 		.Invalid_Handle,
 	)
 	assert(render.destroy_mesh(&renderer, &mesh) == .None)
 	assert(render.destroy_grid(&renderer, &grid) == .None)
+	assert(render.destroy_material(&renderer, &material) == .None)
+	assert(render.destroy_pipeline(&renderer, &pipeline) == .None)
 	assert(render.destroy(&renderer) == .None)
 	assert(shader.destroy(&library) == .None)
-	assert(device.buffers.free_count == 6)
+	assert(device.buffers.free_count == 7)
 	assert(device.pipelines.free_count == len(device.pipelines.slots))
 	assert(device.shaders.free_count == len(device.shaders.slots))
 	fmt.println(

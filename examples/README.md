@@ -1,13 +1,16 @@
 # Examples
 
 Run from the repository root. `./build.sh` builds the default sphere demo:
-left drag orbits, scroll zooms, `R` resets, and Escape closes.
+left drag orbits, scroll zooms, `R` resets, `M` switches material colors, and Escape closes.
 The game supplies geometry, camera, and transforms to the
-[renderer](../src/renderer/renderer.odin), which owns pipelines and GPU draws.
+[renderer](../src/renderer/renderer.odin), which submits GPU draws.
+Each [material](../src/renderer/material.odin) owns an appearance buffer and references a shader.
+The game creates one [pipeline](../src/renderer/pipeline.odin) during setup and passes it
+explicitly when drawing either palette.
 The demo loads `game/assets/shaders/banded.vert` and `.frag` at runtime, so run it
 from the repository root. The [shader library](../src/shaders/library.odin) owns
 and reuses the compiled stages.
-See [camera](../src/camera/README.md) for the data and math.
+See [camera.odin](../src/camera/camera.odin) for the camera data and math.
 
 ## Input
 
@@ -21,7 +24,7 @@ See [camera](../src/camera/README.md) for the data and math.
 - **Switch applications:** check focus handling.
 - **Escape:** close.
 
-Key and button presses/releases are logged. See [input behavior](../src/input/README.md).
+Key and button presses/releases are logged. See [input.odin](../src/input/input.odin) for input behavior.
 
 ## Indexed triangle
 
