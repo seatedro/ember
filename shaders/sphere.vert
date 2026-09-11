@@ -4,7 +4,7 @@ layout(location = 1) in vec3 normal;
 
 layout(std140) uniform Per_Object {
     mat4 mvp;
-    mat4 model;
+    mat4 normals;
 };
 
 out vec3 world_normal;
@@ -12,6 +12,6 @@ out vec3 local_normal;
 
 void main() {
     gl_Position = mvp * vec4(position, 1.0);
-    world_normal = mat3(model) * normal;
+    world_normal = mat3(normals) * normal;
     local_normal = normal;
 }

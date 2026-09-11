@@ -3,24 +3,31 @@ package camera_gl_smoke
 
 import "core:fmt"
 import "core:slice"
+import emath "ember:core/math"
 import "ember:engine"
 import game "game:."
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
 Harness :: struct {
-	config:         engine.Config,
-	initial_pixels: []u8,
-	orbit_pixels:   []u8,
-	initial_width:  i32,
-	initial_height: i32,
-	draw_count:     int,
+	config:            engine.Config,
+	initial_pixels:    []u8,
+	orbit_pixels:      []u8,
+	initial_width:     i32,
+	initial_height:    i32,
+	initial_transform: emath.Transform,
+	draw_count:        int,
 }
 
 on_init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	h := cast(^Harness)userdata
 	h.initial_width, h.initial_height = app.width, app.height
-	return h.config.init(app, h.config.userdata)
+	if !h.config.init(app, h.config.userdata) {
+		return false
+	}
+	state := cast(^game.State)h.config.userdata
+	h.initial_transform = state.transform
+	return true
 }
 
 on_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -28,6 +35,7 @@ on_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	h.config.update(app, h.config.userdata, dt)
 	state := cast(^game.State)h.config.userdata
 	state.angle = 0 // Hold the object still so pixel differences measure the camera.
+	state.transform = h.initial_transform
 	switch app.frame_count {
 	case 1:
 		assert(state.orbit.yaw != game.INITIAL_ORBIT.yaw)

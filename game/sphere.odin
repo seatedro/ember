@@ -17,6 +17,7 @@ State :: struct {
 	uniforms:    rhi.Buffer_Handle,
 	index_count: u32,
 	angle:       f32,
+	transform:   emath.Transform,
 	orbit:       camera.Orbit,
 	camera:      camera.Camera,
 	grid:        Grid,
@@ -25,13 +26,18 @@ State :: struct {
 // mvp means model-view-projection.
 // Two column-major mat4 values match the shader's std140 Per_Object block.
 Per_Object :: struct {
-	mvp:   emath.Mat4,
-	model: emath.Mat4,
+	mvp:     emath.Mat4,
+	normals: emath.Mat4,
 }
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {}
+	// Unequal scale makes the normal transformation visible in the demo.
+	game.transform = {
+		orientation = emath.quaternion_angle_axis(-0.2, {1, 0, 0}),
+		scale       = {1.25, 0.75, 1},
+	}
 	game.orbit = INITIAL_ORBIT
 	game.camera = camera.from_orbit(game.orbit)
 	device := app.device
@@ -138,16 +144,21 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
 	}
+	game.transform.orientation =
+		emath.quaternion_angle_axis(game.angle, {0, 1, 0}) *
+		emath.quaternion_angle_axis(-0.2, {1, 0, 0})
 }
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	device := app.device
 
-	model := emath.rotation_y(game.angle) * emath.rotation_x(-0.2)
+	model := emath.transform_matrix(game.transform)
 	view := camera.view_matrix(game.camera)
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
-	data := [1]Per_Object{{mvp = projection * view * model, model = model}}
+	data := [1]Per_Object {
+		{mvp = projection * view * model, normals = emath.normal_matrix(game.transform)},
+	}
 
 	if !check(
 		rhi.update_buffer(device, game.uniforms, 0, mem.slice_to_bytes(data[:])),
