@@ -1,26 +1,36 @@
-package game
+package renderer
 
+import emath "../core/math"
+import "../rhi"
 import "core:mem"
-import emath "ember:core/math"
-import "ember:rhi"
 
 Grid :: struct {
-	vertices: rhi.Buffer_Handle,
-	indices:  rhi.Buffer_Handle,
-	uniforms: rhi.Buffer_Handle,
-	pipeline: rhi.Pipeline_Handle,
+	vertices, indices: rhi.Buffer_Handle,
+	uniforms:          rhi.Buffer_Handle,
+	pipeline:          rhi.Pipeline_Handle,
 }
 
+@(private)
 Grid_Vertex :: struct {
 	position: emath.Vec3,
 	color:    emath.Vec3,
 }
 
+@(private)
 GRID_EXTENT :: 10
+@(private)
 GRID_VERTEX_COUNT :: (2 * GRID_EXTENT + 1) * 4
+@(private)
 GRID_HEIGHT :: f32(-1.05)
 
-create_grid :: proc(grid: ^Grid, device: ^rhi.Device) -> bool {
+create_grid :: proc(renderer: ^Renderer) -> (grid: Grid, err: Error) {
+	err = init_grid(renderer.device, &grid)
+	if err != .None {destroy_grid(renderer, &grid)}
+	return
+}
+
+@(private)
+init_grid :: proc(device: ^rhi.Device, grid: ^Grid) -> Error {
 	vertices: [GRID_VERTEX_COUNT]Grid_Vertex
 	indices: [GRID_VERTEX_COUNT]u32
 	for coordinate in -GRID_EXTENT ..= GRID_EXTENT {
@@ -44,38 +54,36 @@ create_grid :: proc(grid: ^Grid, device: ^rhi.Device) -> bool {
 		index = u32(i)
 	}
 
-	err: rhi.Error
+	err: Error
 	grid.vertices, err = rhi.create_buffer(
 		device,
 		{size = size_of(vertices), usage = {.Vertex}, label = "grid vertices"},
 		mem.slice_to_bytes(vertices[:]),
 	)
-	if !check(err, "create grid vertices") {return false}
+	if err != .None {return err}
 	grid.indices, err = rhi.create_buffer(
 		device,
 		{size = size_of(indices), usage = {.Index}, label = "grid indices"},
 		mem.slice_to_bytes(indices[:]),
 	)
-	if !check(err, "create grid indices") {return false}
+	if err != .None {return err}
 	grid.uniforms, err = rhi.create_buffer(
 		device,
 		{size = size_of(emath.Mat4), usage = {.Uniform}, label = "grid view projection"},
 	)
-	if !check(err, "create grid uniforms") {return false}
-
+	if err != .None {return err}
 	vertex, vertex_error := rhi.create_shader(
 		device,
-		{stage = .Vertex, source = #load("../shaders/grid.vert"), label = "grid vertex"},
+		{stage = .Vertex, source = #load("shaders/grid.vert"), label = "grid vertex"},
 	)
-	if !check(vertex_error, "compile grid vertex shader") {return false}
-	defer check(rhi.destroy_shader(device, vertex), "destroy grid vertex shader")
+	if vertex_error != .None {return vertex_error}
+	defer rhi.destroy_shader(device, vertex)
 	fragment, fragment_error := rhi.create_shader(
 		device,
-		{stage = .Fragment, source = #load("../shaders/grid.frag"), label = "grid fragment"},
+		{stage = .Fragment, source = #load("shaders/grid.frag"), label = "grid fragment"},
 	)
-	if !check(fragment_error, "compile grid fragment shader") {return false}
-	defer check(rhi.destroy_shader(device, fragment), "destroy grid fragment shader")
-
+	if fragment_error != .None {return fragment_error}
+	defer rhi.destroy_shader(device, fragment)
 	grid.pipeline, err = rhi.create_pipeline(
 		device,
 		{
@@ -105,38 +113,31 @@ create_grid :: proc(grid: ^Grid, device: ^rhi.Device) -> bool {
 			label = "ground grid",
 		},
 	)
-	return check(err, "create grid pipeline")
+	return err
 }
 
-draw_grid :: proc(grid: ^Grid, device: ^rhi.Device, view_projection: emath.Mat4) -> bool {
-	data := [1]emath.Mat4{view_projection}
-	if !check(
-		rhi.update_buffer(device, grid.uniforms, 0, mem.slice_to_bytes(data[:])),
-		"update grid view",
-	) {
-		return false
-	}
-	if !check(rhi.bind_pipeline(device, grid.pipeline), "bind grid pipeline") {return false}
-	if !check(rhi.bind_vertex_buffer(device, grid.vertices), "bind grid vertices") {return false}
-	if !check(
-		rhi.bind_index_buffer(device, grid.indices, .U32),
-		"bind grid indices",
-	) {return false}
-	if !check(
-		rhi.bind_uniform_buffer(device, 0, grid.uniforms),
-		"bind grid uniforms",
-	) {return false}
-	return check(rhi.draw_indexed(device, {index_count = GRID_VERTEX_COUNT}), "draw grid")
+draw_grid :: proc(renderer: ^Renderer, grid: ^Grid) -> Error {
+	device := renderer.device
+	data := [1]emath.Mat4{renderer.view_projection}
+	if err := rhi.update_buffer(device, grid.uniforms, 0, mem.slice_to_bytes(data[:]));
+	   err != .None {return err}
+	if err := rhi.bind_pipeline(device, grid.pipeline); err != .None {return err}
+	if err := rhi.bind_vertex_buffer(device, grid.vertices); err != .None {return err}
+	if err := rhi.bind_index_buffer(device, grid.indices, .U32); err != .None {return err}
+	if err := rhi.bind_uniform_buffer(device, 0, grid.uniforms); err != .None {return err}
+	return rhi.draw_indexed(device, {index_count = GRID_VERTEX_COUNT})
 }
 
-destroy_grid :: proc(grid: ^Grid, device: ^rhi.Device) {
+destroy_grid :: proc(renderer: ^Renderer, grid: ^Grid) -> (result: Error) {
 	if grid.pipeline.generation != 0 {
-		check(rhi.destroy_pipeline(device, grid.pipeline), "destroy grid pipeline")
+		result = rhi.destroy_pipeline(renderer.device, grid.pipeline)
+		if result == .None {grid.pipeline = {}}
 	}
-	for buffer in ([3]rhi.Buffer_Handle{grid.vertices, grid.indices, grid.uniforms}) {
-		if buffer.generation != 0 {
-			check(rhi.destroy_buffer(device, buffer), "destroy grid buffer")
-		}
+	for handle in ([3]^rhi.Buffer_Handle{&grid.uniforms, &grid.indices, &grid.vertices}) {
+		if handle.generation == 0 {continue}
+		err := rhi.destroy_buffer(renderer.device, handle^)
+		if err == .None {handle^ = {}} else if result == .None {result = err}
 	}
-	grid^ = {}
+	if result == .None {grid^ = {}}
+	return
 }
