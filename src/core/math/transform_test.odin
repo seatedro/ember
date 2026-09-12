@@ -9,6 +9,7 @@ test_transform_identity_and_order :: proc(t: ^testing.T) {
 		orientation = 1,
 		scale       = {1, 1, 1},
 	}
+
 	testing.expect_value(t, transform_matrix(pose), identity())
 	testing.expect_value(t, normal_matrix(pose), identity())
 	pose = {
@@ -16,6 +17,7 @@ test_transform_identity_and_order :: proc(t: ^testing.T) {
 		orientation = quaternion_angle_axis(math.PI / 2, {0, 0, 1}),
 		scale       = {2, 3, 4},
 	}
+
 	point := transform_matrix(pose) * Vec4{1, 2, 3, 1}
 	// (1,2,3) -> scale (2,6,12) -> rotate (-6,2,12) -> translate.
 	expect_vec3_approximately_equal(t, Vec3(point.xyz), {-2, -1, 14})
@@ -29,6 +31,7 @@ test_transform_normals_stay_perpendicular :: proc(t: ^testing.T) {
 		orientation = quaternion_angle_axis(.7, normalize({1, 2, 3})),
 		scale       = {2, 3, 4},
 	}
+
 	model := transform_matrix(pose)
 	normals := normal_matrix(pose)
 	tangent_a := model * Vec4{1, -1, 0, 0}

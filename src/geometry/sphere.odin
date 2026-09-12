@@ -30,6 +30,7 @@ create_sphere :: proc(
 	if !(radius > 0) || math.is_inf(radius) {
 		return {}, .Invalid_Radius
 	}
+
 	if segments < 3 || stacks < 2 || u64(segments) > u64(max(u32)) || u64(stacks) > u64(max(u32)) {
 		return {}, .Invalid_Resolution
 	}
@@ -38,6 +39,7 @@ create_sphere :: proc(
 	if ring_vertices > u64(max(u32)) - 2 || ring_vertices + 2 > u64(max(int) / size_of(Vertex)) {
 		return {}, .Invalid_Resolution
 	}
+
 	index_count := ring_vertices * 6
 	if index_count > u64(max(int) / size_of(u32)) {
 		return {}, .Invalid_Resolution
@@ -47,6 +49,7 @@ create_sphere :: proc(
 	if vertex_error != .None {
 		return {}, .Allocation_Failed
 	}
+
 	indices, index_error := make([]u32, int(index_count), allocator)
 	if index_error != .None {
 		delete(vertices, allocator)
@@ -60,6 +63,7 @@ create_sphere :: proc(
 		theta := f32(math.PI) * f32(stack) / f32(stacks)
 		y := math.cos(theta)
 		ring_radius := math.sin(theta)
+
 		for segment in 0 ..< segments {
 			phi := f32(2 * math.PI) * f32(segment) / f32(segments)
 			normal := [3]f32{ring_radius * math.cos(phi), y, ring_radius * math.sin(phi)}
@@ -72,6 +76,7 @@ create_sphere :: proc(
 	}
 
 	cursor := 0
+
 	for segment in 0 ..< segments {
 		next := (segment + 1) % segments
 		indices[cursor + 0] = 0
@@ -98,6 +103,7 @@ create_sphere :: proc(
 	}
 
 	last_ring := 1 + (stacks - 2) * segments
+
 	for segment in 0 ..< segments {
 		next := (segment + 1) % segments
 		indices[cursor + 0] = u32(len(vertices) - 1)
@@ -105,6 +111,7 @@ create_sphere :: proc(
 		indices[cursor + 2] = u32(last_ring + next)
 		cursor += 3
 	}
+
 	assert(cursor == len(indices))
 
 	return Sphere_Mesh{vertices = vertices, indices = indices, allocator = allocator}, .None

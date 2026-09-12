@@ -18,10 +18,20 @@ Bindings :: struct {
 }
 
 bind_texture :: proc(device: ^Device, binding: u32, handle: Texture_Handle) -> Error {
-	if err := validate_device(device); err != .None {return err}
-	if binding >= MAX_TEXTURE_BINDINGS {return .Invalid_Texture_Binding}
-	if texture_pool_lookup(&device.textures, handle) == nil {return .Invalid_Handle}
+	if err := validate_device(device); err != .None {
+		return err
+	}
+
+	if binding >= MAX_TEXTURE_BINDINGS {
+		return .Invalid_Texture_Binding
+	}
+
+	if texture_pool_lookup(&device.textures, handle) == nil {
+		return .Invalid_Handle
+	}
+
 	device.bindings.textures[binding] = handle
+
 	return .None
 }
 
@@ -29,17 +39,22 @@ bind_uniform_buffer :: proc(device: ^Device, binding: u32, handle: Buffer_Handle
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	if binding >= MAX_UNIFORM_BINDINGS {
 		return .Invalid_Uniform_Binding
 	}
+
 	slot := buffer_pool_lookup(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
+
 	if .Uniform not_in slot.usage {
 		return .Invalid_Buffer_Binding
 	}
+
 	device.bindings.uniform_buffers[binding] = handle
+
 	return .None
 }
 
@@ -48,10 +63,13 @@ bind_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	if pipeline_pool_lookup(&device.pipelines, handle) == nil {
 		return .Invalid_Handle
 	}
+
 	device.bindings.pipeline = handle
+
 	return .None
 }
 
@@ -59,15 +77,19 @@ bind_vertex_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64 =
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	slot := buffer_pool_lookup(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
+
 	if .Vertex not_in slot.usage || offset >= slot.size || offset % 4 != 0 {
 		return .Invalid_Buffer_Binding
 	}
+
 	device.bindings.vertex_buffer = handle
 	device.bindings.vertex_offset = offset
+
 	return .None
 }
 
@@ -80,20 +102,25 @@ bind_index_buffer :: proc(
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	slot := buffer_pool_lookup(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
+
 	if index_type != .U16 && index_type != .U32 {
 		return .Invalid_Buffer_Binding
 	}
+
 	width := u64(2) if index_type == .U16 else u64(4)
 	if .Index not_in slot.usage || offset >= slot.size || offset % width != 0 {
 		return .Invalid_Buffer_Binding
 	}
+
 	device.bindings.index_buffer = handle
 	device.bindings.index_offset = offset
 	device.bindings.index_type = index_type
+
 	return .None
 }
 
@@ -105,18 +132,22 @@ validate_indexed_range :: proc(
 	if desc.index_count == 0 || desc.index_count > u32(max(i32)) {
 		return .Invalid_Draw
 	}
+
 	if index_type != .U16 && index_type != .U32 {
 		return .Invalid_Buffer_Binding
 	}
+
 	width := u64(2) if index_type == .U16 else u64(4)
 	if offset > size || offset % width != 0 {
 		return .Invalid_Draw
 	}
+
 	available := (size - offset) / width
 	if u64(desc.first_index) > available ||
 	   u64(desc.index_count) > available - u64(desc.first_index) {
 		return .Invalid_Draw
 	}
+
 	return .None
 }
 
@@ -126,6 +157,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	bindings := device.bindings
 	pipeline := pipeline_pool_lookup(&device.pipelines, bindings.pipeline)
 	vertex := buffer_pool_lookup(&device.buffers, bindings.vertex_buffer)
@@ -133,40 +165,56 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	if pipeline == nil || vertex == nil || index == nil {
 		return .Invalid_Handle
 	}
+
 	if .Vertex not_in vertex.usage || .Index not_in index.usage {
 		return .Invalid_Buffer_Binding
 	}
+
 	if bindings.vertex_offset > vertex.size ||
 	   u64(pipeline.settings.layout.stride) > vertex.size - bindings.vertex_offset {
 		return .Invalid_Buffer_Binding
 	}
+
 	if err := validate_indexed_range(desc, bindings.index_type, bindings.index_offset, index.size);
 	   err != .None {
 		return err
 	}
+
 	width := u64(2) if bindings.index_type == .U16 else u64(4)
 	uniforms: [MAX_UNIFORM_BINDINGS]backend.Buffer
+
 	for required_size, binding in pipeline.uniform_sizes {
 		if required_size == 0 {
 			continue
 		}
+
 		uniform := buffer_pool_lookup(&device.buffers, bindings.uniform_buffers[binding])
 		if uniform == nil {
 			return .Invalid_Handle
 		}
+
 		if .Uniform not_in uniform.usage || uniform.size < required_size {
 			return .Invalid_Buffer_Binding
 		}
+
 		uniforms[binding] = uniform.native
 	}
 
 	textures: [MAX_TEXTURE_BINDINGS]backend.Texture
+
 	for required, binding in pipeline.texture_bindings {
-		if !required {continue}
+		if !required {
+			continue
+		}
+
 		texture := texture_pool_lookup(&device.textures, bindings.textures[binding])
-		if texture == nil {return .Invalid_Handle}
+		if texture == nil {
+			return .Invalid_Handle
+		}
+
 		textures[binding] = texture.native
 	}
+
 	return backend.draw_indexed(
 		pipeline.native,
 		pipeline.settings,

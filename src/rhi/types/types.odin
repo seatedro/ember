@@ -101,6 +101,7 @@ Vertex_Format :: enum {
 	F32x3,
 	F32x4,
 }
+
 Vertex_Attribute :: struct {
 	location: u32,
 	format:   Vertex_Format,
@@ -123,20 +124,24 @@ Compare :: enum {
 	Never,
 	Always,
 }
+
 Cull_Mode :: enum {
 	None,
 	Back,
 	Front,
 }
+
 Winding :: enum {
 	CCW,
 	CW,
 }
+
 Primitive :: enum {
 	Triangles,
 	Lines,
 	Points,
 }
+
 Index_Type :: enum {
 	U16,
 	U32,

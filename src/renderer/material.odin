@@ -48,6 +48,7 @@ create_material :: proc(
 	}
 
 	handles: [rhi.MAX_TEXTURE_BINDINGS]rhi.Texture_Handle
+
 	for texture in textures {
 		if texture.binding >= rhi.MAX_TEXTURE_BINDINGS {
 			return {}, .Invalid_Texture_Binding
@@ -81,9 +82,12 @@ create_material :: proc(
 
 destroy_material :: proc(renderer: ^Renderer, material: ^Material) -> Error {
 	if material.parameters.generation != 0 {
-		if err := rhi.destroy_buffer(renderer.device, material.parameters);
-		   err != .None {return err}
+		if err := rhi.destroy_buffer(renderer.device, material.parameters); err != .None {
+			return err
+		}
 	}
+
 	material^ = {}
+
 	return .None
 }

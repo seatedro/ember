@@ -33,6 +33,7 @@ init_grid :: proc(game: ^State) -> bool {
 		log.errorf("Load grid shader: %v", shader_error)
 		return false
 	}
+
 	err: render.Error
 	game.grid_pipeline, err = render.create_pipeline(
 		&game.renderer,
@@ -44,15 +45,22 @@ init_grid :: proc(game: ^State) -> bool {
 			raster = {cull = .None, winding = .CCW},
 		},
 	)
-	if !check(err, "create grid pipeline") {return false}
+	if !check(err, "create grid pipeline") {
+		return false
+	}
+
 	game.grid_material, err = render.create_material(
 		&game.renderer,
 		program,
 		Grid_Parameters{tint = {1, 1, 1, 1}},
 	)
-	if !check(err, "create grid material") {return false}
+	if !check(err, "create grid material") {
+		return false
+	}
+
 	vertices: [GRID_VERTEX_COUNT]Grid_Vertex
 	indices: [GRID_VERTEX_COUNT]u32
+
 	for coordinate in -GRID_EXTENT ..= GRID_EXTENT {
 		i := (coordinate + GRID_EXTENT) * 4
 		p := f32(coordinate)
@@ -60,20 +68,24 @@ init_grid :: proc(game: ^State) -> bool {
 		if coordinate % 5 == 0 {
 			color = {0.32, 0.33, 0.35}
 		}
+
 		x_color, z_color := color, color
 		if coordinate == 0 {
 			x_color = {0.6, 0.22, 0.2}
 			z_color = {0.2, 0.35, 0.65}
 		}
+
 		vertices[i + 0] = {{-GRID_EXTENT, GRID_HEIGHT, p}, x_color}
 		vertices[i + 1] = {{GRID_EXTENT, GRID_HEIGHT, p}, x_color}
 		vertices[i + 2] = {{p, GRID_HEIGHT, -GRID_EXTENT}, z_color}
 		vertices[i + 3] = {{p, GRID_HEIGHT, GRID_EXTENT}, z_color}
 	}
+
 	for &index, i in indices {
 		index = u32(i)
 	}
 
 	game.grid_mesh, err = render.create_mesh(&game.renderer, vertices[:], indices[:], GRID_LAYOUT)
+
 	return check(err, "create grid mesh")
 }

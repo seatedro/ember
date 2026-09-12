@@ -29,6 +29,7 @@ update_camera :: proc(game: ^State, app: ^engine.Context) {
 				PITCH_LIMIT,
 			)
 		}
+
 		if app.input.scroll_delta.y != 0 {
 			// Bound the exponent before exp so a large scroll cannot overflow.
 			log_distance :=
@@ -41,5 +42,6 @@ update_camera :: proc(game: ^State, app: ^engine.Context) {
 			game.orbit.distance = clamp(f32(math.exp(log_distance)), MIN_DISTANCE, MAX_DISTANCE)
 		}
 	}
+
 	game.camera = camera.from_orbit(game.orbit)
 }

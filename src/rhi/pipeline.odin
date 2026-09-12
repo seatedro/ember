@@ -9,6 +9,7 @@ Pipeline_Handle :: struct {
 	index:      u32,
 	generation: u32,
 }
+
 Pipeline_State :: enum {
 	Free,
 	Reserved,
@@ -16,6 +17,7 @@ Pipeline_State :: enum {
 	Retiring,
 	Exhausted,
 }
+
 MAX_VERTEX_ATTRIBUTES :: types.MAX_VERTEX_ATTRIBUTES
 Vertex_Format :: types.Vertex_Format
 Vertex_Attribute :: types.Vertex_Attribute
@@ -108,6 +110,7 @@ pipeline_pool_reserve :: proc(pool: ^Pipeline_Pool) -> (index: u32, slot: ^Pipel
 	assert(slot.generation != 0)
 
 	slot.state = .Reserved
+
 	return index, slot
 }
 
@@ -116,6 +119,7 @@ pipeline_pool_publish :: proc(pool: ^Pipeline_Pool, index: u32) -> Pipeline_Hand
 	assert(slot.state == .Reserved)
 
 	slot.state = .Live
+
 	return Pipeline_Handle{index = index, generation = slot.generation}
 }
 
@@ -181,6 +185,7 @@ pipeline_pool_finish_retirement :: proc(pool: ^Pipeline_Pool, index: u32) {
 		slot^ = Pipeline_Slot {
 			state = .Exhausted,
 		}
+
 		return
 	}
 
@@ -209,7 +214,9 @@ validate_vertex_layout :: proc(layout: Vertex_Layout) -> Error {
 	   layout.stride % 4 != 0 {
 		return .Invalid_Vertex_Layout
 	}
+
 	locations: u32
+
 	for i in 0 ..< layout.attribute_count {
 		attribute := layout.attributes[i]
 		if attribute.location >= MAX_VERTEX_ATTRIBUTES ||
@@ -218,21 +225,28 @@ validate_vertex_layout :: proc(layout: Vertex_Layout) -> Error {
 		   attribute.offset % 4 != 0 {
 			return .Invalid_Vertex_Layout
 		}
+
 		width := (u32(attribute.format) + 1) * 4
 		if attribute.offset > layout.stride || width > layout.stride - attribute.offset {
 			return .Invalid_Vertex_Layout
 		}
+
 		bit := u32(1) << attribute.location
 		if locations & bit != 0 {
 			return .Invalid_Vertex_Layout
 		}
+
 		locations |= bit
 	}
+
 	return .None
 }
 
 validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
-	if err := validate_vertex_layout(settings.layout); err != .None {return err}
+	if err := validate_vertex_layout(settings.layout); err != .None {
+		return err
+	}
+
 	if settings.depth.compare < .Less ||
 	   settings.depth.compare > .Always ||
 	   settings.raster.cull < .None ||
@@ -243,6 +257,7 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 	   settings.primitive > .Points {
 		return .Invalid_Pipeline_State
 	}
+
 	return .None
 }
 
@@ -251,25 +266,34 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	if err := validate_device(device); err != .None {
 		return {}, err
 	}
+
 	if err := validate_pipeline_settings(desc.settings); err != .None {
 		return {}, err
 	}
+
 	if err := validate_uniform_blocks(desc.uniform_blocks); err != .None {
 		return {}, err
 	}
-	if err := validate_texture_bindings(desc.textures); err != .None {return {}, err}
+
+	if err := validate_texture_bindings(desc.textures); err != .None {
+		return {}, err
+	}
+
 	vertex := shader_pool_lookup(&device.shaders, desc.vertex_shader)
 	fragment := shader_pool_lookup(&device.shaders, desc.fragment_shader)
 	if vertex == nil || fragment == nil {
 		return {}, .Invalid_Handle
 	}
+
 	if vertex.stage != .Vertex || fragment.stage != .Fragment {
 		return {}, .Unsupported_Shader_Stage
 	}
+
 	index, slot := pipeline_pool_reserve(&device.pipelines)
 	if slot == nil {
 		return {}, .Pool_Exhausted
 	}
+
 	native, err := backend.create_pipeline(
 		vertex.native,
 		fragment.native,
@@ -282,10 +306,12 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		pipeline_pool_cancel(&device.pipelines, index)
 		return {}, err
 	}
+
 	slot.native = native
 	slot.settings = desc.settings
 	slot.uniform_sizes = backend.pipeline_uniform_sizes(native)
 	slot.texture_bindings = native.texture_bindings
+
 	return pipeline_pool_publish(&device.pipelines, index), .None
 }
 
@@ -293,35 +319,43 @@ validate_uniform_blocks :: proc(blocks: []Uniform_Block_Desc) -> Error {
 	if len(blocks) > MAX_UNIFORM_BINDINGS {
 		return .Invalid_Uniform_Binding
 	}
+
 	for block, i in blocks {
 		if block.binding >= MAX_UNIFORM_BINDINGS ||
 		   len(block.name) == 0 ||
 		   strings.contains(block.name, "\x00") {
 			return .Invalid_Uniform_Binding
 		}
+
 		for previous in blocks[:i] {
 			if previous.binding == block.binding || previous.name == block.name {
 				return .Invalid_Uniform_Binding
 			}
 		}
 	}
+
 	return .None
 }
 
 validate_texture_bindings :: proc(bindings: []Texture_Binding_Desc) -> Error {
-	if len(bindings) > MAX_TEXTURE_BINDINGS {return .Invalid_Texture_Binding}
+	if len(bindings) > MAX_TEXTURE_BINDINGS {
+		return .Invalid_Texture_Binding
+	}
+
 	for binding, i in bindings {
 		if binding.binding >= MAX_TEXTURE_BINDINGS ||
 		   len(binding.name) == 0 ||
 		   strings.contains(binding.name, "\x00") {
 			return .Invalid_Texture_Binding
 		}
+
 		for previous in bindings[:i] {
 			if previous.binding == binding.binding || previous.name == binding.name {
 				return .Invalid_Texture_Binding
 			}
 		}
 	}
+
 	return .None
 }
 
@@ -329,17 +363,22 @@ destroy_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
 	}
+
 	slot := pipeline_pool_lookup(&device.pipelines, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
+
 	if err := backend.wait_idle(); err != .None {
 		return err
 	}
+
 	if err := backend.destroy_pipeline(&slot.native); err != .None {
 		return err
 	}
+
 	pipeline_pool_retire(&device.pipelines, handle)
 	pipeline_pool_finish_retirement(&device.pipelines, handle.index)
+
 	return .None
 }

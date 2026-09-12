@@ -24,7 +24,10 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 		device,
 		{size = size_of(Per_Object), usage = {.Uniform}, label = "mesh transforms"},
 	)
-	if err != .None {return {}, err}
+	if err != .None {
+		return {}, err
+	}
+
 	return
 }
 
@@ -34,9 +37,13 @@ begin_frame :: proc(
 	projection: emath.Mat4,
 	clear_color: [4]f32 = {0.1, 0.1, 0.1, 1},
 ) -> Error {
-	if err := rhi.validate_device(renderer.device); err != .None {return err}
+	if err := rhi.validate_device(renderer.device); err != .None {
+		return err
+	}
+
 	renderer.view_projection = projection * camera.view_matrix(view)
 	rhi.clear(renderer.device, clear_color, 1)
+
 	return .None
 }
 
@@ -48,32 +55,68 @@ draw_mesh :: proc(
 	transform: emath.Transform,
 ) -> Error {
 	device := renderer.device
-	if err := rhi.validate_device(device); err != .None {return err}
-	if err := bind_mesh(device, mesh); err != .None {return err}
-	if err := validate_draw(device, pipeline, mesh, material); err != .None {return err}
+	if err := rhi.validate_device(device); err != .None {
+		return err
+	}
+
+	if err := bind_mesh(device, mesh); err != .None {
+		return err
+	}
+
+	if err := validate_draw(device, pipeline, mesh, material); err != .None {
+		return err
+	}
+
 	data := [1]Per_Object {
 		{
 			mvp = renderer.view_projection * emath.transform_matrix(transform),
 			normals = emath.normal_matrix(transform),
 		},
 	}
+
 	if err := rhi.update_buffer(device, renderer.uniforms, 0, mem.slice_to_bytes(data[:]));
-	   err != .None {return err}
-	if err := rhi.bind_pipeline(device, pipeline.handle); err != .None {return err}
-	if err := rhi.bind_uniform_buffer(device, 0, renderer.uniforms); err != .None {return err}
-	if err := rhi.bind_uniform_buffer(device, 1, material.parameters); err != .None {return err}
-	for texture, binding in material.textures {
-		if texture.generation == 0 {continue}
-		if err := rhi.bind_texture(device, u32(binding), texture); err != .None {return err}
+	   err != .None {
+		return err
 	}
+
+	if err := rhi.bind_pipeline(device, pipeline.handle); err != .None {
+		return err
+	}
+
+	if err := rhi.bind_uniform_buffer(device, 0, renderer.uniforms); err != .None {
+		return err
+	}
+
+	if err := rhi.bind_uniform_buffer(device, 1, material.parameters); err != .None {
+		return err
+	}
+
+	for texture, binding in material.textures {
+		if texture.generation == 0 {
+			continue
+		}
+
+		if err := rhi.bind_texture(device, u32(binding), texture); err != .None {
+			return err
+		}
+	}
+
 	return rhi.draw_indexed(device, {index_count = mesh.index_count})
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
 	if renderer.uniforms.generation != 0 {
 		err := rhi.destroy_buffer(renderer.device, renderer.uniforms)
-		if err == .None {renderer.uniforms = {}} else if result == .None {result = err}
+		if err == .None {
+			renderer.uniforms = {}
+		} else if result == .None {
+			result = err
+		}
 	}
-	if result == .None {renderer^ = {}}
+
+	if result == .None {
+		renderer^ = {}
+	}
+
 	return
 }

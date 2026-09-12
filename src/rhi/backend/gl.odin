@@ -35,10 +35,12 @@ Pipeline :: struct {
 // wrappers consume glGetError themselves, which would hide allocation failures.
 check_errors :: proc(operation: string) -> types.Error {
 	result := types.Error.None
+
 	for code := gl.impl_GetError(); code != gl.NO_ERROR; code = gl.impl_GetError() {
 		log.errorf("OpenGL %s: error 0x%x", operation, code)
 		result = .Backend_Failed
 	}
+
 	return result
 }
 
@@ -46,12 +48,15 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	backend := Device {
 		platform_context = platform_context,
 	}
+
 	if err := validate_context(&backend); err != .None {
 		return {}, err
 	}
+
 	if platform_context.load_proc == nil {
 		return {}, .Unsupported_Backend
 	}
+
 	if platform_context.major < 4 || (platform_context.major == 4 && platform_context.minor < 1) {
 		return {}, .Unsupported_Backend
 	}
@@ -118,22 +123,27 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_Uniform1i == nil {
 		return {}, .Unsupported_Backend
 	}
+
 	if err := check_errors("before device initialization"); err != .None {
 		return {}, err
 	}
+
 	major, minor: i32
 	gl.impl_GetIntegerv(gl.MAJOR_VERSION, &major)
 	gl.impl_GetIntegerv(gl.MINOR_VERSION, &minor)
 	if err := check_errors("query version"); err != .None {
 		return {}, err
 	}
+
 	if major < 4 || (major == 4 && minor < 1) {
 		return {}, .Unsupported_Backend
 	}
+
 	gl.impl_Enable(gl.DEPTH_TEST)
 	if err := check_errors("enable depth test"); err != .None {
 		return {}, err
 	}
+
 	return backend, .None
 }
 
@@ -144,6 +154,7 @@ validate_context :: proc(backend: ^Device) -> types.Error {
 	   !platform_context.is_current(platform_context.id) {
 		return .Wrong_Context
 	}
+
 	return .None
 }
 
@@ -157,6 +168,7 @@ create_buffer :: proc(desc: types.Buffer_Desc, initial_data: []u8) -> (Buffer, t
 	if err := check_errors("query buffer binding"); err != .None {
 		return {}, err
 	}
+
 	// COPY_WRITE avoids changing vertex state or requiring a bound VAO for indices.
 	defer gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, u32(previous))
 
@@ -166,29 +178,36 @@ create_buffer :: proc(desc: types.Buffer_Desc, initial_data: []u8) -> (Buffer, t
 	defer if !succeeded && native.id != 0 {
 		gl.impl_DeleteBuffers(1, &native.id)
 	}
+
 	if err := check_errors("generate buffer"); err != .None {
 		return {}, err
 	}
+
 	if native.id == 0 {
 		return {}, .Backend_Failed
 	}
+
 	gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, native.id)
 	if err := check_errors("bind buffer"); err != .None {
 		return {}, err
 	}
+
 	hint: u32 = gl.DYNAMIC_DRAW if .Uniform in desc.usage else gl.STATIC_DRAW
 	gl.impl_BufferData(gl.COPY_WRITE_BUFFER, int(desc.size), nil, hint)
 	if err := check_errors("allocate buffer"); err != .None {
 		log.errorf("Buffer allocation failed: %s (%d bytes)", desc.label, desc.size)
 		return {}, err
 	}
+
 	if len(initial_data) != 0 {
 		gl.impl_BufferSubData(gl.COPY_WRITE_BUFFER, 0, len(initial_data), raw_data(initial_data))
 		if err := check_errors("upload buffer"); err != .None {
 			return {}, err
 		}
 	}
+
 	succeeded = true
+
 	return native, .None
 }
 
@@ -196,7 +215,9 @@ wait_idle :: proc() -> types.Error {
 	if err := check_errors("before wait idle"); err != .None {
 		return err
 	}
+
 	gl.impl_Finish()
+
 	return check_errors("wait idle")
 }
 
@@ -204,11 +225,14 @@ destroy_buffer :: proc(native: ^Buffer) -> types.Error {
 	if err := check_errors("before buffer deletion"); err != .None {
 		return err
 	}
+
 	gl.impl_DeleteBuffers(1, &native.id)
 	if err := check_errors("delete buffer"); err != .None {
 		return err
 	}
+
 	native^ = {}
+
 	return .None
 }
 
@@ -242,19 +266,24 @@ create_shader :: proc(
 	case:
 		return {}, .Unsupported_Shader_Stage
 	}
+
 	if err := check_errors("before shader creation"); err != .None {
 		return {}, err
 	}
+
 	native := Shader {
 		id = gl.impl_CreateShader(kind),
 	}
+
 	succeeded := false
 	defer if !succeeded && native.id != 0 {
 		gl.impl_DeleteShader(native.id)
 	}
+
 	if err := check_errors("create shader"); err != .None {
 		return {}, err
 	}
+
 	if native.id == 0 {
 		return {}, .Backend_Failed
 	}
@@ -266,15 +295,18 @@ create_shader :: proc(
 	if err := check_errors("set shader source"); err != .None {
 		return {}, err
 	}
+
 	gl.impl_CompileShader(native.id)
 	if err := check_errors("compile shader"); err != .None {
 		return {}, err
 	}
+
 	compiled: i32
 	gl.impl_GetShaderiv(native.id, gl.COMPILE_STATUS, &compiled)
 	if err := check_errors("query shader compilation"); err != .None {
 		return {}, err
 	}
+
 	if compiled == 0 {
 		log.errorf("Shader compilation failed: %s (%v)", desc.label, desc.stage)
 		log_length: i32
@@ -282,23 +314,29 @@ create_shader :: proc(
 		if err := check_errors("query shader log size"); err != .None {
 			return {}, err
 		}
+
 		if log_length > 1 {
 			bytes, allocation_error := make([]u8, int(log_length), allocator)
 			if allocation_error != .None {
 				log.error("Could not allocate shader diagnostic storage")
 				return {}, .Allocation_Failed
 			}
+
 			defer delete(bytes, allocator)
 			written: i32
 			gl.impl_GetShaderInfoLog(native.id, log_length, &written, raw_data(bytes))
 			if err := check_errors("read shader log"); err != .None {
 				return {}, err
 			}
+
 			log.error(string(bytes[:int(written)]))
 		}
+
 		return {}, .Shader_Compile_Failed
 	}
+
 	succeeded = true
+
 	return native, .None
 }
 
@@ -306,11 +344,14 @@ destroy_shader :: proc(native: ^Shader) -> types.Error {
 	if err := check_errors("before shader deletion"); err != .None {
 		return err
 	}
+
 	gl.impl_DeleteShader(native.id)
 	if err := check_errors("delete shader"); err != .None {
 		return err
 	}
+
 	native^ = {}
+
 	return .None
 }
 
@@ -327,43 +368,53 @@ create_pipeline :: proc(
 	if err := check_errors("before pipeline creation"); err != .None {
 		return {}, err
 	}
+
 	native := Pipeline {
 		program = gl.impl_CreateProgram(),
 	}
+
 	succeeded := false
 	defer if !succeeded {
 		if native.vao != 0 {
 			gl.impl_DeleteVertexArrays(1, &native.vao)
 		}
+
 		if native.program != 0 {
 			gl.impl_DeleteProgram(native.program)
 		}
 	}
+
 	if err := check_errors("create program"); err != .None {
 		return {}, err
 	}
+
 	if native.program == 0 {
 		return {}, .Backend_Failed
 	}
+
 	gl.impl_AttachShader(native.program, vertex.id)
 	if err := check_errors("attach vertex shader"); err != .None {
 		return {}, err
 	}
+
 	defer gl.impl_DetachShader(native.program, vertex.id)
 	gl.impl_AttachShader(native.program, fragment.id)
 	if err := check_errors("attach fragment shader"); err != .None {
 		return {}, err
 	}
+
 	defer gl.impl_DetachShader(native.program, fragment.id)
 	gl.impl_LinkProgram(native.program)
 	if err := check_errors("link program"); err != .None {
 		return {}, err
 	}
+
 	linked: i32
 	gl.impl_GetProgramiv(native.program, gl.LINK_STATUS, &linked)
 	if err := check_errors("query program link"); err != .None {
 		return {}, err
 	}
+
 	if linked == 0 {
 		log.errorf("Pipeline link failed: %s", label)
 		log_length: i32
@@ -371,44 +422,57 @@ create_pipeline :: proc(
 		if err := check_errors("query program log size"); err != .None {
 			return {}, err
 		}
+
 		if log_length > 1 {
 			bytes, allocation_error := make([]u8, int(log_length), allocator)
 			if allocation_error != .None {
 				return {}, .Allocation_Failed
 			}
+
 			defer delete(bytes, allocator)
 			written: i32
 			gl.impl_GetProgramInfoLog(native.program, log_length, &written, raw_data(bytes))
 			if err := check_errors("read program log"); err != .None {
 				return {}, err
 			}
+
 			log.error(string(bytes[:int(written)]))
 		}
+
 		return {}, .Pipeline_Link_Failed
 	}
+
 	if err := configure_uniform_blocks(&native, uniform_blocks, allocator); err != .None {
 		return {}, err
 	}
-	if err := configure_textures(&native, textures, allocator); err != .None {return {}, err}
+
+	if err := configure_textures(&native, textures, allocator); err != .None {
+		return {}, err
+	}
 
 	previous_vao: i32
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
 	if err := check_errors("query vertex array binding"); err != .None {
 		return {}, err
 	}
+
 	defer gl.impl_BindVertexArray(u32(previous_vao))
 	gl.impl_GenVertexArrays(1, &native.vao)
 	if err := check_errors("create vertex array"); err != .None {
 		return {}, err
 	}
+
 	if native.vao == 0 {
 		return {}, .Backend_Failed
 	}
+
 	gl.impl_BindVertexArray(native.vao)
 	if err := check_errors("initialize vertex array"); err != .None {
 		return {}, err
 	}
+
 	succeeded = true
+
 	return native, .None
 }
 
@@ -416,16 +480,20 @@ destroy_pipeline :: proc(native: ^Pipeline) -> types.Error {
 	if err := check_errors("before pipeline deletion"); err != .None {
 		return err
 	}
+
 	gl.impl_DeleteVertexArrays(1, &native.vao)
 	if err := check_errors("delete vertex array"); err != .None {
 		return err
 	}
+
 	native.vao = 0
 	gl.impl_DeleteProgram(native.program)
 	if err := check_errors("delete program"); err != .None {
 		return err
 	}
+
 	native.program = 0
+
 	return .None
 }
 
@@ -444,6 +512,7 @@ draw_indexed :: proc(
 	if err := check_errors("before indexed draw"); err != .None {
 		return err
 	}
+
 	previous_vao, previous_array, previous_program: i32
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
 	gl.impl_GetIntegerv(gl.ARRAY_BUFFER_BINDING, &previous_array)
@@ -451,6 +520,7 @@ draw_indexed :: proc(
 	previous_uniform: i32
 	previous_uniforms: [types.MAX_UNIFORM_BINDINGS]i32
 	gl.impl_GetIntegerv(gl.UNIFORM_BUFFER_BINDING, &previous_uniform)
+
 	for size, binding in pipeline.uniform_sizes {
 		if size != 0 {
 			gl.impl_GetIntegeri_v(
@@ -460,28 +530,45 @@ draw_indexed :: proc(
 			)
 		}
 	}
+
 	if err := check_errors("query draw bindings"); err != .None {
 		return err
 	}
+
 	previous_active: i32
 	previous_textures, previous_samplers: [types.MAX_TEXTURE_BINDINGS]i32
 	gl.impl_GetIntegerv(gl.ACTIVE_TEXTURE, &previous_active)
-	if err := check_errors("query active texture"); err != .None {return err}
+	if err := check_errors("query active texture"); err != .None {
+		return err
+	}
+
 	defer gl.impl_ActiveTexture(u32(previous_active))
+
 	for required, binding in pipeline.texture_bindings {
-		if !required {continue}
+		if !required {
+			continue
+		}
+
 		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
 		gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous_textures[binding])
 		gl.impl_GetIntegerv(gl.SAMPLER_BINDING, &previous_samplers[binding])
 	}
-	if err := check_errors("query texture bindings"); err != .None {return err}
+
+	if err := check_errors("query texture bindings"); err != .None {
+		return err
+	}
+
 	defer {
 		for required, binding in pipeline.texture_bindings {
-			if !required {continue}
+			if !required {
+				continue
+			}
+
 			gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
 			gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous_textures[binding]))
 			gl.impl_BindSampler(u32(binding), u32(previous_samplers[binding]))
 		}
+
 		for size, binding in pipeline.uniform_sizes {
 			if size != 0 {
 				gl.impl_BindBufferBase(
@@ -491,14 +578,17 @@ draw_indexed :: proc(
 				)
 			}
 		}
+
 		gl.impl_BindBuffer(gl.UNIFORM_BUFFER, u32(previous_uniform))
 		gl.impl_BindVertexArray(u32(previous_vao))
 		gl.impl_BindBuffer(gl.ARRAY_BUFFER, u32(previous_array))
 		gl.impl_UseProgram(u32(previous_program))
 	}
+
 	gl.impl_UseProgram(pipeline.program)
 	gl.impl_BindVertexArray(pipeline.vao)
 	gl.impl_BindBuffer(gl.ARRAY_BUFFER, vertex.id)
+
 	for i in 0 ..< settings.layout.attribute_count {
 		attribute := settings.layout.attributes[i]
 		gl.impl_EnableVertexAttribArray(attribute.location)
@@ -511,21 +601,28 @@ draw_indexed :: proc(
 			uintptr(vertex_offset + u64(attribute.offset)),
 		)
 	}
+
 	gl.impl_BindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.id)
 	if err := bind_uniforms(pipeline, uniforms); err != .None {
 		return err
 	}
+
 	for required, binding in pipeline.texture_bindings {
-		if !required {continue}
+		if !required {
+			continue
+		}
+
 		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
 		gl.impl_BindTexture(gl.TEXTURE_2D, textures[binding].id)
 		gl.impl_BindSampler(u32(binding), textures[binding].sampler)
 	}
+
 	if settings.depth.test_enabled {
 		gl.impl_Enable(gl.DEPTH_TEST)
 	} else {
 		gl.impl_Disable(gl.DEPTH_TEST)
 	}
+
 	gl.impl_DepthMask(settings.depth.write_enabled)
 	comparisons := [types.Compare]u32 {
 		.Less          = gl.LESS,
@@ -537,6 +634,7 @@ draw_indexed :: proc(
 		.Never         = gl.NEVER,
 		.Always        = gl.ALWAYS,
 	}
+
 	gl.impl_DepthFunc(comparisons[settings.depth.compare])
 	if settings.raster.cull == .None {
 		gl.impl_Disable(gl.CULL_FACE)
@@ -544,6 +642,7 @@ draw_indexed :: proc(
 		gl.impl_Enable(gl.CULL_FACE)
 		gl.impl_CullFace(gl.BACK if settings.raster.cull == .Back else gl.FRONT)
 	}
+
 	gl.impl_FrontFace(gl.CCW if settings.raster.winding == .CCW else gl.CW)
 	gl.impl_PolygonMode(gl.FRONT_AND_BACK, gl.LINE if settings.raster.wireframe else gl.FILL)
 	gl.impl_Disable(gl.BLEND)
@@ -551,17 +650,20 @@ draw_indexed :: proc(
 	if err := check_errors("apply draw state"); err != .None {
 		return err
 	}
+
 	primitives := [types.Primitive]u32 {
 		.Triangles = gl.TRIANGLES,
 		.Lines     = gl.LINES,
 		.Points    = gl.POINTS,
 	}
+
 	gl.impl_DrawElements(
 		primitives[settings.primitive],
 		i32(index_count),
 		gl.UNSIGNED_SHORT if index_type == .U16 else gl.UNSIGNED_INT,
 		rawptr(uintptr(index_offset)),
 	)
+
 	return check_errors("draw indexed")
 }
 
@@ -575,14 +677,17 @@ update_buffer :: proc(native: Buffer, offset: u64, data: []u8) -> types.Error {
 	if err := check_errors("query update binding"); err != .None {
 		return err
 	}
+
 	defer gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, u32(previous))
 
 	gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, native.id)
 	if err := check_errors("bind update buffer"); err != .None {
 		return err
 	}
+
 	// BufferSubData copies the bytes and synchronizes earlier uses implicitly.
 	gl.impl_BufferSubData(gl.COPY_WRITE_BUFFER, int(offset), len(data), raw_data(data))
+
 	return check_errors("update buffer")
 }
 
@@ -596,6 +701,7 @@ configure_uniform_blocks :: proc(
 	if err := check_errors("query uniform blocks"); err != .None {
 		return err
 	}
+
 	if int(active_count) != len(blocks) {
 		log.errorf(
 			"Pipeline declares %d uniform blocks, shader uses %d",
@@ -610,12 +716,14 @@ configure_uniform_blocks :: proc(
 		if allocation_error != .None {
 			return .Allocation_Failed
 		}
+
 		defer delete(name, allocator)
 
 		index := gl.impl_GetUniformBlockIndex(pipeline.program, name)
 		if err := check_errors("find uniform block"); err != .None {
 			return err
 		}
+
 		if index == gl.INVALID_INDEX {
 			log.errorf("Shader uniform block not found: %s", block.name)
 			return .Invalid_Uniform_Binding
@@ -627,11 +735,14 @@ configure_uniform_blocks :: proc(
 		if err := check_errors("configure uniform block"); err != .None {
 			return err
 		}
+
 		if size <= 0 {
 			return .Invalid_Uniform_Binding
 		}
+
 		pipeline.uniform_sizes[block.binding] = u64(size)
 	}
+
 	return .None
 }
 
@@ -648,11 +759,15 @@ bind_uniforms :: proc(
 			gl.impl_BindBufferBase(gl.UNIFORM_BUFFER, u32(binding), uniforms[binding].id)
 		}
 	}
+
 	return check_errors("bind uniform buffers")
 }
 
 create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, types.Error) {
-	if err := check_errors("before texture creation"); err != .None {return {}, err}
+	if err := check_errors("before texture creation"); err != .None {
+		return {}, err
+	}
+
 	previous, unpack_buffer, alignment, row_length, skip_rows, skip_pixels, maximum: i32
 	gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous)
 	gl.impl_GetIntegerv(gl.PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer)
@@ -661,8 +776,14 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_ROWS, &skip_rows)
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_PIXELS, &skip_pixels)
 	gl.impl_GetIntegerv(gl.MAX_TEXTURE_SIZE, &maximum)
-	if err := check_errors("query texture upload state"); err != .None {return {}, err}
-	if desc.width > maximum || desc.height > maximum {return {}, .Invalid_Size}
+	if err := check_errors("query texture upload state"); err != .None {
+		return {}, err
+	}
+
+	if desc.width > maximum || desc.height > maximum {
+		return {}, .Invalid_Size
+	}
+
 	defer {
 		gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous))
 		gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, u32(unpack_buffer))
@@ -671,16 +792,29 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 		gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, skip_rows)
 		gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, skip_pixels)
 	}
+
 	native: Texture
 	succeeded := false
 	defer if !succeeded {
-		if native.id != 0 {gl.impl_DeleteTextures(1, &native.id)}
-		if native.sampler != 0 {gl.impl_DeleteSamplers(1, &native.sampler)}
+		if native.id != 0 {
+			gl.impl_DeleteTextures(1, &native.id)
+		}
+
+		if native.sampler != 0 {
+			gl.impl_DeleteSamplers(1, &native.sampler)
+		}
 	}
+
 	gl.impl_GenTextures(1, &native.id)
 	gl.impl_GenSamplers(1, &native.sampler)
-	if err := check_errors("create texture and sampler"); err != .None {return {}, err}
-	if native.id == 0 || native.sampler == 0 {return {}, .Backend_Failed}
+	if err := check_errors("create texture and sampler"); err != .None {
+		return {}, err
+	}
+
+	if native.id == 0 || native.sampler == 0 {
+		return {}, .Backend_Failed
+	}
+
 	gl.impl_BindTexture(gl.TEXTURE_2D, native.id)
 	gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
 	gl.impl_PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -699,6 +833,7 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 		gl.UNSIGNED_BYTE,
 		raw_data(pixels),
 	)
+
 	filter := i32(gl.LINEAR if desc.filter == .Linear else gl.NEAREST)
 	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MIN_FILTER, filter)
 	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MAG_FILTER, filter)
@@ -716,22 +851,35 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 		log.errorf("Texture creation failed: %s (%d x %d)", desc.label, desc.width, desc.height)
 		return {}, err
 	}
+
 	succeeded = true
+
 	return native, .None
 }
 
 destroy_texture :: proc(native: ^Texture) -> types.Error {
-	if err := check_errors("before texture deletion"); err != .None {return err}
+	if err := check_errors("before texture deletion"); err != .None {
+		return err
+	}
+
 	if native.id != 0 {
 		gl.impl_DeleteTextures(1, &native.id)
-		if err := check_errors("delete texture"); err != .None {return err}
+		if err := check_errors("delete texture"); err != .None {
+			return err
+		}
+
 		native.id = 0
 	}
+
 	if native.sampler != 0 {
 		gl.impl_DeleteSamplers(1, &native.sampler)
-		if err := check_errors("delete texture sampler"); err != .None {return err}
+		if err := check_errors("delete texture sampler"); err != .None {
+			return err
+		}
+
 		native.sampler = 0
 	}
+
 	return .None
 }
 
@@ -744,13 +892,20 @@ configure_textures :: proc(
 	gl.impl_GetIntegerv(gl.CURRENT_PROGRAM, &previous)
 	gl.impl_GetProgramiv(pipeline.program, gl.ACTIVE_UNIFORMS, &active)
 	gl.impl_GetProgramiv(pipeline.program, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name)
-	if err := check_errors("query texture uniforms"); err != .None {return err}
+	if err := check_errors("query texture uniforms"); err != .None {
+		return err
+	}
+
 	name, allocation_error := make([]u8, max(1, int(max_name)), allocator)
-	if allocation_error != .None {return .Allocation_Failed}
+	if allocation_error != .None {
+		return .Allocation_Failed
+	}
+
 	defer delete(name, allocator)
 	gl.impl_UseProgram(pipeline.program)
 	defer gl.impl_UseProgram(u32(previous))
 	count := 0
+
 	for index in 0 ..< active {
 		length, size: i32
 		kind: u32
@@ -763,30 +918,50 @@ configure_textures :: proc(
 			&kind,
 			raw_data(name),
 		)
-		if err := check_errors("read texture uniform"); err != .None {return err}
-		if !is_sampler_uniform(kind) {continue}
+		if err := check_errors("read texture uniform"); err != .None {
+			return err
+		}
+
+		if !is_sampler_uniform(kind) {
+			continue
+		}
+
 		uniform_name := string(name[:length])
 		if kind != gl.SAMPLER_2D || size != 1 || strings.contains(uniform_name, "[") {
 			log.errorf("Only scalar sampler2D is supported: %s", uniform_name)
 			return .Invalid_Texture_Binding
 		}
+
 		found := false
+
 		for binding in bindings {
-			if binding.name != uniform_name {continue}
+			if binding.name != uniform_name {
+				continue
+			}
+
 			location := gl.impl_GetUniformLocation(pipeline.program, cstring(raw_data(name)))
-			if location < 0 {return .Invalid_Texture_Binding}
+			if location < 0 {
+				return .Invalid_Texture_Binding
+			}
+
 			gl.impl_Uniform1i(location, i32(binding.binding))
 			pipeline.texture_bindings[binding.binding] = true
 			found = true
 			break
 		}
+
 		if !found {
 			log.errorf("Shader texture is not declared: %s", uniform_name)
 			return .Invalid_Texture_Binding
 		}
+
 		count += 1
 	}
-	if count != len(bindings) {return .Invalid_Texture_Binding}
+
+	if count != len(bindings) {
+		return .Invalid_Texture_Binding
+	}
+
 	return check_errors("configure texture bindings")
 }
 
@@ -835,5 +1010,6 @@ is_sampler_uniform :: proc(kind: u32) -> bool {
 	     gl.UNSIGNED_INT_SAMPLER_CUBE_MAP_ARRAY:
 		return true
 	}
+
 	return false
 }

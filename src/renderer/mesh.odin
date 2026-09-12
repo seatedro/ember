@@ -21,8 +21,14 @@ create_mesh :: proc(
 	mesh: Mesh,
 	err: Error,
 ) {
-	if u64(layout.stride) != u64(size_of(Vertex)) {return {}, .Invalid_Vertex_Layout}
-	if err = rhi.validate_vertex_layout(layout); err != .None {return}
+	if u64(layout.stride) != u64(size_of(Vertex)) {
+		return {}, .Invalid_Vertex_Layout
+	}
+
+	if err = rhi.validate_vertex_layout(layout); err != .None {
+		return
+	}
+
 	device := renderer.device
 	if len(vertices) == 0 ||
 	   size_of(Vertex) == 0 ||
@@ -30,11 +36,13 @@ create_mesh :: proc(
 	   u64(len(indices)) > u64(max(i32)) {
 		return {}, .Invalid_Size
 	}
+
 	for index in indices {
 		if u64(index) >= u64(len(vertices)) {
 			return {}, .Invalid_Draw
 		}
 	}
+
 	vertex_bytes := mem.slice_to_bytes(vertices)
 	mesh.vertices, err = rhi.create_buffer(
 		device,
@@ -44,6 +52,7 @@ create_mesh :: proc(
 	if err != .None {
 		return
 	}
+
 	index_bytes := mem.slice_to_bytes(indices)
 	mesh.indices, err = rhi.create_buffer(
 		device,
@@ -55,14 +64,19 @@ create_mesh :: proc(
 		release_mesh(device, &mesh)
 		return
 	}
+
 	mesh.index_count = u32(len(indices))
 	mesh.layout = layout
+
 	return
 }
 
 @(private)
 bind_mesh :: proc(device: ^rhi.Device, mesh: ^Mesh) -> Error {
-	if err := rhi.bind_vertex_buffer(device, mesh.vertices); err != .None {return err}
+	if err := rhi.bind_vertex_buffer(device, mesh.vertices); err != .None {
+		return err
+	}
+
 	return rhi.bind_index_buffer(device, mesh.indices, .U32)
 }
 
@@ -76,6 +90,7 @@ release_mesh :: proc(device: ^rhi.Device, mesh: ^Mesh) -> (result: rhi.Error) {
 		if handle.generation == 0 {
 			continue
 		}
+
 		err := rhi.destroy_buffer(device, handle^)
 		if err == .None {
 			handle^ = {}
@@ -83,8 +98,10 @@ release_mesh :: proc(device: ^rhi.Device, mesh: ^Mesh) -> (result: rhi.Error) {
 			result = err
 		}
 	}
+
 	if result == .None {
 		mesh^ = {}
 	}
+
 	return
 }

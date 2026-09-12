@@ -64,6 +64,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			material = 0,
 		},
 	}
+
 	game.orbit = INITIAL_ORBIT
 	game.camera = camera.from_orbit(game.orbit)
 
@@ -73,9 +74,13 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		log.errorf("Load banded shader: %v", shader_error)
 		return false
 	}
+
 	err: render.Error
 	game.renderer, err = render.create(app.device)
-	if !check(err, "create renderer") {return false}
+	if !check(err, "create renderer") {
+		return false
+	}
+
 	game.pipeline, err = render.create_pipeline(
 		&game.renderer,
 		banded,
@@ -87,8 +92,14 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		},
 		{{name = "albedo_texture", binding = 0}},
 	)
-	if !check(err, "create pipeline") {return false}
-	if !init_textures(game) {return false}
+	if !check(err, "create pipeline") {
+		return false
+	}
+
+	if !init_textures(game) {
+		return false
+	}
+
 	for parameters, i in BANDED_PALETTES {
 		game.materials[i], err = render.create_material(
 			&game.renderer,
@@ -96,16 +107,23 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			parameters,
 			{{binding = 0, texture = game.textures[i]}},
 		)
-		if !check(err, "create material") {return false}
+		if !check(err, "create material") {
+			return false
+		}
 	}
+
 	mesh, mesh_error := geometry.create_sphere()
 	if mesh_error != .None {
 		log.errorf("Sphere generation failed: %v", mesh_error)
 		return false
 	}
+
 	defer geometry.destroy_sphere(&mesh)
 	game.mesh, err = render.create_mesh(&game.renderer, mesh.vertices, mesh.indices, SPHERE_LAYOUT)
-	if !check(err, "create mesh") {return false}
+	if !check(err, "create mesh") {
+		return false
+	}
+
 	return init_grid(game)
 }
 
@@ -115,15 +133,18 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if input.pressed(app.input, .Escape) {
 		engine.request_quit(app)
 	}
+
 	if input.pressed(app.input, .M) {
 		for &object in game.objects {
 			object.material = (object.material + 1) % len(game.materials)
 		}
 	}
+
 	game.angle += dt * 0.05
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
 	}
+
 	game.objects[0].transform.orientation =
 		emath.quaternion_angle_axis(game.angle, {0, 1, 0}) *
 		emath.quaternion_angle_axis(-0.2, {1, 0, 0})
@@ -132,10 +153,10 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
-	if !check(
-		render.begin_frame(&game.renderer, game.camera, projection),
-		"begin frame",
-	) {return false}
+	if !check(render.begin_frame(&game.renderer, game.camera, projection), "begin frame") {
+		return false
+	}
+
 	if !check(
 		render.draw_mesh(
 			&game.renderer,
@@ -145,7 +166,10 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			{orientation = 1, scale = {1, 1, 1}},
 		),
 		"draw grid",
-	) {return false}
+	) {
+		return false
+	}
+
 	for object in game.objects {
 		if !check(
 			render.draw_mesh(
@@ -156,8 +180,11 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 				object.transform,
 			),
 			"draw sphere",
-		) {return false}
+		) {
+			return false
+		}
 	}
+
 	return true
 }
 
@@ -167,20 +194,28 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(render.destroy_material(&game.renderer, &game.grid_material), "destroy grid material")
 	check(render.destroy_pipeline(&game.renderer, &game.grid_pipeline), "destroy grid pipeline")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
+
 	for &material in game.materials {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
 	}
+
 	for &texture in game.textures {
 		check(render.destroy_texture(&game.renderer, &texture), "destroy texture")
 	}
+
 	check(render.destroy_pipeline(&game.renderer, &game.pipeline), "destroy pipeline")
 	check(render.destroy(&game.renderer), "destroy renderer")
-	if err := shader.destroy(&game.shaders);
-	   err != .None {log.errorf("Destroy shader library: %v", err)}
+	if err := shader.destroy(&game.shaders); err != .None {
+		log.errorf("Destroy shader library: %v", err)
+	}
+
 	game^ = {}
 }
 
 check :: proc(err: render.Error, operation: string) -> bool {
-	if err != .None {log.errorf("Sphere: %s: %v", operation, err)}
+	if err != .None {
+		log.errorf("Sphere: %s: %v", operation, err)
+	}
+
 	return err == .None
 }

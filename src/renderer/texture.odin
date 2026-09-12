@@ -20,13 +20,18 @@ create_texture :: proc(
 	err: Error,
 ) {
 	texture.handle, err = rhi.create_texture(renderer.device, desc, pixels)
+
 	return
 }
 
 destroy_texture :: proc(renderer: ^Renderer, texture: ^Texture) -> Error {
 	if texture.handle.generation != 0 {
-		if err := rhi.destroy_texture(renderer.device, texture.handle); err != .None {return err}
+		if err := rhi.destroy_texture(renderer.device, texture.handle); err != .None {
+			return err
+		}
 	}
+
 	texture^ = {}
+
 	return .None
 }

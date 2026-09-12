@@ -12,6 +12,7 @@ test_sphere_topology_and_normals :: proc(t: ^testing.T) {
 		if err != .None {
 			return
 		}
+
 		defer destroy_sphere(&mesh)
 		testing.expect_value(t, len(mesh.vertices), 2 + segments * (stacks - 1))
 		testing.expect_value(t, len(mesh.indices), 6 * segments * (stacks - 1))
@@ -26,11 +27,14 @@ test_sphere_topology_and_normals :: proc(t: ^testing.T) {
 
 		edges := make(map[u64]int)
 		defer delete(edges)
+
 		for i := 0; i < len(mesh.indices); i += 3 {
 			triangle := mesh.indices[i:i + 3]
+
 			for index in triangle {
 				testing.expect(t, int(index) < len(mesh.vertices))
 			}
+
 			a := emath.Vec3(mesh.vertices[triangle[0]].position)
 			b := emath.Vec3(mesh.vertices[triangle[1]].position)
 			c := emath.Vec3(mesh.vertices[triangle[2]].position)
@@ -43,9 +47,11 @@ test_sphere_topology_and_normals :: proc(t: ^testing.T) {
 				edges[key] += 1
 			}
 		}
+
 		for _, count in edges {
 			testing.expect_value(t, count, 2)
 		}
+
 		testing.expect_value(t, len(mesh.vertices) - len(edges) + len(mesh.indices) / 3, 2)
 	}
 }

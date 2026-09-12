@@ -94,6 +94,7 @@ texture_pool_reserve :: proc(pool: ^Texture_Pool) -> (index: u32, slot: ^Texture
 	assert(slot.generation != 0)
 
 	slot.state = .Reserved
+
 	return index, slot
 }
 
@@ -102,6 +103,7 @@ texture_pool_publish :: proc(pool: ^Texture_Pool, index: u32) -> Texture_Handle 
 	assert(slot.state == .Reserved)
 
 	slot.state = .Live
+
 	return Texture_Handle{index = index, generation = slot.generation}
 }
 
@@ -167,6 +169,7 @@ texture_pool_finish_retirement :: proc(pool: ^Texture_Pool, index: u32) {
 		slot^ = Texture_Slot {
 			state = .Exhausted,
 		}
+
 		return
 	}
 
@@ -191,9 +194,11 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 	if desc.width <= 0 || desc.height <= 0 || byte_count < 0 {
 		return .Invalid_Size
 	}
+
 	if u64(desc.width) * u64(desc.height) * 4 != u64(byte_count) {
 		return .Invalid_Size
 	}
+
 	if desc.format < .RGBA8 ||
 	   desc.format > .RGBA8_SRGB ||
 	   desc.filter < .Linear ||
@@ -204,6 +209,7 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 	   desc.wrap_v > .Clamp {
 		return .Invalid_Texture
 	}
+
 	return .None
 }
 
@@ -215,26 +221,50 @@ create_texture :: proc(
 	Texture_Handle,
 	Error,
 ) {
-	if err := validate_device(device); err != .None {return {}, err}
-	if err := validate_texture_desc(desc, len(pixels)); err != .None {return {}, err}
+	if err := validate_device(device); err != .None {
+		return {}, err
+	}
+
+	if err := validate_texture_desc(desc, len(pixels)); err != .None {
+		return {}, err
+	}
+
 	index, slot := texture_pool_reserve(&device.textures)
-	if slot == nil {return {}, .Pool_Exhausted}
+	if slot == nil {
+		return {}, .Pool_Exhausted
+	}
+
 	native, err := backend.create_texture(desc, pixels)
 	if err != .None {
 		texture_pool_cancel(&device.textures, index)
 		return {}, err
 	}
+
 	slot.native = native
+
 	return texture_pool_publish(&device.textures, index), .None
 }
 
 destroy_texture :: proc(device: ^Device, handle: Texture_Handle) -> Error {
-	if err := validate_device(device); err != .None {return err}
+	if err := validate_device(device); err != .None {
+		return err
+	}
+
 	slot := texture_pool_lookup(&device.textures, handle)
-	if slot == nil {return .Invalid_Handle}
-	if err := backend.wait_idle(); err != .None {return err}
-	if err := backend.destroy_texture(&slot.native); err != .None {return err}
+	if slot == nil {
+		return .Invalid_Handle
+	}
+
+	if err := backend.wait_idle(); err != .None {
+		return err
+	}
+
+	if err := backend.destroy_texture(&slot.native); err != .None {
+		return err
+	}
+
 	texture_pool_retire(&device.textures, handle)
 	texture_pool_finish_retirement(&device.textures, handle.index)
+
 	return .None
 }
