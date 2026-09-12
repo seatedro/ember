@@ -16,14 +16,19 @@ Buffer :: struct {
 	id: u32,
 }
 
+Texture :: struct {
+	id, sampler: u32,
+}
+
 Shader :: struct {
 	id: u32,
 }
 
 Pipeline :: struct {
-	program:       u32,
-	vao:           u32,
-	uniform_sizes: [types.MAX_UNIFORM_BINDINGS]u64,
+	program:          u32,
+	vao:              u32,
+	uniform_sizes:    [types.MAX_UNIFORM_BINDINGS]u64,
+	texture_bindings: [types.MAX_TEXTURE_BINDINGS]bool,
 }
 
 // Use impl_* for operations with explicit error handling. The vendor's debug
@@ -96,7 +101,21 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_UniformBlockBinding == nil ||
 	   gl.impl_GetActiveUniformBlockiv == nil ||
 	   gl.impl_BindBufferBase == nil ||
-	   gl.impl_GetIntegeri_v == nil {
+	   gl.impl_GetIntegeri_v == nil ||
+	   gl.impl_GenTextures == nil ||
+	   gl.impl_DeleteTextures == nil ||
+	   gl.impl_BindTexture == nil ||
+	   gl.impl_ActiveTexture == nil ||
+	   gl.impl_TexImage2D == nil ||
+	   gl.impl_TexParameteri == nil ||
+	   gl.impl_PixelStorei == nil ||
+	   gl.impl_GenSamplers == nil ||
+	   gl.impl_DeleteSamplers == nil ||
+	   gl.impl_SamplerParameteri == nil ||
+	   gl.impl_BindSampler == nil ||
+	   gl.impl_GetActiveUniform == nil ||
+	   gl.impl_GetUniformLocation == nil ||
+	   gl.impl_Uniform1i == nil {
 		return {}, .Unsupported_Backend
 	}
 	if err := check_errors("before device initialization"); err != .None {
@@ -299,6 +318,7 @@ create_pipeline :: proc(
 	vertex, fragment: Shader,
 	label: string,
 	uniform_blocks: []types.Uniform_Block_Desc,
+	textures: []types.Texture_Binding_Desc,
 	allocator := context.allocator,
 ) -> (
 	Pipeline,
@@ -369,6 +389,7 @@ create_pipeline :: proc(
 	if err := configure_uniform_blocks(&native, uniform_blocks, allocator); err != .None {
 		return {}, err
 	}
+	if err := configure_textures(&native, textures, allocator); err != .None {return {}, err}
 
 	previous_vao: i32
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
@@ -418,6 +439,7 @@ draw_indexed :: proc(
 	index_offset: u64,
 	index_count: u32,
 	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
+	textures: [types.MAX_TEXTURE_BINDINGS]Texture,
 ) -> types.Error {
 	if err := check_errors("before indexed draw"); err != .None {
 		return err
@@ -441,7 +463,25 @@ draw_indexed :: proc(
 	if err := check_errors("query draw bindings"); err != .None {
 		return err
 	}
+	previous_active: i32
+	previous_textures, previous_samplers: [types.MAX_TEXTURE_BINDINGS]i32
+	gl.impl_GetIntegerv(gl.ACTIVE_TEXTURE, &previous_active)
+	if err := check_errors("query active texture"); err != .None {return err}
+	defer gl.impl_ActiveTexture(u32(previous_active))
+	for required, binding in pipeline.texture_bindings {
+		if !required {continue}
+		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
+		gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous_textures[binding])
+		gl.impl_GetIntegeri_v(gl.SAMPLER_BINDING, u32(binding), &previous_samplers[binding])
+	}
+	if err := check_errors("query texture bindings"); err != .None {return err}
 	defer {
+		for required, binding in pipeline.texture_bindings {
+			if !required {continue}
+			gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
+			gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous_textures[binding]))
+			gl.impl_BindSampler(u32(binding), u32(previous_samplers[binding]))
+		}
 		for size, binding in pipeline.uniform_sizes {
 			if size != 0 {
 				gl.impl_BindBufferBase(
@@ -474,6 +514,12 @@ draw_indexed :: proc(
 	gl.impl_BindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.id)
 	if err := bind_uniforms(pipeline, uniforms); err != .None {
 		return err
+	}
+	for required, binding in pipeline.texture_bindings {
+		if !required {continue}
+		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
+		gl.impl_BindTexture(gl.TEXTURE_2D, textures[binding].id)
+		gl.impl_BindSampler(u32(binding), textures[binding].sampler)
 	}
 	if settings.depth.test_enabled {
 		gl.impl_Enable(gl.DEPTH_TEST)
@@ -603,4 +649,191 @@ bind_uniforms :: proc(
 		}
 	}
 	return check_errors("bind uniform buffers")
+}
+
+create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, types.Error) {
+	if err := check_errors("before texture creation"); err != .None {return {}, err}
+	previous, unpack_buffer, alignment, row_length, skip_rows, skip_pixels, maximum: i32
+	gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous)
+	gl.impl_GetIntegerv(gl.PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer)
+	gl.impl_GetIntegerv(gl.UNPACK_ALIGNMENT, &alignment)
+	gl.impl_GetIntegerv(gl.UNPACK_ROW_LENGTH, &row_length)
+	gl.impl_GetIntegerv(gl.UNPACK_SKIP_ROWS, &skip_rows)
+	gl.impl_GetIntegerv(gl.UNPACK_SKIP_PIXELS, &skip_pixels)
+	gl.impl_GetIntegerv(gl.MAX_TEXTURE_SIZE, &maximum)
+	if err := check_errors("query texture upload state"); err != .None {return {}, err}
+	if desc.width > maximum || desc.height > maximum {return {}, .Invalid_Size}
+	defer {
+		gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous))
+		gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, u32(unpack_buffer))
+		gl.impl_PixelStorei(gl.UNPACK_ALIGNMENT, alignment)
+		gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, row_length)
+		gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, skip_rows)
+		gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, skip_pixels)
+	}
+	native: Texture
+	succeeded := false
+	defer if !succeeded {
+		if native.id != 0 {gl.impl_DeleteTextures(1, &native.id)}
+		if native.sampler != 0 {gl.impl_DeleteSamplers(1, &native.sampler)}
+	}
+	gl.impl_GenTextures(1, &native.id)
+	gl.impl_GenSamplers(1, &native.sampler)
+	if err := check_errors("create texture and sampler"); err != .None {return {}, err}
+	if native.id == 0 || native.sampler == 0 {return {}, .Backend_Failed}
+	gl.impl_BindTexture(gl.TEXTURE_2D, native.id)
+	gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
+	gl.impl_PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+	gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, 0)
+	gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
+	gl.impl_TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 0)
+	gl.impl_TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		i32(gl.SRGB8_ALPHA8 if desc.format == .RGBA8_SRGB else gl.RGBA8),
+		desc.width,
+		desc.height,
+		0,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		raw_data(pixels),
+	)
+	filter := i32(gl.LINEAR if desc.filter == .Linear else gl.NEAREST)
+	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MIN_FILTER, filter)
+	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MAG_FILTER, filter)
+	gl.impl_SamplerParameteri(
+		native.sampler,
+		gl.TEXTURE_WRAP_S,
+		i32(gl.REPEAT if desc.wrap_u == .Repeat else gl.CLAMP_TO_EDGE),
+	)
+	gl.impl_SamplerParameteri(
+		native.sampler,
+		gl.TEXTURE_WRAP_T,
+		i32(gl.REPEAT if desc.wrap_v == .Repeat else gl.CLAMP_TO_EDGE),
+	)
+	if err := check_errors("upload and configure texture"); err != .None {
+		log.errorf("Texture creation failed: %s (%d x %d)", desc.label, desc.width, desc.height)
+		return {}, err
+	}
+	succeeded = true
+	return native, .None
+}
+
+destroy_texture :: proc(native: ^Texture) -> types.Error {
+	if err := check_errors("before texture deletion"); err != .None {return err}
+	if native.id != 0 {
+		gl.impl_DeleteTextures(1, &native.id)
+		if err := check_errors("delete texture"); err != .None {return err}
+		native.id = 0
+	}
+	if native.sampler != 0 {
+		gl.impl_DeleteSamplers(1, &native.sampler)
+		if err := check_errors("delete texture sampler"); err != .None {return err}
+		native.sampler = 0
+	}
+	return .None
+}
+
+configure_textures :: proc(
+	pipeline: ^Pipeline,
+	bindings: []types.Texture_Binding_Desc,
+	allocator := context.allocator,
+) -> types.Error {
+	previous, active, max_name: i32
+	gl.impl_GetIntegerv(gl.CURRENT_PROGRAM, &previous)
+	gl.impl_GetProgramiv(pipeline.program, gl.ACTIVE_UNIFORMS, &active)
+	gl.impl_GetProgramiv(pipeline.program, gl.ACTIVE_UNIFORM_MAX_LENGTH, &max_name)
+	if err := check_errors("query texture uniforms"); err != .None {return err}
+	name, allocation_error := make([]u8, max(1, int(max_name)), allocator)
+	if allocation_error != .None {return .Allocation_Failed}
+	defer delete(name, allocator)
+	gl.impl_UseProgram(pipeline.program)
+	defer gl.impl_UseProgram(u32(previous))
+	count := 0
+	for index in 0 ..< active {
+		length, size: i32
+		kind: u32
+		gl.impl_GetActiveUniform(
+			pipeline.program,
+			u32(index),
+			i32(len(name)),
+			&length,
+			&size,
+			&kind,
+			raw_data(name),
+		)
+		if err := check_errors("read texture uniform"); err != .None {return err}
+		if !is_sampler_uniform(kind) {continue}
+		uniform_name := string(name[:length])
+		if kind != gl.SAMPLER_2D || size != 1 || strings.contains(uniform_name, "[") {
+			log.errorf("Only scalar sampler2D is supported: %s", uniform_name)
+			return .Invalid_Texture_Binding
+		}
+		found := false
+		for binding in bindings {
+			if binding.name != uniform_name {continue}
+			location := gl.impl_GetUniformLocation(pipeline.program, cstring(raw_data(name)))
+			if location < 0 {return .Invalid_Texture_Binding}
+			gl.impl_Uniform1i(location, i32(binding.binding))
+			pipeline.texture_bindings[binding.binding] = true
+			found = true
+			break
+		}
+		if !found {
+			log.errorf("Shader texture is not declared: %s", uniform_name)
+			return .Invalid_Texture_Binding
+		}
+		count += 1
+	}
+	if count != len(bindings) {return .Invalid_Texture_Binding}
+	return check_errors("configure texture bindings")
+}
+
+// Recognize unsupported sampler types too, so they cannot bypass declaration checks.
+is_sampler_uniform :: proc(kind: u32) -> bool {
+	switch kind {
+	case gl.SAMPLER_1D,
+	     gl.SAMPLER_2D,
+	     gl.SAMPLER_3D,
+	     gl.SAMPLER_CUBE,
+	     gl.SAMPLER_1D_SHADOW,
+	     gl.SAMPLER_2D_SHADOW,
+	     gl.SAMPLER_CUBE_SHADOW,
+	     gl.SAMPLER_1D_ARRAY,
+	     gl.SAMPLER_2D_ARRAY,
+	     gl.SAMPLER_1D_ARRAY_SHADOW,
+	     gl.SAMPLER_2D_ARRAY_SHADOW,
+	     gl.SAMPLER_2D_RECT,
+	     gl.SAMPLER_2D_RECT_SHADOW,
+	     gl.SAMPLER_BUFFER,
+	     gl.SAMPLER_2D_MULTISAMPLE,
+	     gl.SAMPLER_2D_MULTISAMPLE_ARRAY,
+	     gl.SAMPLER_CUBE_MAP_ARRAY,
+	     gl.SAMPLER_CUBE_MAP_ARRAY_SHADOW,
+	     gl.INT_SAMPLER_1D,
+	     gl.INT_SAMPLER_2D,
+	     gl.INT_SAMPLER_3D,
+	     gl.INT_SAMPLER_CUBE,
+	     gl.INT_SAMPLER_1D_ARRAY,
+	     gl.INT_SAMPLER_2D_ARRAY,
+	     gl.INT_SAMPLER_2D_RECT,
+	     gl.INT_SAMPLER_BUFFER,
+	     gl.INT_SAMPLER_2D_MULTISAMPLE,
+	     gl.INT_SAMPLER_2D_MULTISAMPLE_ARRAY,
+	     gl.INT_SAMPLER_CUBE_MAP_ARRAY,
+	     gl.UNSIGNED_INT_SAMPLER_1D,
+	     gl.UNSIGNED_INT_SAMPLER_2D,
+	     gl.UNSIGNED_INT_SAMPLER_3D,
+	     gl.UNSIGNED_INT_SAMPLER_CUBE,
+	     gl.UNSIGNED_INT_SAMPLER_1D_ARRAY,
+	     gl.UNSIGNED_INT_SAMPLER_2D_ARRAY,
+	     gl.UNSIGNED_INT_SAMPLER_2D_RECT,
+	     gl.UNSIGNED_INT_SAMPLER_BUFFER,
+	     gl.UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE,
+	     gl.UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY,
+	     gl.UNSIGNED_INT_SAMPLER_CUBE_MAP_ARRAY:
+		return true
+	}
+	return false
 }

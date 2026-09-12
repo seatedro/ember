@@ -14,6 +14,15 @@ Bindings :: struct {
 	index_offset:    u64,
 	index_type:      Index_Type,
 	uniform_buffers: [MAX_UNIFORM_BINDINGS]Buffer_Handle,
+	textures:        [MAX_TEXTURE_BINDINGS]Texture_Handle,
+}
+
+bind_texture :: proc(device: ^Device, binding: u32, handle: Texture_Handle) -> Error {
+	if err := validate_device(device); err != .None {return err}
+	if binding >= MAX_TEXTURE_BINDINGS {return .Invalid_Texture_Binding}
+	if texture_pool_lookup(&device.textures, handle) == nil {return .Invalid_Handle}
+	device.bindings.textures[binding] = handle
+	return .None
 }
 
 bind_uniform_buffer :: proc(device: ^Device, binding: u32, handle: Buffer_Handle) -> Error {
@@ -151,6 +160,13 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		uniforms[binding] = uniform.native
 	}
 
+	textures: [MAX_TEXTURE_BINDINGS]backend.Texture
+	for required, binding in pipeline.texture_bindings {
+		if !required {continue}
+		texture := texture_pool_lookup(&device.textures, bindings.textures[binding])
+		if texture == nil {return .Invalid_Handle}
+		textures[binding] = texture.native
+	}
 	return backend.draw_indexed(
 		pipeline.native,
 		pipeline.settings,
@@ -161,5 +177,6 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		bindings.index_offset + u64(desc.first_index) * width,
 		desc.index_count,
 		uniforms,
+		textures,
 	)
 }

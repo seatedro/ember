@@ -25,6 +25,31 @@ Error :: enum {
 	Invalid_Draw,
 	Invalid_Buffer_Range,
 	Invalid_Uniform_Binding,
+	Invalid_Texture,
+	Invalid_Texture_Binding,
+}
+
+Texture_Format :: enum {
+	RGBA8,
+	RGBA8_SRGB,
+}
+
+Texture_Filter :: enum {
+	Linear,
+	Nearest,
+}
+
+Texture_Wrap :: enum {
+	Repeat,
+	Clamp,
+}
+
+Texture_Desc :: struct {
+	width, height:  i32,
+	format:         Texture_Format,
+	filter:         Texture_Filter,
+	wrap_u, wrap_v: Texture_Wrap,
+	label:          string,
 }
 
 Buffer_Usage :: enum {
@@ -142,6 +167,14 @@ Pipeline_Desc :: struct {
 	settings:        Pipeline_Settings,
 	label:           string,
 	uniform_blocks:  []Uniform_Block_Desc,
+	textures:        []Texture_Binding_Desc,
+}
+
+MAX_TEXTURE_BINDINGS :: 8
+
+Texture_Binding_Desc :: struct {
+	name:    string,
+	binding: u32,
 }
 
 MAX_UNIFORM_BINDINGS :: 8

@@ -11,6 +11,7 @@ Device :: struct {
 	buffers:     Buffer_Pool,
 	shaders:     Shader_Pool,
 	pipelines:   Pipeline_Pool,
+	textures:    Texture_Pool,
 	bindings:    Bindings,
 	native:      backend.Device,
 }
@@ -21,6 +22,7 @@ create_device :: proc(
 	allocator := context.allocator,
 	shader_capacity := 128,
 	pipeline_capacity := 128,
+	texture_capacity := 256,
 ) -> (
 	Device,
 	Error,
@@ -49,8 +51,17 @@ create_device :: proc(
 		}
 		return {}, .Allocation_Failed
 	}
+	textures, texture_error := texture_pool_create(texture_capacity, allocator)
+	if texture_error != .None {
+		pipeline_pool_destroy(&pipelines)
+		shader_pool_destroy(&shaders)
+		buffer_pool_destroy(&pool)
+		if texture_error == .Invalid_Capacity {return {}, .Invalid_Capacity}
+		return {}, .Allocation_Failed
+	}
 	native, err := backend.create_device(platform_context)
 	if err != .None {
+		texture_pool_destroy(&textures)
 		pipeline_pool_destroy(&pipelines)
 		shader_pool_destroy(&shaders)
 		buffer_pool_destroy(&pool)
@@ -61,6 +72,7 @@ create_device :: proc(
 			buffers = pool,
 			shaders = shaders,
 			pipelines = pipelines,
+			textures = textures,
 			native = native,
 		},
 		.None
@@ -101,6 +113,13 @@ destroy_device :: proc(device: ^Device) -> Error {
 			buffer_pool_finish_retirement(&device.buffers, u32(index))
 		}
 	}
+	for &slot, index in device.textures.slots {
+		if slot.state == .Live {
+			if err := backend.destroy_texture(&slot.native); err != .None {return err}
+			texture_pool_retire(&device.textures, Texture_Handle{u32(index), slot.generation})
+			texture_pool_finish_retirement(&device.textures, u32(index))
+		}
+	}
 	for &slot, index in device.shaders.slots {
 		if slot.state == .Live {
 			if err := backend.destroy_shader(&slot.native); err != .None {
@@ -116,6 +135,8 @@ destroy_device :: proc(device: ^Device) -> Error {
 	assert(ok, "Device has an unfinished shader operation")
 	ok = pipeline_pool_destroy(&device.pipelines)
 	assert(ok, "Device has an unfinished pipeline operation")
+	ok = texture_pool_destroy(&device.textures)
+	assert(ok, "Device has an unfinished texture operation")
 	device^ = {}
 	return .None
 }

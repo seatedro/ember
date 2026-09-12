@@ -30,13 +30,16 @@ Pipeline_Settings :: types.Pipeline_Settings
 Pipeline_Desc :: types.Pipeline_Desc
 Uniform_Block_Desc :: types.Uniform_Block_Desc
 MAX_UNIFORM_BINDINGS :: types.MAX_UNIFORM_BINDINGS
+MAX_TEXTURE_BINDINGS :: types.MAX_TEXTURE_BINDINGS
+Texture_Binding_Desc :: types.Texture_Binding_Desc
 
 Pipeline_Slot :: struct {
-	generation:    u32,
-	state:         Pipeline_State,
-	settings:      Pipeline_Settings,
-	uniform_sizes: [MAX_UNIFORM_BINDINGS]u64,
-	native:        backend.Pipeline,
+	generation:       u32,
+	state:            Pipeline_State,
+	settings:         Pipeline_Settings,
+	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
+	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,
+	native:           backend.Pipeline,
 }
 
 Pipeline_Pool :: struct {
@@ -254,6 +257,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	if err := validate_uniform_blocks(desc.uniform_blocks); err != .None {
 		return {}, err
 	}
+	if err := validate_texture_bindings(desc.textures); err != .None {return {}, err}
 	vertex := shader_pool_lookup(&device.shaders, desc.vertex_shader)
 	fragment := shader_pool_lookup(&device.shaders, desc.fragment_shader)
 	if vertex == nil || fragment == nil {
@@ -271,6 +275,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		fragment.native,
 		desc.label,
 		desc.uniform_blocks,
+		desc.textures,
 		device.pipelines.allocator,
 	)
 	if err != .None {
@@ -280,6 +285,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	slot.native = native
 	slot.settings = desc.settings
 	slot.uniform_sizes = backend.pipeline_uniform_sizes(native)
+	slot.texture_bindings = native.texture_bindings
 	return pipeline_pool_publish(&device.pipelines, index), .None
 }
 
@@ -296,6 +302,23 @@ validate_uniform_blocks :: proc(blocks: []Uniform_Block_Desc) -> Error {
 		for previous in blocks[:i] {
 			if previous.binding == block.binding || previous.name == block.name {
 				return .Invalid_Uniform_Binding
+			}
+		}
+	}
+	return .None
+}
+
+validate_texture_bindings :: proc(bindings: []Texture_Binding_Desc) -> Error {
+	if len(bindings) > MAX_TEXTURE_BINDINGS {return .Invalid_Texture_Binding}
+	for binding, i in bindings {
+		if binding.binding >= MAX_TEXTURE_BINDINGS ||
+		   len(binding.name) == 0 ||
+		   strings.contains(binding.name, "\x00") {
+			return .Invalid_Texture_Binding
+		}
+		for previous in bindings[:i] {
+			if previous.binding == binding.binding || previous.name == binding.name {
+				return .Invalid_Texture_Binding
 			}
 		}
 	}
