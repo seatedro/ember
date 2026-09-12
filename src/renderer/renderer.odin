@@ -62,6 +62,10 @@ draw_mesh :: proc(
 	if err := rhi.bind_pipeline(device, pipeline.handle); err != .None {return err}
 	if err := rhi.bind_uniform_buffer(device, 0, renderer.uniforms); err != .None {return err}
 	if err := rhi.bind_uniform_buffer(device, 1, material.parameters); err != .None {return err}
+	for texture, binding in material.textures {
+		if texture.generation == 0 {continue}
+		if err := rhi.bind_texture(device, u32(binding), texture); err != .None {return err}
+	}
 	return rhi.draw_indexed(device, {index_count = mesh.index_count})
 }
 

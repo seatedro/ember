@@ -472,7 +472,7 @@ draw_indexed :: proc(
 		if !required {continue}
 		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
 		gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous_textures[binding])
-		gl.impl_GetIntegeri_v(gl.SAMPLER_BINDING, u32(binding), &previous_samplers[binding])
+		gl.impl_GetIntegerv(gl.SAMPLER_BINDING, &previous_samplers[binding])
 	}
 	if err := check_errors("query texture bindings"); err != .None {return err}
 	defer {

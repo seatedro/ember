@@ -9,11 +9,13 @@ Pipeline :: struct {
 }
 
 Pipeline_Settings :: rhi.Pipeline_Settings
+Texture_Binding_Desc :: rhi.Texture_Binding_Desc
 
 create_pipeline :: proc(
 	renderer: ^Renderer,
 	shader: shaders.Shader,
 	settings: Pipeline_Settings,
+	textures: []Texture_Binding_Desc = nil,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
@@ -28,6 +30,7 @@ create_pipeline :: proc(
 				{name = "Per_Object", binding = 0},
 				{name = "Material", binding = 1},
 			},
+			textures = textures,
 			label = "mesh draw",
 		},
 	)
@@ -64,5 +67,11 @@ validate_draw :: proc(
 	if parameters == nil {return .Invalid_Handle}
 	if .Uniform not_in parameters.usage {return .Invalid_Buffer_Binding}
 	if slot.uniform_sizes[1] > parameters.size {return .Invalid_Size}
+	for required, binding in slot.texture_bindings {
+		if !required {continue}
+		if rhi.texture_pool_lookup(&device.textures, material.textures[binding]) == nil {
+			return .Invalid_Handle
+		}
+	}
 	return .None
 }

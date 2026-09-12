@@ -21,6 +21,7 @@ State :: struct {
 	mesh:          render.Mesh,
 	pipeline:      render.Pipeline,
 	materials:     [2]render.Material,
+	textures:      [2]render.Texture,
 	objects:       [3]Object,
 	grid_mesh:     render.Mesh,
 	grid_pipeline: render.Pipeline,
@@ -84,10 +85,17 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			depth = {test_enabled = true, write_enabled = true, compare = .Less},
 			raster = {cull = .Back, winding = .CCW},
 		},
+		{{name = "albedo_texture", binding = 0}},
 	)
 	if !check(err, "create pipeline") {return false}
+	if !init_textures(game) {return false}
 	for parameters, i in BANDED_PALETTES {
-		game.materials[i], err = render.create_material(&game.renderer, banded, parameters)
+		game.materials[i], err = render.create_material(
+			&game.renderer,
+			banded,
+			parameters,
+			{{binding = 0, texture = game.textures[i]}},
+		)
 		if !check(err, "create material") {return false}
 	}
 	mesh, mesh_error := geometry.create_sphere()
@@ -161,6 +169,9 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 	for &material in game.materials {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
+	}
+	for &texture in game.textures {
+		check(render.destroy_texture(&game.renderer, &texture), "destroy texture")
 	}
 	check(render.destroy_pipeline(&game.renderer, &game.pipeline), "destroy pipeline")
 	check(render.destroy(&game.renderer), "destroy renderer")
