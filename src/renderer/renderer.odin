@@ -50,7 +50,7 @@ draw_mesh :: proc(
 	device := renderer.device
 	if err := rhi.validate_device(device); err != .None {return err}
 	if err := bind_mesh(device, mesh); err != .None {return err}
-	if err := validate_material(device, pipeline, material); err != .None {return err}
+	if err := validate_draw(device, pipeline, mesh, material); err != .None {return err}
 	data := [1]Per_Object {
 		{
 			mvp = renderer.view_projection * emath.transform_matrix(transform),

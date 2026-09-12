@@ -17,11 +17,22 @@ State :: struct {
 	pipeline:        render.Pipeline,
 	materials:       [2]render.Material,
 	active_material: int,
-	grid:            render.Grid,
+	grid_mesh:       render.Mesh,
+	grid_pipeline:   render.Pipeline,
+	grid_material:   render.Material,
 	angle:           f32,
 	transform:       emath.Transform,
 	orbit:           camera.Orbit,
 	camera:          camera.Camera,
+}
+
+SPHERE_LAYOUT :: render.Vertex_Layout {
+	stride = size_of(geometry.Vertex),
+	attribute_count = 2,
+	attributes = {
+		0 = {location = 0, format = .F32x3, offset = u32(offset_of(geometry.Vertex, position))},
+		1 = {location = 1, format = .F32x3, offset = u32(offset_of(geometry.Vertex, normal))},
+	},
 }
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
@@ -43,7 +54,16 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	err: render.Error
 	game.renderer, err = render.create(app.device)
 	if !check(err, "create renderer") {return false}
-	game.pipeline, err = render.create_pipeline(&game.renderer, banded)
+	game.pipeline, err = render.create_pipeline(
+		&game.renderer,
+		banded,
+		{
+			layout = SPHERE_LAYOUT,
+			primitive = .Triangles,
+			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			raster = {cull = .Back, winding = .CCW},
+		},
+	)
 	if !check(err, "create pipeline") {return false}
 	for parameters, i in BANDED_PALETTES {
 		game.materials[i], err = render.create_material(&game.renderer, banded, parameters)
@@ -55,10 +75,9 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 	defer geometry.destroy_sphere(&mesh)
-	game.mesh, err = render.create_mesh(&game.renderer, mesh.vertices, mesh.indices)
+	game.mesh, err = render.create_mesh(&game.renderer, mesh.vertices, mesh.indices, SPHERE_LAYOUT)
 	if !check(err, "create mesh") {return false}
-	game.grid, err = render.create_grid(&game.renderer)
-	return check(err, "create grid")
+	return init_grid(game)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -86,7 +105,16 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		render.begin_frame(&game.renderer, game.camera, projection),
 		"begin frame",
 	) {return false}
-	if !check(render.draw_grid(&game.renderer, &game.grid), "draw grid") {return false}
+	if !check(
+		render.draw_mesh(
+			&game.renderer,
+			&game.grid_pipeline,
+			&game.grid_mesh,
+			&game.grid_material,
+			{orientation = 1, scale = {1, 1, 1}},
+		),
+		"draw grid",
+	) {return false}
 	return check(
 		render.draw_mesh(
 			&game.renderer,
@@ -101,7 +129,9 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
-	check(render.destroy_grid(&game.renderer, &game.grid), "destroy grid")
+	check(render.destroy_mesh(&game.renderer, &game.grid_mesh), "destroy grid mesh")
+	check(render.destroy_material(&game.renderer, &game.grid_material), "destroy grid material")
+	check(render.destroy_pipeline(&game.renderer, &game.grid_pipeline), "destroy grid pipeline")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 	for &material in game.materials {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")

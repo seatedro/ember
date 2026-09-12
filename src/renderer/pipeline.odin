@@ -1,6 +1,5 @@
 package renderer
 
-import "../geometry"
 import "../rhi"
 import "../shaders"
 
@@ -9,27 +8,12 @@ Pipeline :: struct {
 	handle: rhi.Pipeline_Handle,
 }
 
-@(private)
-MESH_SETTINGS :: rhi.Pipeline_Settings {
-	layout = {
-		stride = size_of(geometry.Vertex),
-		attribute_count = 2,
-		attributes = {
-			0 = {
-				location = 0,
-				format = .F32x3,
-				offset = u32(offset_of(geometry.Vertex, position)),
-			},
-			1 = {location = 1, format = .F32x3, offset = u32(offset_of(geometry.Vertex, normal))},
-		},
-	},
-	depth = {test_enabled = true, write_enabled = true, compare = .Less},
-	raster = {cull = .Back, winding = .CCW},
-}
+Pipeline_Settings :: rhi.Pipeline_Settings
 
 create_pipeline :: proc(
 	renderer: ^Renderer,
 	shader: shaders.Shader,
+	settings: Pipeline_Settings,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
@@ -39,7 +23,7 @@ create_pipeline :: proc(
 		{
 			vertex_shader = shader.vertex,
 			fragment_shader = shader.fragment,
-			settings = MESH_SETTINGS,
+			settings = settings,
 			uniform_blocks = {
 				{name = "Per_Object", binding = 0},
 				{name = "Material", binding = 1},
@@ -66,9 +50,15 @@ destroy_pipeline :: proc(renderer: ^Renderer, pipeline: ^Pipeline) -> Error {
 }
 
 @(private)
-validate_material :: proc(device: ^rhi.Device, pipeline: ^Pipeline, material: ^Material) -> Error {
+validate_draw :: proc(
+	device: ^rhi.Device,
+	pipeline: ^Pipeline,
+	mesh: ^Mesh,
+	material: ^Material,
+) -> Error {
 	slot := rhi.pipeline_pool_lookup(&device.pipelines, pipeline.handle)
 	if slot == nil {return .Invalid_Handle}
+	if slot.settings.layout != mesh.layout {return .Invalid_Vertex_Layout}
 	if pipeline.shader != material.shader {return .Invalid_Pipeline_State}
 	parameters := rhi.buffer_pool_lookup(&device.buffers, material.parameters)
 	if parameters == nil {return .Invalid_Handle}

@@ -198,8 +198,7 @@ pipeline_pool_destroy :: proc(pool: ^Pipeline_Pool) -> bool {
 	return true
 }
 
-validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
-	layout := settings.layout
+validate_vertex_layout :: proc(layout: Vertex_Layout) -> Error {
 	if layout.attribute_count == 0 ||
 	   layout.attribute_count > MAX_VERTEX_ATTRIBUTES ||
 	   layout.stride == 0 ||
@@ -208,7 +207,8 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 		return .Invalid_Vertex_Layout
 	}
 	locations: u32
-	for attribute in layout.attributes[:layout.attribute_count] {
+	for i in 0 ..< layout.attribute_count {
+		attribute := layout.attributes[i]
 		if attribute.location >= MAX_VERTEX_ATTRIBUTES ||
 		   attribute.format < .F32 ||
 		   attribute.format > .F32x4 ||
@@ -225,6 +225,11 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 		}
 		locations |= bit
 	}
+	return .None
+}
+
+validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
+	if err := validate_vertex_layout(settings.layout); err != .None {return err}
 	if settings.depth.compare < .Less ||
 	   settings.depth.compare > .Always ||
 	   settings.raster.cull < .None ||

@@ -5,9 +5,10 @@ left drag orbits, scroll zooms, `R` resets, `M` switches material colors, and Es
 The game supplies geometry, camera, and transforms to the
 [renderer](../src/renderer/renderer.odin), which submits GPU draws.
 Each [material](../src/renderer/material.odin) owns an appearance buffer and references a shader.
-The game creates one [pipeline](../src/renderer/pipeline.odin) during setup and passes it
-explicitly when drawing either palette.
-The demo loads `game/assets/shaders/banded.vert` and `.frag` at runtime, so run it
+The game creates explicit [pipelines](../src/renderer/pipeline.odin) for the sphere
+and grid. Both sphere palettes share one pipeline; the grid uses colored line geometry.
+Both draw through the same mesh/material API with layouts and render settings supplied by the game.
+The demo loads the banded and grid shaders from `game/assets/shaders/` at runtime, so run it
 from the repository root. The [shader library](../src/shaders/library.odin) owns
 and reuses the compiled stages.
 See [camera.odin](../src/camera/camera.odin) for the camera data and math.

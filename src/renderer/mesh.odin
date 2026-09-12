@@ -1,35 +1,29 @@
 package renderer
 
-import "../geometry"
 import "../rhi"
 import "core:mem"
+
+Vertex_Layout :: rhi.Vertex_Layout
 
 Mesh :: struct {
 	vertices:    rhi.Buffer_Handle,
 	indices:     rhi.Buffer_Handle,
 	index_count: u32,
+	layout:      Vertex_Layout,
 }
 
 create_mesh :: proc(
 	renderer: ^Renderer,
-	vertices: []geometry.Vertex,
-	indices: []u32,
-) -> (
-	Mesh,
-	Error,
-) {
-	return upload_mesh(renderer.device, vertices, indices)
-}
-
-@(private)
-upload_mesh :: proc(
-	device: ^rhi.Device,
 	vertices: []$Vertex,
 	indices: []u32,
+	layout: Vertex_Layout,
 ) -> (
 	mesh: Mesh,
-	err: rhi.Error,
+	err: Error,
 ) {
+	if u64(layout.stride) != u64(size_of(Vertex)) {return {}, .Invalid_Vertex_Layout}
+	if err = rhi.validate_vertex_layout(layout); err != .None {return}
+	device := renderer.device
 	if len(vertices) == 0 ||
 	   size_of(Vertex) == 0 ||
 	   len(indices) == 0 ||
@@ -62,6 +56,7 @@ upload_mesh :: proc(
 		return
 	}
 	mesh.index_count = u32(len(indices))
+	mesh.layout = layout
 	return
 }
 
