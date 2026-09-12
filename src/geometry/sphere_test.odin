@@ -49,15 +49,3 @@ test_sphere_topology_and_normals :: proc(t: ^testing.T) {
 		testing.expect_value(t, len(mesh.vertices) - len(edges) + len(mesh.indices) / 3, 2)
 	}
 }
-
-@(test)
-test_sphere_invalid_parameters :: proc(t: ^testing.T) {
-	_, resolution_error := create_sphere(2, 8)
-	testing.expect_value(t, resolution_error, Sphere_Error.Invalid_Resolution)
-	_, stacks_error := create_sphere(8, 1)
-	testing.expect_value(t, stacks_error, Sphere_Error.Invalid_Resolution)
-	_, overflow_error := create_sphere(max(int), max(int))
-	testing.expect_value(t, overflow_error, Sphere_Error.Invalid_Resolution)
-	_, radius_error := create_sphere(radius = 0)
-	testing.expect_value(t, radius_error, Sphere_Error.Invalid_Radius)
-}

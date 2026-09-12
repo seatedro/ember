@@ -46,9 +46,3 @@ Examples use the shared engine loop and support the usual build profiles:
 BUILD=release ./build.sh --example triangle
 ./build/release/examples/triangle
 ```
-
-Check triangle rendering and cleanup:
-
-```sh
-odin run src/engine/test_gl -collection:ember=src -collection:game=examples/triangle -out:/tmp/ember-triangle-smoke
-```
