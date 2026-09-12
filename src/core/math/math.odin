@@ -18,8 +18,8 @@ Vec3 :: distinct [3]f32
 	or as a matrix product using the transpose (row vector) of `a`:
 
 	a . b = a^T b = [a.x  a.y  a.z]   *   | b.x |
-	                                   | b.y |
-	                                   | b.z |
+	                                      | b.y |
+	                                      | b.z |
 
 */
 dot :: proc(a, b: Vec3) -> f32 {

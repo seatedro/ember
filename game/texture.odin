@@ -1,33 +1,32 @@
 package game
 
+import "core:log"
+import "ember:image"
 import render "ember:renderer"
 
 init_textures :: proc(game: ^State) -> bool {
-	WIDTH :: 32
-	HEIGHT :: 16
-	pixels: [WIDTH * HEIGHT * 4]u8
-
-	for y in 0 ..< HEIGHT {
-		for x in 0 ..< WIDTH {
-			value := u8(255) if (x / 4 + y / 4) % 2 == 0 else u8(70)
-			i := (y * WIDTH + x) * 4
-			pixels[i + 0], pixels[i + 1], pixels[i + 2], pixels[i + 3] = value, value, value, 255
-		}
+	PATH :: "game/assets/textures/earth_daymap.jpg"
+	earth, image_error := image.load(PATH)
+	if image_error != .None {
+		log.errorf("Load image %s: %v", PATH, image_error)
+		return false
 	}
+	defer image.destroy(&earth)
 
 	err: render.Error
 	game.textures[0], err = render.create_texture(
 		&game.renderer,
 		{
-			width = WIDTH,
-			height = HEIGHT,
-			filter = .Nearest,
+			width = earth.width,
+			height = earth.height,
+			format = .RGBA8_SRGB,
+			filter = .Linear,
 			wrap_v = .Clamp,
-			label = "checkerboard",
+			label = "Earth day map",
 		},
-		pixels[:],
+		earth.pixels,
 	)
-	if !check(err, "create checkerboard texture") {
+	if !check(err, "create Earth texture") {
 		return false
 	}
 
