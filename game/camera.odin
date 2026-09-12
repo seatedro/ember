@@ -7,7 +7,7 @@ import "ember:input"
 
 INITIAL_ORBIT := camera.Orbit {
 	pitch    = math.atan2(f32(0.35), f32(3.3)),
-	distance = math.sqrt(f32(0.35 * 0.35 + 3.3 * 3.3)),
+	distance = 8,
 }
 
 ORBIT_SENSITIVITY :: f32(0.005)

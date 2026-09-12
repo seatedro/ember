@@ -10,20 +10,24 @@ import "ember:input"
 import render "ember:renderer"
 import shader "ember:shaders"
 
+Object :: struct {
+	transform: emath.Transform,
+	material:  int,
+}
+
 State :: struct {
-	shaders:         shader.Library,
-	renderer:        render.Renderer,
-	mesh:            render.Mesh,
-	pipeline:        render.Pipeline,
-	materials:       [2]render.Material,
-	active_material: int,
-	grid_mesh:       render.Mesh,
-	grid_pipeline:   render.Pipeline,
-	grid_material:   render.Material,
-	angle:           f32,
-	transform:       emath.Transform,
-	orbit:           camera.Orbit,
-	camera:          camera.Camera,
+	shaders:       shader.Library,
+	renderer:      render.Renderer,
+	mesh:          render.Mesh,
+	pipeline:      render.Pipeline,
+	materials:     [2]render.Material,
+	objects:       [3]Object,
+	grid_mesh:     render.Mesh,
+	grid_pipeline: render.Pipeline,
+	grid_material: render.Material,
+	angle:         f32,
+	orbit:         camera.Orbit,
+	camera:        camera.Camera,
 }
 
 SPHERE_LAYOUT :: render.Vertex_Layout {
@@ -38,9 +42,26 @@ SPHERE_LAYOUT :: render.Vertex_Layout {
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {}
-	game.transform = {
-		orientation = emath.quaternion_angle_axis(-0.2, {1, 0, 0}),
-		scale       = {1.25, 0.75, 1},
+	game.objects = {
+		{
+			transform = {
+				orientation = emath.quaternion_angle_axis(-0.2, {1, 0, 0}),
+				scale = {1.25, 0.75, 1},
+			},
+			material = 0,
+		},
+		{
+			transform = {position = {-2.8, 0, 0}, orientation = 1, scale = {0.65, 0.65, 0.65}},
+			material = 1,
+		},
+		{
+			transform = {
+				position = {2.8, 0, 0},
+				orientation = emath.quaternion_angle_axis(-0.35, {0, 0, 1}),
+				scale = {0.6, 1.05, 0.6},
+			},
+			material = 0,
+		},
 	}
 	game.orbit = INITIAL_ORBIT
 	game.camera = camera.from_orbit(game.orbit)
@@ -87,13 +108,15 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		engine.request_quit(app)
 	}
 	if input.pressed(app.input, .M) {
-		game.active_material = (game.active_material + 1) % len(game.materials)
+		for &object in game.objects {
+			object.material = (object.material + 1) % len(game.materials)
+		}
 	}
 	game.angle += dt * 0.05
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
 	}
-	game.transform.orientation =
+	game.objects[0].transform.orientation =
 		emath.quaternion_angle_axis(game.angle, {0, 1, 0}) *
 		emath.quaternion_angle_axis(-0.2, {1, 0, 0})
 }
@@ -115,16 +138,19 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		),
 		"draw grid",
 	) {return false}
-	return check(
-		render.draw_mesh(
-			&game.renderer,
-			&game.pipeline,
-			&game.mesh,
-			&game.materials[game.active_material],
-			game.transform,
-		),
-		"draw sphere",
-	)
+	for object in game.objects {
+		if !check(
+			render.draw_mesh(
+				&game.renderer,
+				&game.pipeline,
+				&game.mesh,
+				&game.materials[object.material],
+				object.transform,
+			),
+			"draw sphere",
+		) {return false}
+	}
+	return true
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
