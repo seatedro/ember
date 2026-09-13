@@ -23,6 +23,7 @@ Config :: struct {
 Context :: struct {
 	device:        ^rhi.Device,
 	width, height: i32,
+	window_size:   [2]i32,
 	delta_time:    f32,
 	elapsed_time:  f64,
 	frame_count:   u64,
@@ -87,11 +88,12 @@ run :: proc(config: Config) -> (result: Error) {
 	}
 
 	app := Context {
-		device  = &device,
-		width   = window.width,
-		height  = window.height,
-		running = true,
-		input   = &window.input,
+		device      = &device,
+		width       = window.width,
+		height      = window.height,
+		running     = true,
+		input       = &window.input,
+		window_size = win.size(&window),
 	}
 	defer if config.quit != nil {
 		config.quit(&app, config.userdata)
@@ -110,6 +112,7 @@ run :: proc(config: Config) -> (result: Error) {
 			break
 		}
 		app.width, app.height = window.width, window.height
+		app.window_size = win.size(&window)
 		if window.minimized {
 			win.wait_events(0.05)
 			last_time = time.tick_now()

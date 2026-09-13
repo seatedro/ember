@@ -12,11 +12,13 @@ import "ember:input"
 import render "ember:renderer"
 import "ember:rhi"
 import "ember:shaders"
+import "ember:ui"
 
 State :: struct {
 	renderer:            render.Renderer,
 	overlay:             draw2d.Renderer,
-	overlay_list:        draw2d.List,
+	interface:           ui.Context,
+	ui_failed:           bool,
 	font:                draw2d.Font,
 	preview:             render.Texture,
 	shaders:             shaders.Library,
@@ -71,7 +73,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.overlay_list = draw2d.create_list()
+	game.interface = ui.create()
 	font_error: draw2d.Font_Error
 	game.font, font_error = draw2d.load_font(
 		app.device,
@@ -160,33 +162,39 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	game := cast(^State)userdata
-	if input.pressed(app.input, .Escape) {
+	if !build_ui(app, game) {
+		game.ui_failed = true
+		return
+	}
+
+	game_input := ui.remaining_input(&game.interface)
+	if input.pressed(&game_input, .Escape) {
 		engine.request_quit(app)
 	}
 
-	if input.pressed(app.input, .B) {
+	if input.pressed(&game_input, .B) {
 		game.batching = !game.batching
 		game.next_report = 0
 	}
 
-	if input.pressed(app.input, .Space) {
+	if input.pressed(&game_input, .Space) {
 		game.paused = !game.paused
 	}
 
-	if input.pressed(app.input, .R) {
+	if input.pressed(&game_input, .R) {
 		game.orbit = INITIAL_ORBIT
 	}
 
-	if input.mouse_down(app.input, .Left) {
+	if input.mouse_down(&game_input, .Left) {
 		camera.rotate_orbit(
 			&game.orbit,
-			{f32(app.input.mouse_delta.x) * 0.005, f32(app.input.mouse_delta.y) * 0.005},
+			{f32(game_input.mouse_delta.x) * 0.005, f32(game_input.mouse_delta.y) * 0.005},
 			1.45,
 		)
 	}
 
-	if app.input.scroll_delta.y != 0 {
-		camera.zoom_orbit(&game.orbit, app.input.scroll_delta.y * 0.1, 3, 100)
+	if game_input.scroll_delta.y != 0 {
+		camera.zoom_orbit(&game.orbit, game_input.scroll_delta.y * 0.1, 3, 100)
 	}
 
 	if !game.paused {
@@ -196,6 +204,10 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
+	if game.ui_failed {
+		return false
+	}
+
 	if game.target.width != app.width || game.target.height != app.height {
 		err: render.Error
 		game.next_target, err = render.create_render_target(
@@ -305,7 +317,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
 	check(draw2d.destroy_font(app.device, &game.font), "destroy font")
 	check(draw2d.destroy(&game.overlay), "destroy 2D renderer")
-	draw2d.destroy_list(&game.overlay_list)
+	ui.destroy(&game.interface)
 	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
 	check(
@@ -335,85 +347,184 @@ check :: proc(err: render.Error, operation: string) -> bool {
 	return err == .None
 }
 
-draw_overlay :: proc(app: ^engine.Context, game: ^State) -> (err: render.Error) {
-	list := &game.overlay_list
+build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
+	ctx := &game.interface
+	list := &ctx.draws
 	width := 720 * f32(app.width) / f32(app.height)
-	if err = draw2d.reset(list, {width, 720}); err != .None {
-		return
+	if !check_ui(
+		ui.begin(ctx, app.input^, {width, 720}, {f32(app.window_size.x), f32(app.window_size.y)}),
+	) {
+		return false
 	}
 
-	for rect, i in ([3]draw2d.Rect {
-			{{24, 24}, {336, 204}},
-			{{26, 26}, {332, 200}},
-			{{28, 28}, {328, 196}},
-		}) {
-		colors := [3][4]f32{{0.035, 0.03, 0.05, 1}, {0.68, 0.64, 0.55, 1}, {0.14, 0.13, 0.17, 1}}
-		if err = draw2d.rectangle(list, rect, colors[i]); err != .None {
-			return
+	defer {
+		if ctx.frame_active {
+			ui.end(ctx)
 		}
+	}
+
+	panel := ui.Rect{{24, 24}, {336, 204}}
+	if !check_ui(ui.region(ctx, panel)) {
+		return false
+	}
+
+	for rect, i in ([3]draw2d.Rect{panel, {{26, 26}, {332, 200}}, {{28, 28}, {328, 196}}}) {
+		colors := [3][4]f32{{0.035, 0.03, 0.05, 1}, {0.68, 0.64, 0.55, 1}, {0.14, 0.13, 0.17, 1}}
+		if !check(draw2d.rectangle(list, rect, colors[i]), "draw panel") {
+			return false
+		}
+	}
+
+	column, layout_error := ui.layout(panel, .Column, padding = 16, spacing = 8)
+	if !check_ui(layout_error) {
+		return false
+	}
+
+	stats_rect, stats_error := ui.next(&column, 48)
+	if !check_ui(stats_error) {
+		return false
 	}
 
 	buffer: [256]u8
 	stats := game.draws.stats
 	value := fmt.bprintf(
 		buffer[:],
-		"SUBMITTED %3d\nVISIBLE   %3d\nDRAWS     %3d\nBATCHING  %s",
+		"SUBMITTED %3d\nVISIBLE   %3d\nDRAWS     %3d",
 		stats.submitted,
 		stats.visible,
 		stats.draw_calls,
-		"ON" if game.batching else "OFF",
 	)
-	if err = draw2d.text(list, &game.font, value, {40, 40}, 16, {0.88, 0.85, 0.77, 1});
-	   err != .None {
-		return
+	if !check(
+		draw2d.text(list, &game.font, value, stats_rect.position, 16, {0.88, 0.85, 0.77, 1}),
+		"draw counts",
+	) {
+		return false
 	}
 
-	if err = draw2d.text(
-		list,
-		&game.font,
-		"B: BATCH   SPACE: PAUSE\nDRAG/SCROLL: CAMERA\nR: RESET   ESC: QUIT",
-		{40, 128},
-		8,
-		{0.7, 0.66, 0.65, 1},
-	); err != .None {
-		return
+	button_rect, button_error := ui.next(&column, 24)
+	if !check_ui(button_error) {
+		return false
 	}
 
-	if err = draw2d.quad(list, {{40, 172}, {32, 32}}, game.preview.handle); err != .None {
-		return
+	button, interaction_error := ui.interact(ctx, ui.id("batching"), button_rect)
+	if !check_ui(interaction_error) {
+		return false
 	}
 
-	if err = draw2d.push_clip(list, {{88, 168}, {252, 40}}); err != .None {
-		return
+	if button.clicked {
+		game.batching = !game.batching
+		game.next_report = 0
 	}
 
-	if err = draw2d.text(
-		list,
-		&game.font,
-		"CLIP TEST 0123456789",
-		{88, 176},
-		16,
-		{0.94, 0.81, 0.49, 1},
-	); err != .None {
-		return
+	border := [4]f32{0.94, 0.81, 0.49, 1} if button.focused else [4]f32{0.68, 0.64, 0.55, 1}
+	fill :=
+		[4]f32{0.32, 0.28, 0.36, 1} if button.held else ([4]f32{0.24, 0.22, 0.28, 1} if button.hovered else [4]f32{0.14, 0.13, 0.17, 1})
+	if !check(draw2d.rectangle(list, button_rect, border), "draw button border") ||
+	   !check(
+			   draw2d.rectangle(
+				   list,
+				   {button_rect.position + [2]f32{2, 2}, button_rect.size - [2]f32{4, 4}},
+				   fill,
+			   ),
+			   "draw button",
+		   ) {
+		return false
 	}
 
-	if err = draw2d.pop_clip(list); err != .None {
-		return
+	label := "BATCHING ON" if game.batching else "BATCHING OFF"
+	if !check(
+		draw2d.text(
+			list,
+			&game.font,
+			label,
+			button_rect.position + [2]f32{8, 4},
+			16,
+			{0.88, 0.85, 0.77, 1},
+		),
+		"draw button label",
+	) {
+		return false
 	}
 
+	hints, hints_error := ui.next(&column, 24)
+	if !check_ui(hints_error) {
+		return false
+	}
+
+	if !check(
+		draw2d.text(
+			list,
+			&game.font,
+			"TAB: FOCUS  ENTER/SPACE: ACTIVATE\nDRAG/SCROLL: CAMERA  B: BATCH\nR: RESET  SPACE: PAUSE  ESC: BACK/QUIT",
+			hints.position,
+			8,
+			{0.7, 0.66, 0.65, 1},
+		),
+		"draw controls",
+	) {
+		return false
+	}
+
+	samples, samples_error := ui.next(&column, 32)
+	if !check_ui(samples_error) {
+		return false
+	}
+
+	row, row_error := ui.layout(samples, .Row, spacing = 16)
+	if !check_ui(row_error) {
+		return false
+	}
+
+	image_rect, image_error := ui.next(&row, 32)
+	if !check_ui(image_error) ||
+	   !check(draw2d.quad(list, image_rect, game.preview.handle), "draw image") {
+		return false
+	}
+
+	text_rect, text_error := ui.next(&row, samples.size.x - 48)
+	if !check_ui(text_error) || !check(draw2d.push_clip(list, text_rect), "clip sample") {
+		return false
+	}
+
+	if !check(
+		   draw2d.text(
+			   list,
+			   &game.font,
+			   "CLIP TEST 0123456789",
+			   text_rect.position + [2]f32{0, 8},
+			   16,
+			   {0.94, 0.81, 0.49, 1},
+		   ),
+		   "draw clipped text",
+	   ) ||
+	   !check(draw2d.pop_clip(list), "end clip") {
+		return false
+	}
+
+	return check_ui(ui.end(ctx))
+}
+
+check_ui :: proc(err: ui.Error) -> bool {
+	if err != .None {
+		log.errorf("UI: %v", err)
+	}
+
+	return err == .None
+}
+
+draw_overlay :: proc(app: ^engine.Context, game: ^State) -> render.Error {
 	viewport := rhi.Viewport {
 		width  = app.width,
 		height = app.height,
 	}
-	if err = rhi.begin_pass(
+	if err := rhi.begin_pass(
 		app.device,
 		{viewport = viewport, color_load = .Load, depth_load = .Load},
 	); err != .None {
-		return
+		return err
 	}
 
-	draw_error := draw2d.draw(&game.overlay, list)
+	draw_error := draw2d.draw(&game.overlay, &game.interface.draws)
 	end_error := rhi.end_pass(app.device)
 	if draw_error != .None {
 		return draw_error

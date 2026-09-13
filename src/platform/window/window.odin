@@ -113,3 +113,8 @@ framebuffer_size_callback :: proc "c" (handle: glfw.WindowHandle, width, height:
 	window.framebuffer_resized = true
 	window.minimized = width == 0 || height == 0
 }
+
+size :: proc(window: ^Window) -> [2]i32 {
+	width, height := glfw.GetWindowSize(window.handle)
+	return {width, height}
+}
