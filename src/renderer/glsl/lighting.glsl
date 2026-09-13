@@ -3,10 +3,17 @@ struct Point_Light {
     vec4 color_intensity;
 };
 
+struct Directional_Light {
+    vec4 direction;
+    vec4 color_intensity;
+};
+
 layout(std140) uniform Lighting_Uniforms {
     vec4 ambient;
     uint point_light_count;
+    uint directional_light_count;
     Point_Light point_lights[16];
+    Directional_Light directional_lights[4];
 };
 
 vec3 diffuse_lighting(vec3 position, vec3 normal) {
@@ -23,6 +30,12 @@ vec3 diffuse_lighting(vec3 position, vec3 normal) {
         vec3 direction = to_light * inversesqrt(max(distance_squared, 0.000001));
         float diffuse = max(dot(normal, direction), 0.0);
         illumination += light.color_intensity.rgb * light.color_intensity.w * attenuation * diffuse;
+    }
+
+    for (uint i = 0u; i < directional_light_count; ++i) {
+        Directional_Light light = directional_lights[i];
+        float diffuse = max(dot(normal, light.direction.xyz), 0.0);
+        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse;
     }
 
     return illumination;

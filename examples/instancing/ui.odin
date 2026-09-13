@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "ember:engine"
 import "ember:input"
+import render "ember:renderer"
 import "ember:ui"
 
 build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
@@ -21,7 +22,16 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		game.bloom_window.open = !game.bloom_window.open
 	}
 
-	windows := [3]^ui.Window{&game.render_window, &game.camera_window, &game.bloom_window}
+	if input.pressed(app.input, .F4) {
+		game.lighting_window.open = !game.lighting_window.open
+	}
+
+	windows := [4]^ui.Window {
+		&game.render_window,
+		&game.camera_window,
+		&game.bloom_window,
+		&game.lighting_window,
+	}
 	if !check_ui(ui.begin(ctx, app.input^, size, size, windows[:])) {
 		return false
 	}
@@ -35,6 +45,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
+	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 288, lighting_controls) && ok
 	return check_ui(ui.end(ctx)) && ok
 }
 
@@ -301,5 +312,76 @@ bloom_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 			return false
 		}
 	}
+	return true
+}
+
+lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
+	ctx := &game.overlay.interface
+	for control in ([2]struct {
+			name, label: string,
+			value:       ^bool,
+		} {
+			{"directional-enabled", "DIRECTIONAL", &game.directional_enabled},
+			{"point-enabled", "POINT", &game.point_enabled},
+		}) {
+		rect, err := ui.next(column, 24)
+		if !check_ui(err) {
+			return false
+		}
+
+		_, control_error := ui.checkbox(
+			ctx,
+			ui.id(control.name),
+			rect,
+			control.label,
+			control.value,
+		)
+		if !check_ui(control_error) {
+			return false
+		}
+	}
+
+	previous_emission := game.emission
+	for control in ([4]struct {
+			name, label: string,
+			value:       ^f32,
+			low, high:   f32,
+		} {
+			{"light-intensity", "INTENSITY", &game.light_intensity, 0, 8},
+			{"light-azimuth", "AZIMUTH", &game.light_azimuth, -3.14, 3.14},
+			{"light-elevation", "ELEVATION", &game.light_elevation, -1.57, 1.57},
+			{"emission", "ORANGE EMISSION", &game.emission, 0, 8},
+		}) {
+		rect, err := ui.next(column, 48)
+		if !check_ui(err) {
+			return false
+		}
+
+		_, control_error := ui.slider(
+			ctx,
+			ui.id(control.name),
+			rect,
+			control.label,
+			control.value,
+			control.low,
+			control.high,
+			step = 0.05,
+		)
+		if !check_ui(control_error) {
+			return false
+		}
+	}
+
+	if game.emission != previous_emission {
+		return check(
+			render.update_material(
+				&game.renderer,
+				&game.materials[1],
+				render.Lit_Parameters{tint = MATERIAL_COLORS[1], emission = game.emission},
+			),
+			"update emission",
+		)
+	}
+
 	return true
 }

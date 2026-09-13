@@ -13,35 +13,40 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
-	renderer:         render.Renderer,
-	overlay:          common.Overlay,
-	ui_failed:        bool,
-	render_window:    ui.Window,
-	camera_window:    ui.Window,
-	bloom_window:     ui.Window,
-	ui_scroll:        [3][2]f32,
-	tone_mapping:     int,
-	note:             ui.Text_Edit,
-	preview:          render.Texture,
-	shaders:          shaders.Library,
-	draws:            render.Draw_List,
-	mesh:             render.Mesh,
-	pipeline:         render.Pipeline,
-	materials:        [2]render.Material,
-	texture:          render.Texture,
-	presentation:     render.Presentation,
-	bloom:            render.Bloom,
-	bloom_settings:   render.Bloom_Settings,
-	bloom_enabled:    bool,
-	bloom_strength:   f32,
-	target:           common.Pixel_Target,
-	orbit:            camera.Orbit,
-	angle:            f32,
-	batching, paused: bool,
-	last_stats:       render.Draw_Stats,
-	next_report:      f64,
-	exposure:         f32,
+	renderer:                                                  render.Renderer,
+	overlay:                                                   common.Overlay,
+	ui_failed:                                                 bool,
+	render_window:                                             ui.Window,
+	camera_window:                                             ui.Window,
+	bloom_window:                                              ui.Window,
+	lighting_window:                                           ui.Window,
+	point_enabled, directional_enabled:                        bool,
+	light_azimuth, light_elevation, light_intensity, emission: f32,
+	ui_scroll:                                                 [4][2]f32,
+	tone_mapping:                                              int,
+	note:                                                      ui.Text_Edit,
+	preview:                                                   render.Texture,
+	shaders:                                                   shaders.Library,
+	draws:                                                     render.Draw_List,
+	mesh:                                                      render.Mesh,
+	pipeline:                                                  render.Pipeline,
+	materials:                                                 [2]render.Material,
+	texture:                                                   render.Texture,
+	presentation:                                              render.Presentation,
+	bloom:                                                     render.Bloom,
+	bloom_settings:                                            render.Bloom_Settings,
+	bloom_enabled:                                             bool,
+	bloom_strength:                                            f32,
+	target:                                                    common.Pixel_Target,
+	orbit:                                                     camera.Orbit,
+	angle:                                                     f32,
+	batching, paused:                                          bool,
+	last_stats:                                                render.Draw_Stats,
+	next_report:                                               f64,
+	exposure:                                                  f32,
 }
+
+MATERIAL_COLORS :: [2][4]f32{{0.12, 0.4, 0.75, 1}, {0.85, 0.3, 0.08, 1}}
 
 INITIAL_ORBIT :: camera.Orbit {
 	pitch    = 0.6,
@@ -86,6 +91,17 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			minimum_size = {220, 160},
 			open = true,
 		},
+		lighting_window = {
+			id = ui.id("lighting-window"),
+			bounds = {{736, 24}, {312, 352}},
+			minimum_size = {264, 160},
+			open = true,
+		},
+		directional_enabled = true,
+		light_azimuth = 2.1,
+		light_elevation = 0.9,
+		light_intensity = 2.5,
+		emission = 2,
 		bloom_enabled = true,
 		bloom_settings = {threshold = 1, softness = 0.5},
 		bloom_strength = 0.5,
@@ -148,11 +164,11 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	for color, i in ([2][4]f32{{0.12, 0.4, 0.75, 1}, {0.85, 0.3, 0.08, 1}}) {
+	for color, i in MATERIAL_COLORS {
 		game.materials[i], err = render.create_material(
 			&game.renderer,
 			shader,
-			render.Tint_Parameters{tint = color},
+			render.Lit_Parameters{tint = color, emission = game.emission if i == 1 else 0},
 			{{binding = 0, texture = game.texture}},
 		)
 		if !check(err, "create material") {
@@ -282,6 +298,17 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	lights := [1]render.Point_Light {
 		{position = {-15, 30, 20}, color = {1, 0.9, 0.8}, intensity = 6, range = 130},
 	}
+	directional_lights := [1]render.Directional_Light {
+		{
+			direction = {
+				math.cos(game.light_azimuth) * math.cos(game.light_elevation),
+				math.sin(game.light_elevation),
+				math.sin(game.light_azimuth) * math.cos(game.light_elevation),
+			},
+			color = {1, 0.95, 0.85},
+			intensity = game.light_intensity,
+		},
+	}
 	draw_error := render.draw_list(
 		&game.renderer,
 		&game.draws,
@@ -292,7 +319,10 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			0.1,
 			200,
 		),
-		{ambient = {0.12, 0.14, 0.2}, point_lights = lights[:]},
+		{
+			point_lights = lights[:1 if game.point_enabled else 0],
+			directional_lights = directional_lights[:1 if game.directional_enabled else 0],
+		},
 		batching = game.batching,
 	)
 	end_error := render.end_pass(&game.renderer)

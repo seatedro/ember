@@ -9,10 +9,14 @@ struct Tint_Uniforms { float4 tint; };
 
 struct Point_Light { float4 position_range; float4 color_intensity; };
 
+struct Directional_Light { float4 direction; float4 color_intensity; };
+
 struct Lighting_Data {
     float4 ambient;
     uint point_light_count;
+    uint directional_light_count;
     Point_Light point_lights[16];
+    Directional_Light directional_lights[4];
 };
 
 float4 clip_position(float4 position) {
@@ -56,6 +60,12 @@ float3 diffuse_lighting(float3 position, float3 normal, constant Lighting_Data &
         float3 direction = to_light * rsqrt(max(distance_squared, 0.000001));
         float diffuse = max(dot(normal, direction), 0.0);
         illumination += light.color_intensity.rgb * light.color_intensity.w * attenuation * diffuse;
+    }
+
+    for (uint i = 0; i < lighting.directional_light_count; ++i) {
+        Directional_Light light = lighting.directional_lights[i];
+        float diffuse = max(dot(normal, light.direction.xyz), 0.0);
+        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse;
     }
 
     return illumination;

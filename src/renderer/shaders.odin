@@ -15,6 +15,14 @@ Tint_Parameters :: struct {
 	tint: [4]f32,
 }
 
+Lit_Parameters :: struct {
+	tint:     [4]f32,
+	emission: f32,
+	_padding: [3]f32,
+}
+
+#assert(size_of(Lit_Parameters) == 32)
+
 MSL_COMMON_SOURCE :: #load("msl/common.metal", string)
 
 GLSL_INSTANCE_SOURCE :: "#version 410 core\n" + string(#load("glsl/instance.glsl"))
