@@ -5,6 +5,14 @@ import "core:mem"
 import "ember:engine"
 import "ember:rhi"
 
+@(private)
+TRIANGLE_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
+	.GLSL = {
+		{entry_point = "main", code = #load("shaders/triangle.vert", string)},
+		{entry_point = "main", code = #load("shaders/triangle.frag", string)},
+	},
+}
+
 State :: struct {
 	pipeline: rhi.Pipeline_Handle,
 	vertices: rhi.Buffer_Handle,
@@ -49,7 +57,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	vertex, vertex_error := rhi.create_shader(
 		device,
-		{stage = .Vertex, source = #load("shaders/triangle.vert"), label = "triangle vertex"},
+		{
+			stage = .Vertex,
+			language = rhi.SHADER_LANGUAGE,
+			source = TRIANGLE_SOURCES[rhi.SHADER_LANGUAGE][0],
+			label = "triangle vertex",
+		},
 	)
 	if !check(vertex_error, "compile vertex shader") {
 		return false
@@ -58,7 +71,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	fragment, fragment_error := rhi.create_shader(
 		device,
-		{stage = .Fragment, source = #load("shaders/triangle.frag"), label = "triangle fragment"},
+		{
+			stage = .Fragment,
+			language = rhi.SHADER_LANGUAGE,
+			source = TRIANGLE_SOURCES[rhi.SHADER_LANGUAGE][1],
+			label = "triangle fragment",
+		},
 	)
 	if !check(fragment_error, "compile fragment shader") {
 		return false

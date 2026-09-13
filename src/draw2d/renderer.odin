@@ -4,6 +4,14 @@ import "../rhi"
 import "core:math"
 import "core:mem"
 
+@(private)
+QUAD_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
+	.GLSL = {
+		{entry_point = "main", code = #load("glsl/quad.vert", string)},
+		{entry_point = "main", code = #load("glsl/quad.frag", string)},
+	},
+}
+
 Renderer :: struct {
 	device:            ^rhi.Device,
 	pipeline:          rhi.Pipeline_Handle,
@@ -33,7 +41,12 @@ create :: proc(device: ^rhi.Device) -> (Renderer, Error) {
 
 	renderer.shaders[0], err = rhi.create_shader(
 		device,
-		{stage = .Vertex, source = #load("glsl/quad.vert", string), label = "2D vertex"},
+		{
+			stage = .Vertex,
+			language = rhi.SHADER_LANGUAGE,
+			source = QUAD_SOURCES[rhi.SHADER_LANGUAGE][0],
+			label = "2D vertex",
+		},
 	)
 	if err != .None {
 		return {}, err
@@ -41,7 +54,12 @@ create :: proc(device: ^rhi.Device) -> (Renderer, Error) {
 
 	renderer.shaders[1], err = rhi.create_shader(
 		device,
-		{stage = .Fragment, source = #load("glsl/quad.frag", string), label = "2D fragment"},
+		{
+			stage = .Fragment,
+			language = rhi.SHADER_LANGUAGE,
+			source = QUAD_SOURCES[rhi.SHADER_LANGUAGE][1],
+			label = "2D fragment",
+		},
 	)
 	if err != .None {
 		return {}, err

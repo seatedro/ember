@@ -17,6 +17,8 @@ Error :: enum {
 	Invalid_Handle,
 	Invalid_Shader_Source,
 	Unsupported_Shader_Stage,
+	Unsupported_Shader_Language,
+	Invalid_Shader_Entry_Point,
 	Shader_Compile_Failed,
 	Pipeline_Link_Failed,
 	Invalid_Vertex_Layout,
@@ -92,10 +94,21 @@ Shader_Handle :: struct {
 	generation: u32,
 }
 
+Shader_Language :: enum {
+	GLSL,
+	MSL,
+}
+
+Shader_Source :: struct {
+	code:        string,
+	entry_point: string,
+}
+
 Shader_Desc :: struct {
-	stage:  Shader_Stage,
-	source: string,
-	label:  string,
+	stage:    Shader_Stage,
+	language: Shader_Language,
+	source:   Shader_Source,
+	label:    string,
 }
 
 MAX_VERTEX_ATTRIBUTES :: 16

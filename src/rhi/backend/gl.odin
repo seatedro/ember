@@ -7,6 +7,7 @@ import "core:strings"
 import gl "vendor:OpenGL"
 
 Device_Context :: platform_gl.Context
+SHADER_LANGUAGE :: types.Shader_Language.GLSL
 
 Device :: struct {
 	platform_context: Device_Context,
@@ -451,6 +452,10 @@ create_shader :: proc(
 	Shader,
 	types.Error,
 ) {
+	if desc.source.entry_point != "main" {
+		return {}, .Invalid_Shader_Entry_Point
+	}
+
 	kind: u32
 	switch desc.stage {
 	case .Vertex:
@@ -483,8 +488,8 @@ create_shader :: proc(
 	}
 
 	// Explicit length accepts Odin string slices without a trailing zero.
-	source := cstring(raw_data(desc.source))
-	length := i32(len(desc.source))
+	source := cstring(raw_data(desc.source.code))
+	length := i32(len(desc.source.code))
 	gl.impl_ShaderSource(native.id, 1, &source, &length)
 	if err := check_errors("set shader source"); err != .None {
 		return {}, err

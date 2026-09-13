@@ -11,9 +11,18 @@ Shader :: struct {
 	vertex, fragment: rhi.Shader_Handle,
 }
 
+// Each language supplies a complete pair; stages may share the same module
+// source and select different entry points (as with a Metal library).
+Source :: struct {
+	vertex, fragment: rhi.Shader_Source,
+}
+
+Sources :: [rhi.Shader_Language]Source
+
 Error :: enum {
 	None,
 	Invalid_Library,
+	Missing_Source,
 	Read_Failed,
 	GPU_Failed,
 	Allocation_Failed,
@@ -36,6 +45,8 @@ create :: proc(device: ^rhi.Device, allocator := context.allocator) -> Library {
 	return {device = device, allocator = allocator, entries = make([dynamic]Entry, allocator)}
 }
 
+// Loads .vert/.frag for GLSL, or one .metal module with vertex_main and
+// fragment_main entry points for MSL. The base path has no extension.
 load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 	if library.device == nil || library.closing {
 		return {}, .Invalid_Library
@@ -65,36 +76,70 @@ load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 		}
 	}
 
-	vertex_path, vp_error := strings.concatenate({path, ".vert"}, library.allocator)
-	if vp_error != .None {
-		return {}, .Allocation_Failed
-	}
+	when rhi.SHADER_LANGUAGE == .GLSL {
+		vertex, vertex_error := read_source(path, ".vert", library.allocator)
+		defer delete(vertex, library.allocator)
+		if vertex_error != .None {
+			return {}, vertex_error
+		}
 
-	defer delete(vertex_path, library.allocator)
-	fragment_path, fp_error := strings.concatenate({path, ".frag"}, library.allocator)
-	if fp_error != .None {
-		return {}, .Allocation_Failed
-	}
+		fragment, fragment_error := read_source(path, ".frag", library.allocator)
+		defer delete(fragment, library.allocator)
+		if fragment_error != .None {
+			return {}, fragment_error
+		}
 
-	defer delete(fragment_path, library.allocator)
-	vertex, vertex_error := os.read_entire_file(vertex_path, library.allocator)
-	defer delete(vertex, library.allocator)
-	fragment, fragment_error := os.read_entire_file(fragment_path, library.allocator)
-	defer delete(fragment, library.allocator)
-	if vertex_error != nil {
-		log.errorf("Cannot read shader %s: %v", vertex_path, vertex_error)
-		return {}, .Read_Failed
-	}
+		return load_source(
+			library,
+			path,
+			#partial Sources {
+				.GLSL = {
+					vertex = {entry_point = "main", code = string(vertex)},
+					fragment = {entry_point = "main", code = string(fragment)},
+				},
+			},
+		)
+	} else when rhi.SHADER_LANGUAGE == .MSL {
+		module, err := read_source(path, ".metal", library.allocator)
+		defer delete(module, library.allocator)
+		if err != .None {
+			return {}, err
+		}
 
-	if fragment_error != nil {
-		log.errorf("Cannot read shader %s: %v", fragment_path, fragment_error)
-		return {}, .Read_Failed
+		return load_source(
+			library,
+			path,
+			#partial Sources {
+				.MSL = {
+					vertex = {code = string(module), entry_point = "vertex_main"},
+					fragment = {code = string(module), entry_point = "fragment_main"},
+				},
+			},
+		)
+	} else {
+		#panic("File loading is not defined for this shader language")
 	}
-
-	return load_source(library, path, string(vertex), string(fragment))
 }
 
-load_source :: proc(library: ^Library, name, vertex, fragment: string) -> (Shader, Error) {
+@(private)
+read_source :: proc(base_path, suffix: string, allocator: mem.Allocator) -> ([]u8, Error) {
+	path, allocation_error := strings.concatenate({base_path, suffix}, allocator)
+	if allocation_error != .None {
+		return nil, .Allocation_Failed
+	}
+
+	defer delete(path, allocator)
+	bytes, err := os.read_entire_file(path, allocator)
+	if err != nil {
+		delete(bytes, allocator)
+		log.errorf("Cannot read shader %s: %v", path, err)
+		return nil, .Read_Failed
+	}
+
+	return bytes, .None
+}
+
+load_source :: proc(library: ^Library, name: string, sources: Sources) -> (Shader, Error) {
 	if library.device == nil || library.closing {
 		return {}, .Invalid_Library
 	}
@@ -103,6 +148,12 @@ load_source :: proc(library: ^Library, name, vertex, fragment: string) -> (Shade
 		if entry.name == name {
 			return entry.shader, .None
 		}
+	}
+
+	selected := sources[rhi.SHADER_LANGUAGE]
+	if len(selected.vertex.code) == 0 || len(selected.fragment.code) == 0 {
+		log.errorf("Shader %s has no complete %v source", name, rhi.SHADER_LANGUAGE)
+		return {}, .Missing_Source
 	}
 
 	owned_name, allocation_error := strings.clone(name, library.allocator)
@@ -117,11 +168,11 @@ load_source :: proc(library: ^Library, name, vertex, fragment: string) -> (Shade
 		delete(owned_name, library.allocator)
 	}
 
-	for source, i in ([2]string{vertex, fragment}) {
+	for source, i in ([2]rhi.Shader_Source{selected.vertex, selected.fragment}) {
 		stage := rhi.Shader_Stage.Vertex if i == 0 else .Fragment
 		handle, err := rhi.create_shader(
 			library.device,
-			{stage = stage, source = source, label = name},
+			{stage = stage, language = rhi.SHADER_LANGUAGE, source = source, label = name},
 		)
 		if err != .None {
 			return {}, .GPU_Failed
