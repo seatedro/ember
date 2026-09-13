@@ -32,7 +32,10 @@ create_render_target :: proc(
 		return {}, .Invalid_Size
 	}
 
-	if desc.color_format < .RGBA8 || desc.color_format > .RGBA16F {
+	if desc.color_format < .RGBA8 ||
+	   desc.color_format > .RGBA16F ||
+	   desc.color_filter < .Linear ||
+	   desc.color_filter > .Nearest {
 		return {}, .Invalid_Texture
 	}
 
@@ -52,7 +55,7 @@ create_render_target :: proc(
 			width = desc.width,
 			height = desc.height,
 			format = desc.color_format,
-			filter = .Nearest,
+			filter = desc.color_filter,
 			wrap_u = .Clamp,
 			wrap_v = .Clamp,
 			label = desc.label,

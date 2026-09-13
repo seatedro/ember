@@ -52,7 +52,13 @@ resize_target :: proc(game: ^State, width, height: i32) -> bool {
 	err: render.Error
 	game.next_target, err = render.create_render_target(
 		&game.renderer,
-		{width = width, height = height, color_format = .RGBA16F, label = "demo color"},
+		{
+			width = width,
+			height = height,
+			color_format = .RGBA16F,
+			color_filter = .Nearest,
+			label = "demo color",
+		},
 	)
 	if !check(err, "create resized render target") {
 		return false

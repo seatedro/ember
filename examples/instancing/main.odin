@@ -21,7 +21,8 @@ State :: struct {
 	ui_failed:           bool,
 	render_window:       ui.Window,
 	camera_window:       ui.Window,
-	ui_scroll:           [2][2]f32,
+	bloom_window:        ui.Window,
+	ui_scroll:           [3][2]f32,
 	tone_mapping:        int,
 	note:                ui.Text_Edit,
 	font:                draw2d.Font,
@@ -33,6 +34,10 @@ State :: struct {
 	materials:           [2]render.Material,
 	texture:             render.Texture,
 	presentation:        render.Presentation,
+	bloom:               render.Bloom,
+	bloom_settings:      render.Bloom_Settings,
+	bloom_enabled:       bool,
+	bloom_strength:      f32,
 	target, next_target: render.Render_Target,
 	orbit:               camera.Orbit,
 	angle:               f32,
@@ -82,6 +87,15 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			minimum_size = {220, 160},
 			open = true,
 		},
+		bloom_window = {
+			id = ui.id("bloom-window"),
+			bounds = {{408, 248}, {300, 236}},
+			minimum_size = {220, 160},
+			open = true,
+		},
+		bloom_enabled = true,
+		bloom_settings = {threshold = 1, softness = 0.5},
+		bloom_strength = 0.5,
 		exposure = 1,
 	}
 	err: render.Error
@@ -200,6 +214,11 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	game.bloom, err = render.create_bloom(&game.renderer, &game.shaders)
+	if !check(err, "create bloom") {
+		return false
+	}
+
 	game.presentation, err = render.create_presentation(&game.renderer, &game.shaders)
 	game.fps_tick = time.tick_now()
 	game.fps_frame = app.frame_count
@@ -266,7 +285,12 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		err: render.Error
 		game.next_target, err = render.create_render_target(
 			&game.renderer,
-			{width = app.width, height = app.height, color_format = .RGBA16F},
+			{
+				width = app.width,
+				height = app.height,
+				color_format = .RGBA16F,
+				color_filter = .Nearest,
+			},
 		)
 		if !check(err, "create target") {
 			return false
@@ -323,7 +347,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	lights := [1]render.Point_Light {
-		{position = {-15, 30, 20}, color = {1, 0.9, 0.8}, intensity = 3, range = 130},
+		{position = {-15, 30, 20}, color = {1, 0.9, 0.8}, intensity = 6, range = 130},
 	}
 	draw_error := render.draw_list(
 		&game.renderer,
@@ -352,13 +376,32 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		game.next_report = app.elapsed_time + 0.5
 	}
 
+	bloom_texture: render.Texture
+	if game.bloom_enabled && game.bloom_strength > 0 {
+		err: render.Error
+		bloom_texture, err = render.apply_bloom(
+			&game.renderer,
+			&game.bloom,
+			game.target,
+			game.bloom_settings,
+		)
+		if !check(err, "apply bloom") {
+			return false
+		}
+	}
+
 	if !check(
 		render.present(
 			&game.renderer,
 			&game.presentation,
 			game.target.color,
 			{width = app.width, height = app.height},
-			{exposure = game.exposure, tone_mapping = render.Tone_Mapping(game.tone_mapping)},
+			{
+				exposure = game.exposure,
+				tone_mapping = render.Tone_Mapping(game.tone_mapping),
+				bloom_strength = game.bloom_strength if game.bloom_enabled else 0,
+			},
+			bloom_texture,
 		),
 		"present",
 	) {
@@ -376,6 +419,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	ui.destroy_text_edit(&game.note)
 	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
+	check(render.destroy_bloom(&game.renderer, &game.bloom), "destroy bloom")
 	check(
 		render.destroy_render_target(&game.renderer, &game.next_target),
 		"destroy pending target",

@@ -17,7 +17,11 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	}
 
 	size := [2]f32{f32(app.window_size.x), f32(app.window_size.y)}
-	windows := [2]^ui.Window{&game.render_window, &game.camera_window}
+	if input.pressed(app.input, .F3) {
+		game.bloom_window.open = !game.bloom_window.open
+	}
+
+	windows := [3]^ui.Window{&game.render_window, &game.camera_window, &game.bloom_window}
 	if !check_ui(ui.begin(ctx, app.input^, size, size, windows[:])) {
 		return false
 	}
@@ -30,6 +34,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
+	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
 	return check_ui(ui.end(ctx)) && ok
 }
 
@@ -247,4 +252,54 @@ check_ui :: proc(err: ui.Error) -> bool {
 	}
 
 	return err == .None
+}
+
+bloom_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
+	ctx := &game.interface
+	rect, err := ui.next(column, 24)
+	if !check_ui(err) {
+		return false
+	}
+
+	_, control_error := ui.checkbox(
+		ctx,
+		ui.id("bloom-enabled"),
+		rect,
+		"ENABLED",
+		&game.bloom_enabled,
+	)
+	if !check_ui(control_error) {
+		return false
+	}
+
+	for control in ([3]struct {
+			name, label: string,
+			value:       ^f32,
+			high:        f32,
+		} {
+			{"bloom-threshold", "THRESHOLD", &game.bloom_settings.threshold, 4},
+			{"bloom-softness", "SOFTNESS", &game.bloom_settings.softness, 1},
+			{"bloom-strength", "STRENGTH", &game.bloom_strength, 1},
+		}) {
+		rect, err = ui.next(column, 48)
+		if !check_ui(err) {
+			return false
+		}
+
+		_, control_error = ui.slider(
+			ctx,
+			ui.id(control.name),
+			rect,
+			control.label,
+			control.value,
+			0,
+			control.high,
+			step = 0.01,
+			enabled = game.bloom_enabled,
+		)
+		if !check_ui(control_error) {
+			return false
+		}
+	}
+	return true
 }

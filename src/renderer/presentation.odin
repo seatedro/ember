@@ -11,15 +11,17 @@ Tone_Mapping :: enum u32 {
 }
 
 Presentation_Settings :: struct {
-	exposure:     f32,
-	tone_mapping: Tone_Mapping,
+	exposure:       f32,
+	tone_mapping:   Tone_Mapping,
+	bloom_strength: f32,
 }
 
 @(private)
 Presentation_Uniforms :: struct {
-	exposure:     f32,
-	tone_mapping: Tone_Mapping,
-	padding:      [2]u32,
+	exposure:       f32,
+	tone_mapping:   Tone_Mapping,
+	bloom_strength: f32,
+	padding:        u32,
 }
 
 Presentation :: struct {
@@ -44,7 +46,7 @@ create_presentation :: proc(
 		renderer,
 		program,
 		{layout = VERTEX_LAYOUT, primitive = .Triangles},
-		{{name = "source_texture", binding = 0}},
+		{{name = "source_texture", binding = 0}, {name = "bloom_texture", binding = 1}},
 	)
 	if err != .None {
 		return
@@ -81,11 +83,14 @@ present :: proc(
 	source: Texture,
 	viewport: Viewport,
 	settings := Presentation_Settings{exposure = 1},
+	bloom: Texture = {},
 ) -> (
 	err: Error,
 ) {
 	if !(settings.exposure >= 0) ||
 	   math.is_inf(settings.exposure) ||
+	   !(settings.bloom_strength >= 0) ||
+	   math.is_inf(settings.bloom_strength) ||
 	   settings.tone_mapping < .Reinhard ||
 	   settings.tone_mapping > .ACES_Fitted {
 		return .Invalid_Draw
@@ -95,10 +100,23 @@ present :: proc(
 		return
 	}
 
+	if err = set_material_texture(
+		renderer,
+		&presentation.material,
+		1,
+		bloom if settings.bloom_strength > 0 else source,
+	); err != .None {
+		return
+	}
+
 	if err = update_material(
 		renderer,
 		&presentation.material,
-		Presentation_Uniforms{exposure = settings.exposure, tone_mapping = settings.tone_mapping},
+		Presentation_Uniforms {
+			exposure = settings.exposure,
+			tone_mapping = settings.tone_mapping,
+			bloom_strength = settings.bloom_strength,
+		},
 	); err != .None {
 		return
 	}

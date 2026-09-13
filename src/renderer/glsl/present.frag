@@ -2,10 +2,12 @@
 in vec2 texture_uv;
 layout(location = 0) out vec4 color;
 uniform sampler2D source_texture;
+uniform sampler2D bloom_texture;
 
 layout(std140) uniform Material {
     float exposure;
     uint tone_mapping;
+    float bloom_strength;
 };
 
 vec3 aces_fitted(vec3 linear_color) {
@@ -36,7 +38,11 @@ vec3 linear_to_srgb(vec3 linear_color) {
 
 void main() {
     vec4 source = texture(source_texture, texture_uv);
-    vec3 exposed = max(source.rgb, vec3(0.0)) * exposure;
+    vec3 linear_color = source.rgb;
+    if (bloom_strength > 0.0) {
+        linear_color += texture(bloom_texture, texture_uv).rgb * bloom_strength;
+    }
+    vec3 exposed = max(linear_color, vec3(0.0)) * exposure;
     vec3 mapped = tone_mapping == 0u ? exposed / (vec3(1.0) + exposed) : aces_fitted(exposed);
     color = vec4(linear_to_srgb(mapped), source.a);
 }

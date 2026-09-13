@@ -240,6 +240,7 @@ Scissor :: struct {
 
 Render_Target_Desc :: struct {
 	color_format:  Texture_Format,
+	color_filter:  Texture_Filter,
 	width, height: i32,
 	label:         string,
 }

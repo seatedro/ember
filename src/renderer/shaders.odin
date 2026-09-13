@@ -7,6 +7,7 @@ Builtin_Shader :: enum {
 	Lit,
 	Grid,
 	Presentation,
+	Bloom,
 }
 
 Tint_Parameters :: struct {
@@ -45,6 +46,13 @@ load_builtin_shader :: proc(
 			"ember/grid",
 			INSTANCE_SOURCE + string(#load("glsl/grid.vert")),
 			string(#load("glsl/grid.frag")),
+		)
+	case .Bloom:
+		return shaders.load_source(
+			library,
+			"ember/bloom",
+			INSTANCE_SOURCE + string(#load("glsl/present.vert")),
+			string(#load("glsl/bloom.frag")),
 		)
 	case .Presentation:
 		return shaders.load_source(
