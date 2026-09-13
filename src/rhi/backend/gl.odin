@@ -123,6 +123,7 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_FrontFace == nil ||
 	   gl.impl_PolygonMode == nil ||
 	   gl.impl_ColorMask == nil ||
+	   gl.impl_Scissor == nil ||
 	   gl.impl_GetUniformBlockIndex == nil ||
 	   gl.impl_UniformBlockBinding == nil ||
 	   gl.impl_GetActiveUniformBlockiv == nil ||
@@ -666,6 +667,7 @@ draw_indexed :: proc(
 	index_offset: u64,
 	index_count: u32,
 	instance_count: u32,
+	scissor: types.Scissor,
 	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
 	textures: [types.MAX_TEXTURE_BINDINGS]Texture,
 ) -> types.Error {
@@ -856,6 +858,13 @@ draw_indexed :: proc(
 		)
 	} else {
 		gl.impl_Disable(gl.BLEND)
+	}
+
+	if scissor.enabled {
+		gl.impl_Enable(gl.SCISSOR_TEST)
+		gl.impl_Scissor(scissor.x, scissor.y, scissor.width, scissor.height)
+	} else {
+		gl.impl_Disable(gl.SCISSOR_TEST)
 	}
 
 	gl.impl_ColorMask(true, true, true, true)

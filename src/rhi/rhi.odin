@@ -15,6 +15,7 @@ Device :: struct {
 	textures:       pool.Pool(Texture_Resource, Texture_Handle),
 	render_targets: pool.Pool(Render_Target_Resource, Render_Target_Handle),
 	pass_active:    bool,
+	pass_viewport:  Viewport,
 	pass_target:    Render_Target_Handle,
 	bindings:       Bindings,
 	native:         backend.Device,

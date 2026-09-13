@@ -6,6 +6,7 @@ import "types"
 
 Index_Type :: types.Index_Type
 Draw_Indexed_Desc :: types.Draw_Indexed_Desc
+Scissor :: types.Scissor
 
 Bindings :: struct {
 	pipeline:        Pipeline_Handle,
@@ -158,6 +159,10 @@ validate_indexed_range :: proc(
 		return .Invalid_Draw
 	}
 
+	if desc.scissor.enabled && (desc.scissor.width < 0 || desc.scissor.height < 0) {
+		return .Invalid_Draw
+	}
+
 	if index_type != .U16 && index_type != .U32 {
 		return .Invalid_Buffer_Binding
 	}
@@ -280,6 +285,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		bindings.index_offset + u64(desc.first_index) * width,
 		desc.index_count,
 		desc.instance_count,
+		desc.scissor,
 		uniforms,
 		textures,
 	)

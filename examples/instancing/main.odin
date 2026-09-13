@@ -1,17 +1,24 @@
 package game
 
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "ember:camera"
 import emath "ember:core/math"
+import "ember:draw2d"
 import "ember:engine"
 import "ember:geometry"
 import "ember:input"
 import render "ember:renderer"
+import "ember:rhi"
 import "ember:shaders"
 
 State :: struct {
 	renderer:            render.Renderer,
+	overlay:             draw2d.Renderer,
+	overlay_list:        draw2d.List,
+	font:                draw2d.Font,
+	preview:             render.Texture,
 	shaders:             shaders.Library,
 	draws:               render.Draw_List,
 	mesh:                render.Mesh,
@@ -35,7 +42,7 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return {
-		title = "Ember Instancing - B batching, drag/scroll camera, Space pause, R reset, Esc close; counts in console",
+		title = "Ember - Instancing and 2D",
 		width = 1280,
 		height = 720,
 		vsync = true,
@@ -56,6 +63,32 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	err: render.Error
 	game.renderer, err = render.create(app.device)
 	if !check(err, "create renderer") {
+		return false
+	}
+
+	game.overlay, err = draw2d.create(app.device)
+	if !check(err, "create 2D renderer") {
+		return false
+	}
+
+	game.overlay_list = draw2d.create_list()
+	font_error: draw2d.Font_Error
+	game.font, font_error = draw2d.load_font(
+		app.device,
+		"assets/fonts/press-start-2p.json",
+		"assets/fonts/press-start-2p.png",
+	)
+	if font_error != .None {
+		log.errorf("Load overlay font: %v", font_error)
+		return false
+	}
+
+	game.preview, err = render.create_texture(
+		&game.renderer,
+		{width = 2, height = 2, format = .RGBA8, filter = .Nearest},
+		{239, 207, 125, 255, 127, 99, 135, 255, 127, 99, 135, 255, 239, 207, 125, 255},
+	)
+	if !check(err, "create overlay image") {
 		return false
 	}
 
@@ -253,7 +286,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		game.next_report = app.elapsed_time + 0.5
 	}
 
-	return check(
+	if !check(
 		render.present(
 			&game.renderer,
 			&game.presentation,
@@ -261,11 +294,19 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			{width = app.width, height = app.height},
 		),
 		"present",
-	)
+	) {
+		return false
+	}
+
+	return check(draw_overlay(app, game), "draw overlay")
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	check(draw2d.destroy_font(app.device, &game.font), "destroy font")
+	check(draw2d.destroy(&game.overlay), "destroy 2D renderer")
+	draw2d.destroy_list(&game.overlay_list)
+	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
 	check(
 		render.destroy_render_target(&game.renderer, &game.next_target),
@@ -292,4 +333,91 @@ check :: proc(err: render.Error, operation: string) -> bool {
 	}
 
 	return err == .None
+}
+
+draw_overlay :: proc(app: ^engine.Context, game: ^State) -> (err: render.Error) {
+	list := &game.overlay_list
+	width := 720 * f32(app.width) / f32(app.height)
+	if err = draw2d.reset(list, {width, 720}); err != .None {
+		return
+	}
+
+	for rect, i in ([3]draw2d.Rect {
+			{{24, 24}, {336, 204}},
+			{{26, 26}, {332, 200}},
+			{{28, 28}, {328, 196}},
+		}) {
+		colors := [3][4]f32{{0.035, 0.03, 0.05, 1}, {0.68, 0.64, 0.55, 1}, {0.14, 0.13, 0.17, 1}}
+		if err = draw2d.rectangle(list, rect, colors[i]); err != .None {
+			return
+		}
+	}
+
+	buffer: [256]u8
+	stats := game.draws.stats
+	value := fmt.bprintf(
+		buffer[:],
+		"SUBMITTED %3d\nVISIBLE   %3d\nDRAWS     %3d\nBATCHING  %s",
+		stats.submitted,
+		stats.visible,
+		stats.draw_calls,
+		"ON" if game.batching else "OFF",
+	)
+	if err = draw2d.text(list, &game.font, value, {40, 40}, 16, {0.88, 0.85, 0.77, 1});
+	   err != .None {
+		return
+	}
+
+	if err = draw2d.text(
+		list,
+		&game.font,
+		"B: BATCH   SPACE: PAUSE\nDRAG/SCROLL: CAMERA\nR: RESET   ESC: QUIT",
+		{40, 128},
+		8,
+		{0.7, 0.66, 0.65, 1},
+	); err != .None {
+		return
+	}
+
+	if err = draw2d.quad(list, {{40, 172}, {32, 32}}, game.preview.handle); err != .None {
+		return
+	}
+
+	if err = draw2d.push_clip(list, {{88, 168}, {252, 40}}); err != .None {
+		return
+	}
+
+	if err = draw2d.text(
+		list,
+		&game.font,
+		"CLIP TEST 0123456789",
+		{88, 176},
+		16,
+		{0.94, 0.81, 0.49, 1},
+	); err != .None {
+		return
+	}
+
+	if err = draw2d.pop_clip(list); err != .None {
+		return
+	}
+
+	viewport := rhi.Viewport {
+		width  = app.width,
+		height = app.height,
+	}
+	if err = rhi.begin_pass(
+		app.device,
+		{viewport = viewport, color_load = .Load, depth_load = .Load},
+	); err != .None {
+		return
+	}
+
+	draw_error := draw2d.draw(&game.overlay, list)
+	end_error := rhi.end_pass(app.device)
+	if draw_error != .None {
+		return draw_error
+	}
+
+	return end_error
 }

@@ -72,6 +72,7 @@ begin_pass :: proc(
 	}
 
 	device.pass_active = true
+	device.pass_viewport = viewport
 	device.pass_target = desc.target
 	device.bindings = {}
 	return .None
@@ -91,6 +92,7 @@ end_pass :: proc(device: ^Device) -> Error {
 	}
 
 	device.pass_active = false
+	device.pass_viewport = {}
 	device.pass_target = {}
 	device.bindings = {}
 	return .None

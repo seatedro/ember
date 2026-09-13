@@ -230,6 +230,12 @@ Draw_Indexed_Desc :: struct {
 	index_count:    u32,
 	first_index:    u32,
 	instance_count: u32,
+	scissor:        Scissor,
+}
+
+Scissor :: struct {
+	enabled:             bool,
+	x, y, width, height: i32,
 }
 
 Render_Target_Desc :: struct {
