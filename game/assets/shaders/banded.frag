@@ -40,7 +40,6 @@ void main() {
 
     vec3 local = normalize(local_normal);
     float bands = smoothstep(-0.2, 0.2, sin(local.x * 8.0 + local.z * 6.0));
-    vec3 albedo = mix(color_a.rgb, color_b.rgb, bands);
-    albedo *= texture(albedo_texture, texture_uv).rgb;
-    color = vec4(albedo * illumination, 1.0);
+    vec4 albedo = mix(color_a, color_b, bands) * texture(albedo_texture, texture_uv);
+    color = vec4(albedo.rgb * illumination, albedo.a);
 }

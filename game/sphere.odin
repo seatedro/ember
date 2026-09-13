@@ -16,24 +16,29 @@ Object :: struct {
 }
 
 State :: struct {
-	shaders:        shader.Library,
-	renderer:       render.Renderer,
-	mesh:           render.Mesh,
-	pipeline:       render.Pipeline,
-	materials:      [2]render.Material,
-	textures:       [2]render.Texture,
-	objects:        [3]Object,
-	grid_mesh:      render.Mesh,
-	grid_pipeline:  render.Pipeline,
-	grid_material:  render.Material,
-	lights:         [1]render.Point_Light,
-	light_pipeline: render.Pipeline,
-	light_material: render.Material,
-	light_angle:    f32,
-	light_paused:   bool,
-	angle:          f32,
-	orbit:          camera.Orbit,
-	camera:         camera.Camera,
+	shaders:           shader.Library,
+	renderer:          render.Renderer,
+	mesh:              render.Mesh,
+	pipeline:          render.Pipeline,
+	materials:         [2]render.Material,
+	textures:          [2]render.Texture,
+	objects:           [3]Object,
+	grid_mesh:         render.Mesh,
+	grid_pipeline:     render.Pipeline,
+	grid_material:     render.Material,
+	lights:            [1]render.Point_Light,
+	light_pipeline:    render.Pipeline,
+	light_material:    render.Material,
+	light_angle:       f32,
+	light_paused:      bool,
+	blend_mesh:        render.Mesh,
+	blend_pipelines:   [2]render.Pipeline,
+	blend_materials:   [2]render.Material,
+	blend_transforms:  [2]emath.Transform,
+	additive_blending: bool,
+	angle:             f32,
+	orbit:             camera.Orbit,
+	camera:            camera.Camera,
 }
 
 SPHERE_LAYOUT :: render.Vertex_Layout {
@@ -131,7 +136,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return init_grid(game) && init_light(game)
+	return init_grid(game) && init_light(game) && init_blending(game)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -149,6 +154,10 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 
 	if input.pressed(app.input, .Space) {
 		game.light_paused = !game.light_paused
+	}
+
+	if input.pressed(app.input, .B) {
+		game.additive_blending = !game.additive_blending
 	}
 
 	if input.pressed(app.input, .C) && !toggle_light_color(game) {
@@ -216,7 +225,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		}
 	}
 
-	return check(
+	if !check(
 		render.draw_mesh(
 			&game.renderer,
 			&game.light_pipeline,
@@ -225,11 +234,16 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			{position = game.lights[0].position, orientation = 1, scale = {0.12, 0.12, 0.12}},
 		),
 		"draw light marker",
-	)
+	) {
+		return false
+	}
+
+	return draw_blending(game)
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	destroy_blending(game)
 	check(render.destroy_material(&game.renderer, &game.light_material), "destroy light material")
 	check(render.destroy_pipeline(&game.renderer, &game.light_pipeline), "destroy light pipeline")
 	check(render.destroy_mesh(&game.renderer, &game.grid_mesh), "destroy grid mesh")

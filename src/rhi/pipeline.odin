@@ -28,6 +28,9 @@ Winding :: types.Winding
 Primitive :: types.Primitive
 Depth_State :: types.Depth_State
 Raster_State :: types.Raster_State
+Blend_Factor :: types.Blend_Factor
+Blend_Op :: types.Blend_Op
+Blend_State :: types.Blend_State
 Pipeline_Settings :: types.Pipeline_Settings
 Pipeline_Desc :: types.Pipeline_Desc
 Uniform_Block_Desc :: types.Uniform_Block_Desc
@@ -255,6 +258,24 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 	   settings.raster.winding > .CW ||
 	   settings.primitive < .Triangles ||
 	   settings.primitive > .Points {
+		return .Invalid_Pipeline_State
+	}
+
+	for factor in ([4]Blend_Factor {
+			settings.blend.src_factor_rgb,
+			settings.blend.dst_factor_rgb,
+			settings.blend.src_factor_alpha,
+			settings.blend.dst_factor_alpha,
+		}) {
+		if factor < .Zero || factor > .One_Minus_Dst_Alpha {
+			return .Invalid_Pipeline_State
+		}
+	}
+
+	if settings.blend.op_rgb < .Add ||
+	   settings.blend.op_rgb > .Max ||
+	   settings.blend.op_alpha < .Add ||
+	   settings.blend.op_alpha > .Max {
 		return .Invalid_Pipeline_State
 	}
 

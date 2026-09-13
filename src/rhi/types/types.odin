@@ -159,10 +159,42 @@ Raster_State :: struct {
 	wireframe: bool,
 }
 
+Blend_Factor :: enum {
+	Zero,
+	One,
+	Src_Color,
+	One_Minus_Src_Color,
+	Dst_Color,
+	One_Minus_Dst_Color,
+	Src_Alpha,
+	One_Minus_Src_Alpha,
+	Dst_Alpha,
+	One_Minus_Dst_Alpha,
+}
+
+Blend_Op :: enum {
+	Add,
+	Subtract,
+	Reverse_Subtract,
+	Min,
+	Max,
+}
+
+Blend_State :: struct {
+	enabled:          bool,
+	src_factor_rgb:   Blend_Factor,
+	dst_factor_rgb:   Blend_Factor,
+	op_rgb:           Blend_Op,
+	src_factor_alpha: Blend_Factor,
+	dst_factor_alpha: Blend_Factor,
+	op_alpha:         Blend_Op,
+}
+
 Pipeline_Settings :: struct {
 	layout:    Vertex_Layout,
 	depth:     Depth_State,
 	raster:    Raster_State,
+	blend:     Blend_State,
 	primitive: Primitive,
 }
 

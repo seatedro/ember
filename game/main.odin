@@ -6,7 +6,7 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return engine.Config {
-		title = "Ember - drag/scroll camera, Space pauses light, C light color, T texture, M materials, R resets, Esc closes",
+		title = "Ember - drag/scroll camera, Space pause, C light, T texture, M material, B blend, R reset, Esc close",
 		width = 1280,
 		height = 720,
 		vsync = true,

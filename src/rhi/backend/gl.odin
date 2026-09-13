@@ -98,6 +98,8 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_Disable == nil ||
 	   gl.impl_DepthMask == nil ||
 	   gl.impl_DepthFunc == nil ||
+	   gl.impl_BlendFuncSeparate == nil ||
+	   gl.impl_BlendEquationSeparate == nil ||
 	   gl.impl_CullFace == nil ||
 	   gl.impl_FrontFace == nil ||
 	   gl.impl_PolygonMode == nil ||
@@ -645,7 +647,41 @@ draw_indexed :: proc(
 
 	gl.impl_FrontFace(gl.CCW if settings.raster.winding == .CCW else gl.CW)
 	gl.impl_PolygonMode(gl.FRONT_AND_BACK, gl.LINE if settings.raster.wireframe else gl.FILL)
-	gl.impl_Disable(gl.BLEND)
+	if settings.blend.enabled {
+		gl.impl_Enable(gl.BLEND)
+		factors := [types.Blend_Factor]u32 {
+			.Zero                = gl.ZERO,
+			.One                 = gl.ONE,
+			.Src_Color           = gl.SRC_COLOR,
+			.One_Minus_Src_Color = gl.ONE_MINUS_SRC_COLOR,
+			.Dst_Color           = gl.DST_COLOR,
+			.One_Minus_Dst_Color = gl.ONE_MINUS_DST_COLOR,
+			.Src_Alpha           = gl.SRC_ALPHA,
+			.One_Minus_Src_Alpha = gl.ONE_MINUS_SRC_ALPHA,
+			.Dst_Alpha           = gl.DST_ALPHA,
+			.One_Minus_Dst_Alpha = gl.ONE_MINUS_DST_ALPHA,
+		}
+		operations := [types.Blend_Op]u32 {
+			.Add              = gl.FUNC_ADD,
+			.Subtract         = gl.FUNC_SUBTRACT,
+			.Reverse_Subtract = gl.FUNC_REVERSE_SUBTRACT,
+			.Min              = gl.MIN,
+			.Max              = gl.MAX,
+		}
+		gl.impl_BlendFuncSeparate(
+			factors[settings.blend.src_factor_rgb],
+			factors[settings.blend.dst_factor_rgb],
+			factors[settings.blend.src_factor_alpha],
+			factors[settings.blend.dst_factor_alpha],
+		)
+		gl.impl_BlendEquationSeparate(
+			operations[settings.blend.op_rgb],
+			operations[settings.blend.op_alpha],
+		)
+	} else {
+		gl.impl_Disable(gl.BLEND)
+	}
+
 	gl.impl_ColorMask(true, true, true, true)
 	if err := check_errors("apply draw state"); err != .None {
 		return err
