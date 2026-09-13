@@ -21,6 +21,7 @@ State :: struct {
 	text:                 [dynamic]rune,
 	text_failed:          bool,
 	mouse_buttons:        [Mouse_Button]Button_State,
+	mouse_press_position: [Mouse_Button][2]f64,
 	focused:              bool,
 	mouse_position:       [2]f64,
 	mouse_position_valid: bool,
@@ -73,6 +74,9 @@ record_key :: proc(state: ^State, key: Key, is_down: bool, modifiers: Modifiers 
 record_mouse_button :: proc(state: ^State, button: Mouse_Button, is_down: bool) {
 	if !state.focused || !valid_mouse_button(button) {
 		return
+	}
+	if is_down && !state.mouse_buttons[button].down {
+		state.mouse_press_position[button] = state.mouse_position
 	}
 	transition(&state.mouse_buttons[button], is_down)
 }

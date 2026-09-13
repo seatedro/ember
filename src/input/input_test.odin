@@ -27,3 +27,15 @@ test_text_repeat_and_modifier_snapshot :: proc(t: ^testing.T) {
 	record_text(&state, 'y')
 	testing.expect_value(t, len(state.text), 0)
 }
+
+@(test)
+test_mouse_press_position_survives_movement_and_release :: proc(t: ^testing.T) {
+	state: State
+	init(&state, true, {20, 30})
+	record_mouse_button(&state, .Left, true)
+	record_cursor(&state, {100, 120})
+	record_mouse_button(&state, .Left, false)
+	testing.expect(t, mouse_pressed(&state, .Left) && mouse_released(&state, .Left))
+	testing.expect_value(t, state.mouse_press_position[.Left], [2]f64{20, 30})
+	testing.expect_value(t, state.mouse_position, [2]f64{100, 120})
+}

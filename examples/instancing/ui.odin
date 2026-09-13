@@ -3,83 +3,70 @@ package game
 import "core:fmt"
 import "core:log"
 import "ember:engine"
+import "ember:input"
 import "ember:ui"
 
 build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ctx := &game.interface
+	if input.pressed(app.input, .F1) {
+		game.render_window.open = !game.render_window.open
+	}
+
+	if input.pressed(app.input, .F2) {
+		game.camera_window.open = !game.camera_window.open
+	}
+
 	size := [2]f32{f32(app.window_size.x), f32(app.window_size.y)}
-	if !check_ui(ui.begin(ctx, app.input^, size, size)) {
+	windows := [2]^ui.Window{&game.render_window, &game.camera_window}
+	if !check_ui(ui.begin(ctx, app.input^, size, size, windows[:])) {
 		return false
 	}
 
-	defer {
-		for len(ctx.scrolls) > 0 {
-			if ui.end_scroll(ctx) != .None {
-				break
-			}
-		}
-
-		if ctx.frame_active {
-			ui.end(ctx)
-		}
-	}
 	buffer: [128]u8
-	body, panel_error := ui.collapsible_panel(
-		ctx,
-		ui.id("overlay"),
-		{{24, 24}, {min(360, max(size.x - 48, 0)), min(432, max(size.y - 48, 0))}},
-		fmt.bprintf(buffer[:], "FPS %3.0f", game.fps),
-		&game.overlay_expanded,
-	)
-	if !check_ui(panel_error) {
+	title := fmt.bprintf(buffer[:], "FPS %3.0f", game.fps)
+	if !game.render_window.collapsed {
+		title = fmt.bprintf(buffer[:], "RENDER  FPS %3.0f", game.fps)
+	}
+
+	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
+	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
+	return check_ui(ui.end(ctx)) && ok
+}
+
+build_window :: proc(
+	game: ^State,
+	window: ^ui.Window,
+	title: string,
+	scroll_index: int,
+	content_height: f32,
+	controls: proc(_: ^State, _: ^ui.Layout) -> bool,
+) -> bool {
+	ctx := &game.interface
+	body, visible, window_error := ui.begin_window(ctx, window, title)
+	if !check_ui(window_error) {
 		return false
 	}
 
-	if !game.overlay_expanded {
-		return check_ui(ui.end(ctx))
+	if !visible {
+		return true
 	}
 
-	tabs_rect := ui.Rect{body.position, {body.size.x, min(body.size.y, 28)}}
-	_, tabs_error := ui.tabs(ctx, ui.id("tabs"), tabs_rect, {"RENDER", "CAMERA"}, &game.ui_tab)
-	if !check_ui(tabs_error) {
-		return false
-	}
-
-	header_height := min(body.size.y, 36)
-	viewport := ui.Rect {
-		body.position + [2]f32{0, header_height},
-		{body.size.x, body.size.y - header_height},
-	}
-	content_height: f32 = 336 if game.ui_tab == 0 else 160
 	content, scroll_error := ui.begin_scroll(
 		ctx,
-		ui.id("content"),
-		viewport,
-		{max(viewport.size.x - 12, 0), content_height},
-		&game.ui_scroll[game.ui_tab],
+		ui.id("content", window.id),
+		body,
+		{max(body.size.x - 12, 0), content_height},
+		&game.ui_scroll[scroll_index],
 	)
 	if !check_ui(scroll_error) {
+		check_ui(ui.end_window(ctx))
 		return false
 	}
 
 	column, layout_error := ui.layout(content, .Column, spacing = 8)
-	if !check_ui(layout_error) {
-		return false
-	}
-
-	if game.ui_tab == 0 {
-		if !render_controls(game, &column) {
-			return false
-		}
-	} else if !camera_controls(game, &column) {
-		return false
-	}
-
-	if !check_ui(ui.end_scroll(ctx)) {
-		return false
-	}
-
-	return check_ui(ui.end(ctx))
+	ok := check_ui(layout_error) && controls(game, &column)
+	ok = check_ui(ui.end_scroll(ctx)) && ok
+	return check_ui(ui.end_window(ctx)) && ok
 }
 
 render_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {

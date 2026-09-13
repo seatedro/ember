@@ -19,9 +19,9 @@ State :: struct {
 	overlay:             draw2d.Renderer,
 	interface:           ui.Context,
 	ui_failed:           bool,
-	overlay_expanded:    bool,
+	render_window:       ui.Window,
+	camera_window:       ui.Window,
 	ui_scroll:           [2][2]f32,
-	ui_tab:              int,
 	tone_mapping:        int,
 	note:                ui.Text_Edit,
 	font:                draw2d.Font,
@@ -68,10 +68,21 @@ configure :: proc() -> engine.Config {
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {
-		orbit            = INITIAL_ORBIT,
-		batching         = true,
-		overlay_expanded = true,
-		exposure         = 1,
+		orbit = INITIAL_ORBIT,
+		batching = true,
+		render_window = {
+			id = ui.id("render-window"),
+			bounds = {{24, 24}, {360, 400}},
+			minimum_size = {240, 160},
+			open = true,
+		},
+		camera_window = {
+			id = ui.id("camera-window"),
+			bounds = {{408, 24}, {300, 200}},
+			minimum_size = {220, 160},
+			open = true,
+		},
+		exposure = 1,
 	}
 	err: render.Error
 	game.renderer, err = render.create(app.device)

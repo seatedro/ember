@@ -28,36 +28,42 @@ Capture :: struct {
 }
 
 Context :: struct {
-	overlays:                              draw2d.List,
-	popup:                                 ID,
-	popup_bounds, popup_anchor:            Rect,
-	popup_index:                           int,
-	popup_offset:                          f32,
-	popup_seen, in_overlay, mouse_blocked: bool,
-	last_hot:                              ID,
-	hover_since:                           time.Tick,
-	clipboard:                             input.Clipboard,
-	style:                                 Style,
-	draws:                                 draw2d.List,
-	hot, active, focus:                    ID,
-	capture:                               Capture,
-	raw_input:                             input.State,
-	pointer:                               [2]f64,
-	mouse_owned:                           [input.Mouse_Button]bool,
-	key_owned:                             [input.Key]bool,
-	previous_order, order:                 [dynamic]ID,
-	seen:                                  map[ID]bool,
-	frame_active:                          bool,
-	pointer_over:                          bool,
-	navigation_used:                       bool,
-	focus_first:                           bool,
-	scrolls:                               [dynamic]Scroll_Frame,
-	wheel_consumed:                        bool,
-	focus_moved:                           bool,
+	windows:                                                  map[ID]Window_Record,
+	window_order:                                             [dynamic]ID,
+	current_window, hover_window, focus_window, popup_window: ID,
+	window_drag:                                              Window_Drag,
+	overlays:                                                 draw2d.List,
+	popup:                                                    ID,
+	popup_bounds, popup_anchor:                               Rect,
+	popup_index:                                              int,
+	popup_offset:                                             f32,
+	popup_seen, in_overlay, mouse_blocked:                    bool,
+	last_hot:                                                 ID,
+	hover_since:                                              time.Tick,
+	clipboard:                                                input.Clipboard,
+	style:                                                    Style,
+	draws:                                                    draw2d.List,
+	hot, active, focus:                                       ID,
+	capture:                                                  Capture,
+	raw_input:                                                input.State,
+	pointer, press_pointer:                                   [2]f64,
+	mouse_owned:                                              [input.Mouse_Button]bool,
+	key_owned:                                                [input.Key]bool,
+	previous_order, order:                                    [dynamic]ID,
+	seen:                                                     map[ID]bool,
+	frame_active:                                             bool,
+	pointer_over:                                             bool,
+	navigation_used:                                          bool,
+	focus_first:                                              bool,
+	scrolls:                                                  [dynamic]Scroll_Frame,
+	wheel_consumed:                                           bool,
+	focus_moved:                                              bool,
 }
 
 create :: proc(allocator := context.allocator) -> Context {
 	return {
+		windows = make(map[ID]Window_Record, allocator),
+		window_order = make([dynamic]ID, allocator),
 		draws = draw2d.create_list(allocator),
 		overlays = draw2d.create_list(allocator),
 		previous_order = make([dynamic]ID, allocator),
@@ -76,7 +82,12 @@ id :: proc(name: string, parent: ID = 0) -> ID {
 	return ID(hash) if hash != 0 else ID(1)
 }
 
-begin :: proc(ctx: ^Context, state: input.State, size, input_size: [2]f32) -> Error {
+begin :: proc(
+	ctx: ^Context,
+	state: input.State,
+	size, input_size: [2]f32,
+	windows: []^Window = nil,
+) -> Error {
 	if ctx.frame_active ||
 	   !valid_rect({size = size}) ||
 	   !valid_rect({size = input_size}) ||
@@ -104,6 +115,9 @@ begin :: proc(ctx: ^Context, state: input.State, size, input_size: [2]f32) -> Er
 	ctx.pointer =
 		state.mouse_position *
 		[2]f64{f64(size.x) / f64(input_size.x), f64(size.y) / f64(input_size.y)}
+	ctx.press_pointer =
+		state.mouse_press_position[.Left] *
+		[2]f64{f64(size.x) / f64(input_size.x), f64(size.y) / f64(input_size.y)}
 	ctx.hot = 0
 	ctx.pointer_over = false
 	ctx.navigation_used = false
@@ -111,10 +125,15 @@ begin :: proc(ctx: ^Context, state: input.State, size, input_size: [2]f32) -> Er
 	ctx.capture = {}
 	ctx.popup_seen = false
 	ctx.mouse_blocked = false
+	if err := prepare_windows(ctx, windows); err != .None {
+		return err
+	}
 	ctx.frame_active = true
 
 	if !state.focused {
 		ctx.active, ctx.focus = 0, 0
+		ctx.window_drag = {}
+		ctx.hover_window = 0
 		ctx.mouse_owned = {}
 		ctx.key_owned = {}
 		return .None
@@ -142,6 +161,8 @@ begin :: proc(ctx: ^Context, state: input.State, size, input_size: [2]f32) -> Er
 			ctx.pointer_over = true
 		}
 	}
+
+	update_window_input(ctx)
 
 	if input.pressed(&ctx.raw_input, .Escape) && ctx.popup != 0 {
 		ctx.popup = 0
@@ -210,17 +231,21 @@ interact :: proc(ctx: ^Context, widget: ID, rect: Rect, enabled := true) -> (Int
 		return {}, .None
 	}
 
-	if _, err := append(&ctx.order, widget); err != nil {
-		return {}, .Allocation_Failed
+	keyboard_window := ctx.current_window == ctx.focus_window
+	if keyboard_window {
+		if _, err := append(&ctx.order, widget); err != nil {
+			return {}, .Allocation_Failed
+		}
 	}
 
 	if !ctx.raw_input.focused ||
+	   ctx.window_drag.window != 0 ||
 	   ctx.mouse_blocked ||
 	   (ctx.popup != 0 && ctx.popup != widget && !ctx.in_overlay) {
 		return {}, .None
 	}
 
-	if ctx.focus_first {
+	if ctx.focus_first && keyboard_window {
 		ctx.focus = widget
 		ctx.focus_first = false
 		ctx.navigation_used = true
@@ -246,7 +271,7 @@ interact :: proc(ctx: ^Context, widget: ID, rect: Rect, enabled := true) -> (Int
 		ctx.active = 0
 	}
 
-	focused := ctx.focus == widget
+	focused := ctx.focus == widget && keyboard_window
 	if focused && ctx.focus_moved {
 		reveal_focused(ctx, rect)
 	}
@@ -263,7 +288,7 @@ end :: proc(ctx: ^Context) -> Error {
 		return .Invalid_Frame
 	}
 
-	if ctx.in_overlay {
+	if ctx.in_overlay || ctx.current_window != 0 {
 		return .Invalid_Frame
 	}
 
@@ -315,6 +340,10 @@ end :: proc(ctx: ^Context) -> Error {
 		return .Invalid_Frame
 	}
 
+	if err := compose_windows(ctx); err != .None {
+		return err
+	}
+
 	return draw_error(draw2d.append_list(&ctx.draws, &ctx.overlays))
 }
 
@@ -348,6 +377,12 @@ remaining_input :: proc(ctx: ^Context) -> input.State {
 }
 
 destroy :: proc(ctx: ^Context) {
+	for _, record in ctx.windows {
+		list := record.draws
+		draw2d.destroy_list(&list)
+	}
+	delete(ctx.windows)
+	delete(ctx.window_order)
 	draw2d.destroy_list(&ctx.draws)
 	draw2d.destroy_list(&ctx.overlays)
 	delete(ctx.order)
@@ -360,6 +395,7 @@ destroy :: proc(ctx: ^Context) {
 @(private)
 pointer_inside :: proc(ctx: ^Context, rect: Rect) -> bool {
 	return(
+		(ctx.in_overlay || ctx.current_window == ctx.hover_window) &&
 		ctx.raw_input.focused &&
 		ctx.raw_input.mouse_position_valid &&
 		contains(rect, ctx.pointer) &&

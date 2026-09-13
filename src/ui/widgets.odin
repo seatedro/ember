@@ -175,6 +175,7 @@ dropdown :: proc(
 		return previous != selected^, .None
 	}
 
+	ctx.popup_window = ctx.current_window
 	ctx.popup_seen = true
 	if ctx.raw_input.focused {
 		ctx.focus = widget
