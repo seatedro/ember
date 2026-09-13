@@ -66,6 +66,7 @@ create_presentation :: proc(
 		quad.vertices[:],
 		quad.indices[:],
 		VERTEX_LAYOUT,
+		quad.bounds,
 	)
 	if err != .None {
 		destroy_presentation(renderer, &presentation)

@@ -1,11 +1,13 @@
 package geometry
 
+import emath "../core/math"
 import "core:math"
 import "core:mem"
 
 Grid_Mesh :: struct {
 	vertices:  []Color_Vertex,
 	indices:   []u32,
+	bounds:    emath.Bounding_Sphere,
 	allocator: mem.Allocator,
 }
 
@@ -33,7 +35,7 @@ create_grid :: proc(
 	   extent > (max(int) / size_of(Color_Vertex) - 4) / 8 ||
 	   major_every <= 0 ||
 	   !(spacing > 0) ||
-	   math.is_inf(spacing * f32(extent)) {
+	   math.is_inf(spacing * f32(extent) * math.sqrt(f32(2))) {
 		return {}, .Invalid_Size
 	}
 
@@ -66,7 +68,13 @@ create_grid :: proc(
 		index = u32(i)
 	}
 
-	return {vertices = vertices, indices = indices, allocator = allocator}, .None
+	return {
+			vertices = vertices,
+			indices = indices,
+			bounds = {radius = half_size * math.sqrt(f32(2))},
+			allocator = allocator,
+		},
+		.None
 }
 
 destroy_grid :: proc(mesh: ^Grid_Mesh) {

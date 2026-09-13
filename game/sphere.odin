@@ -134,6 +134,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		mesh.vertices,
 		mesh.indices,
 		render.VERTEX_LAYOUT,
+		mesh.bounds,
 	)
 	if !check(err, "create mesh") {
 		return false

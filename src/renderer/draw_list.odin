@@ -110,8 +110,14 @@ draw_list :: proc(
 		return err
 	}
 
+	frustum := emath.frustum_from_matrix(projection * camera.view_matrix(view))
 	for &entry in list.items {
 		item := &entry.item
+		bounds := emath.transform_sphere(item.mesh.bounds, item.transform)
+		if !emath.sphere_in_frustum(frustum, bounds) {
+			continue
+		}
+
 		if err := draw_mesh(renderer, &item.pipeline, &item.mesh, &item.material, item.transform);
 		   err != .None {
 			return err

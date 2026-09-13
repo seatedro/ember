@@ -1,11 +1,13 @@
 package geometry
 
+import emath "../core/math"
 import "core:math"
 import "core:mem"
 
 Sphere_Mesh :: struct {
 	vertices:  []Vertex,
 	indices:   []u32,
+	bounds:    emath.Bounding_Sphere,
 	allocator: mem.Allocator,
 }
 
@@ -128,7 +130,13 @@ create_sphere :: proc(
 
 	assert(cursor == len(indices))
 
-	return Sphere_Mesh{vertices = vertices, indices = indices, allocator = allocator}, .None
+	return Sphere_Mesh {
+			vertices = vertices,
+			indices = indices,
+			bounds = {radius = radius},
+			allocator = allocator,
+		},
+		.None
 }
 
 destroy_sphere :: proc(mesh: ^Sphere_Mesh) {

@@ -1,6 +1,8 @@
 package renderer
 
+import emath "../core/math"
 import "../rhi"
+import "core:math"
 import "core:mem"
 
 Vertex_Layout :: rhi.Vertex_Layout
@@ -10,6 +12,7 @@ Mesh :: struct {
 	indices:     rhi.Buffer_Handle,
 	index_count: u32,
 	layout:      Vertex_Layout,
+	bounds:      emath.Bounding_Sphere,
 }
 
 create_mesh :: proc(
@@ -17,10 +20,21 @@ create_mesh :: proc(
 	vertices: []$Vertex,
 	indices: []u32,
 	layout: Vertex_Layout,
+	bounds: emath.Bounding_Sphere,
 ) -> (
 	mesh: Mesh,
 	err: Error,
 ) {
+	if !(bounds.radius >= 0) || math.is_inf(bounds.radius) {
+		return {}, .Invalid_Draw
+	}
+
+	for value in bounds.center {
+		if math.is_nan(value) || math.is_inf(value) {
+			return {}, .Invalid_Draw
+		}
+	}
+
 	if u64(layout.stride) != u64(size_of(Vertex)) {
 		return {}, .Invalid_Vertex_Layout
 	}
@@ -67,6 +81,7 @@ create_mesh :: proc(
 
 	mesh.index_count = u32(len(indices))
 	mesh.layout = layout
+	mesh.bounds = bounds
 
 	return
 }

@@ -48,7 +48,13 @@ create_debug_grid :: proc(
 		return
 	}
 
-	grid.mesh, err = create_mesh(renderer, data.vertices, data.indices, COLOR_VERTEX_LAYOUT)
+	grid.mesh, err = create_mesh(
+		renderer,
+		data.vertices,
+		data.indices,
+		COLOR_VERTEX_LAYOUT,
+		data.bounds,
+	)
 	if err != .None {
 		destroy_debug_grid(renderer, &grid)
 	}

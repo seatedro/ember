@@ -12,6 +12,7 @@ init_blending :: proc(game: ^State) -> bool {
 		quad.vertices[:],
 		quad.indices[:],
 		render.VERTEX_LAYOUT,
+		quad.bounds,
 	)
 	if !check(err, "create blend mesh") {
 		return false
