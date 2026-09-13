@@ -142,14 +142,14 @@ destroy_device :: proc(device: ^Device) -> Error {
 		return err
 	}
 
-	if err := backend.wait_idle(); err != .None {
-		return err
-	}
-
 	if device.pass_active {
 		if err := end_pass(device); err != .None {
 			return err
 		}
+	}
+
+	if err := backend.wait_idle(&device.native); err != .None {
+		return err
 	}
 
 	for slot, index in device.render_targets.slots {
@@ -162,7 +162,7 @@ destroy_device :: proc(device: ^Device) -> Error {
 
 	for &slot, index in device.pipelines.slots {
 		if slot.used {
-			if err := backend.destroy_pipeline(&slot.value.native); err != .None {
+			if err := backend.destroy_pipeline(&device.native, &slot.value.native); err != .None {
 				return err
 			}
 
@@ -172,7 +172,7 @@ destroy_device :: proc(device: ^Device) -> Error {
 
 	for &slot, index in device.buffers.slots {
 		if slot.used {
-			if err := backend.destroy_buffer(&slot.value.native); err != .None {
+			if err := backend.destroy_buffer(&device.native, &slot.value.native); err != .None {
 				return err
 			}
 
@@ -182,7 +182,7 @@ destroy_device :: proc(device: ^Device) -> Error {
 
 	for &slot, index in device.textures.slots {
 		if slot.used {
-			if err := backend.destroy_texture(&slot.value.native); err != .None {
+			if err := backend.destroy_texture(&device.native, &slot.value.native); err != .None {
 				return err
 			}
 
@@ -192,12 +192,16 @@ destroy_device :: proc(device: ^Device) -> Error {
 
 	for &slot, index in device.shaders.slots {
 		if slot.used {
-			if err := backend.destroy_shader(&slot.value.native); err != .None {
+			if err := backend.destroy_shader(&device.native, &slot.value.native); err != .None {
 				return err
 			}
 
 			pool.free(&device.shaders, Shader_Handle{u32(index), slot.generation})
 		}
+	}
+
+	if err := backend.destroy_device(&device.native); err != .None {
+		return err
 	}
 
 	ok := pool.destroy(&device.buffers)

@@ -226,6 +226,13 @@ Uniform_Block_Desc :: struct {
 	binding: u32,
 }
 
+// Shader resource requirements reported by a backend after pipeline creation.
+// A zero uniform size or false texture flag means the binding is unused.
+Pipeline_Requirements :: struct {
+	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
+	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,
+}
+
 Draw_Indexed_Desc :: struct {
 	index_count:    u32,
 	first_index:    u32,

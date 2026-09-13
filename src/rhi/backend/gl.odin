@@ -30,10 +30,10 @@ Shader :: struct {
 }
 
 Pipeline :: struct {
-	program:          u32,
-	vao:              u32,
-	uniform_sizes:    [types.MAX_UNIFORM_BINDINGS]u64,
-	texture_bindings: [types.MAX_TEXTURE_BINDINGS]bool,
+	program:      u32,
+	vao:          u32,
+	settings:     types.Pipeline_Settings,
+	requirements: types.Pipeline_Requirements,
 }
 
 // Use impl_* for operations with explicit error handling. The vendor's debug
@@ -169,6 +169,13 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	return backend, .None
 }
 
+// Called after the RHI has ended outstanding work and destroyed all resources.
+// The platform owns the OpenGL context and outlives this device.
+destroy_device :: proc(device: ^Device) -> types.Error {
+	device^ = {}
+	return .None
+}
+
 validate_context :: proc(backend: ^Device) -> types.Error {
 	platform_context := backend.platform_context
 	if platform_context.id == nil ||
@@ -180,7 +187,14 @@ validate_context :: proc(backend: ^Device) -> types.Error {
 	return .None
 }
 
-create_buffer :: proc(desc: types.Buffer_Desc, initial_data: []u8) -> (Buffer, types.Error) {
+create_buffer :: proc(
+	device: ^Device,
+	desc: types.Buffer_Desc,
+	initial_data: []u8,
+) -> (
+	Buffer,
+	types.Error,
+) {
 	if err := check_errors("before buffer creation"); err != .None {
 		return {}, err
 	}
@@ -233,7 +247,7 @@ create_buffer :: proc(desc: types.Buffer_Desc, initial_data: []u8) -> (Buffer, t
 	return native, .None
 }
 
-wait_idle :: proc() -> types.Error {
+wait_idle :: proc(device: ^Device) -> types.Error {
 	if err := check_errors("before wait idle"); err != .None {
 		return err
 	}
@@ -243,7 +257,7 @@ wait_idle :: proc() -> types.Error {
 	return check_errors("wait idle")
 }
 
-destroy_buffer :: proc(native: ^Buffer) -> types.Error {
+destroy_buffer :: proc(device: ^Device, native: ^Buffer) -> types.Error {
 	if err := check_errors("before buffer deletion"); err != .None {
 		return err
 	}
@@ -259,6 +273,7 @@ destroy_buffer :: proc(native: ^Buffer) -> types.Error {
 }
 
 create_render_target :: proc(
+	device: ^Device,
 	desc: types.Render_Target_Desc,
 	color: Texture,
 ) -> (
@@ -337,7 +352,7 @@ create_render_target :: proc(
 	return native, .None
 }
 
-destroy_render_target :: proc(native: ^Render_Target) -> types.Error {
+destroy_render_target :: proc(device: ^Device, native: ^Render_Target) -> types.Error {
 	if err := check_errors("before render target deletion"); err != .None {
 		return err
 	}
@@ -364,6 +379,7 @@ destroy_render_target :: proc(native: ^Render_Target) -> types.Error {
 }
 
 begin_pass :: proc(
+	device: ^Device,
 	target: Render_Target,
 	viewport: types.Viewport,
 	color_load, depth_load: types.Load_Op,
@@ -403,12 +419,13 @@ begin_pass :: proc(
 	return check_errors("begin render pass")
 }
 
-end_pass :: proc() -> types.Error {
+end_pass :: proc(device: ^Device) -> types.Error {
 	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, 0)
 	return check_errors("end render pass")
 }
 
 create_shader :: proc(
+	device: ^Device,
 	desc: types.Shader_Desc,
 	allocator := context.allocator,
 ) -> (
@@ -498,7 +515,7 @@ create_shader :: proc(
 	return native, .None
 }
 
-destroy_shader :: proc(native: ^Shader) -> types.Error {
+destroy_shader :: proc(device: ^Device, native: ^Shader) -> types.Error {
 	if err := check_errors("before shader deletion"); err != .None {
 		return err
 	}
@@ -514,7 +531,9 @@ destroy_shader :: proc(native: ^Shader) -> types.Error {
 }
 
 create_pipeline :: proc(
+	device: ^Device,
 	vertex, fragment: Shader,
+	settings: types.Pipeline_Settings,
 	label: string,
 	uniform_blocks: []types.Uniform_Block_Desc,
 	textures: []types.Texture_Binding_Desc,
@@ -528,7 +547,8 @@ create_pipeline :: proc(
 	}
 
 	native := Pipeline {
-		program = gl.impl_CreateProgram(),
+		program  = gl.impl_CreateProgram(),
+		settings = settings,
 	}
 
 	succeeded := false
@@ -634,7 +654,7 @@ create_pipeline :: proc(
 	return native, .None
 }
 
-destroy_pipeline :: proc(native: ^Pipeline) -> types.Error {
+destroy_pipeline :: proc(device: ^Device, native: ^Pipeline) -> types.Error {
 	if err := check_errors("before pipeline deletion"); err != .None {
 		return err
 	}
@@ -656,8 +676,8 @@ destroy_pipeline :: proc(native: ^Pipeline) -> types.Error {
 }
 
 draw_indexed :: proc(
+	device: ^Device,
 	pipeline: Pipeline,
-	settings: types.Pipeline_Settings,
 	vertex: Buffer,
 	vertex_offset: u64,
 	instance: Buffer,
@@ -675,6 +695,7 @@ draw_indexed :: proc(
 		return err
 	}
 
+	settings := pipeline.settings
 	previous_vao, previous_array, previous_program: i32
 	gl.impl_GetIntegerv(gl.VERTEX_ARRAY_BINDING, &previous_vao)
 	gl.impl_GetIntegerv(gl.ARRAY_BUFFER_BINDING, &previous_array)
@@ -683,7 +704,7 @@ draw_indexed :: proc(
 	previous_uniforms: [types.MAX_UNIFORM_BINDINGS]i32
 	gl.impl_GetIntegerv(gl.UNIFORM_BUFFER_BINDING, &previous_uniform)
 
-	for size, binding in pipeline.uniform_sizes {
+	for size, binding in pipeline.requirements.uniform_sizes {
 		if size != 0 {
 			gl.impl_GetIntegeri_v(
 				gl.UNIFORM_BUFFER_BINDING,
@@ -706,7 +727,7 @@ draw_indexed :: proc(
 
 	defer gl.impl_ActiveTexture(u32(previous_active))
 
-	for required, binding in pipeline.texture_bindings {
+	for required, binding in pipeline.requirements.texture_bindings {
 		if !required {
 			continue
 		}
@@ -721,7 +742,7 @@ draw_indexed :: proc(
 	}
 
 	defer {
-		for required, binding in pipeline.texture_bindings {
+		for required, binding in pipeline.requirements.texture_bindings {
 			if !required {
 				continue
 			}
@@ -731,7 +752,7 @@ draw_indexed :: proc(
 			gl.impl_BindSampler(u32(binding), u32(previous_samplers[binding]))
 		}
 
-		for size, binding in pipeline.uniform_sizes {
+		for size, binding in pipeline.requirements.uniform_sizes {
 			if size != 0 {
 				gl.impl_BindBufferBase(
 					gl.UNIFORM_BUFFER,
@@ -787,7 +808,7 @@ draw_indexed :: proc(
 		return err
 	}
 
-	for required, binding in pipeline.texture_bindings {
+	for required, binding in pipeline.requirements.texture_bindings {
 		if !required {
 			continue
 		}
@@ -889,7 +910,7 @@ draw_indexed :: proc(
 	return check_errors("draw indexed")
 }
 
-update_buffer :: proc(native: Buffer, offset: u64, data: []u8) -> types.Error {
+update_buffer :: proc(device: ^Device, native: Buffer, offset: u64, data: []u8) -> types.Error {
 	if err := check_errors("before buffer update"); err != .None {
 		return err
 	}
@@ -962,21 +983,21 @@ configure_uniform_blocks :: proc(
 			return .Invalid_Uniform_Binding
 		}
 
-		pipeline.uniform_sizes[block.binding] = u64(size)
+		pipeline.requirements.uniform_sizes[block.binding] = u64(size)
 	}
 
 	return .None
 }
 
-pipeline_uniform_sizes :: proc(pipeline: Pipeline) -> [types.MAX_UNIFORM_BINDINGS]u64 {
-	return pipeline.uniform_sizes
+pipeline_requirements :: proc(pipeline: Pipeline) -> types.Pipeline_Requirements {
+	return pipeline.requirements
 }
 
 bind_uniforms :: proc(
 	pipeline: Pipeline,
 	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
 ) -> types.Error {
-	for size, binding in pipeline.uniform_sizes {
+	for size, binding in pipeline.requirements.uniform_sizes {
 		if size != 0 {
 			gl.impl_BindBufferBase(gl.UNIFORM_BUFFER, u32(binding), uniforms[binding].id)
 		}
@@ -985,7 +1006,14 @@ bind_uniforms :: proc(
 	return check_errors("bind uniform buffers")
 }
 
-create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, types.Error) {
+create_texture :: proc(
+	device: ^Device,
+	desc: types.Texture_Desc,
+	pixels: []u8,
+) -> (
+	Texture,
+	types.Error,
+) {
 	if err := check_errors("before texture creation"); err != .None {
 		return {}, err
 	}
@@ -1094,7 +1122,7 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 	return native, .None
 }
 
-destroy_texture :: proc(native: ^Texture) -> types.Error {
+destroy_texture :: proc(device: ^Device, native: ^Texture) -> types.Error {
 	if err := check_errors("before texture deletion"); err != .None {
 		return err
 	}
@@ -1182,7 +1210,7 @@ configure_textures :: proc(
 			}
 
 			gl.impl_Uniform1i(location, i32(binding.binding))
-			pipeline.texture_bindings[binding.binding] = true
+			pipeline.requirements.texture_bindings[binding.binding] = true
 			found = true
 			break
 		}

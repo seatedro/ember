@@ -12,6 +12,7 @@ Render_Target_Handle :: struct {
 Render_Target_Desc :: types.Render_Target_Desc
 
 Render_Target_Resource :: struct {
+	ready:         bool,
 	native:        backend.Render_Target,
 	color:         Texture_Handle,
 	width, height: i32,
@@ -51,6 +52,7 @@ create_render_target :: proc(
 	}
 
 	color, color_error := backend.create_texture(
+		&device.native,
 		{
 			width = desc.width,
 			height = desc.height,
@@ -73,7 +75,7 @@ create_render_target :: proc(
 	slot.width, slot.height = desc.width, desc.height
 	color_slot.owner = handle
 
-	native, err := backend.create_render_target(desc, color)
+	native, err := backend.create_render_target(&device.native, desc, color)
 	if err != .None {
 		// Preserve the owning handle if releasing its color texture also fails.
 		if destroy_render_target(device, handle) == .None {
@@ -84,6 +86,7 @@ create_render_target :: proc(
 	}
 
 	slot.native = native
+	slot.ready = true
 	return handle, .None
 }
 
@@ -120,11 +123,12 @@ destroy_render_target :: proc(device: ^Device, handle: Render_Target_Handle) -> 
 		return .Resource_In_Use
 	}
 
-	if err := backend.wait_idle(); err != .None {
+	if err := backend.wait_idle(&device.native); err != .None {
 		return err
 	}
 
-	if err := backend.destroy_render_target(&slot.native); err != .None {
+	slot.ready = false
+	if err := backend.destroy_render_target(&device.native, &slot.native); err != .None {
 		return err
 	}
 

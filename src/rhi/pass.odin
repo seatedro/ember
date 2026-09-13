@@ -36,7 +36,7 @@ begin_pass :: proc(
 	native: backend.Render_Target
 	if desc.target != (Render_Target_Handle{}) {
 		slot := pool.get(&device.render_targets, desc.target)
-		if slot == nil || slot.native.framebuffer == 0 {
+		if slot == nil || !slot.ready {
 			return .Invalid_Handle
 		}
 
@@ -60,6 +60,7 @@ begin_pass :: proc(
 	}
 
 	if err := backend.begin_pass(
+		&device.native,
 		native,
 		viewport,
 		desc.color_load,
@@ -67,7 +68,7 @@ begin_pass :: proc(
 		clear_color,
 		clear_depth,
 	); err != .None {
-		backend.end_pass()
+		backend.end_pass(&device.native)
 		return err
 	}
 
@@ -87,7 +88,7 @@ end_pass :: proc(device: ^Device) -> Error {
 		return .Invalid_Pass
 	}
 
-	if err := backend.end_pass(); err != .None {
+	if err := backend.end_pass(&device.native); err != .None {
 		return err
 	}
 

@@ -65,7 +65,7 @@ create_texture :: proc(
 		return {}, .Pool_Exhausted
 	}
 
-	native, err := backend.create_texture(desc, pixels)
+	native, err := backend.create_texture(&device.native, desc, pixels)
 	if err != .None {
 		pool.free(&device.textures, handle)
 		return {}, err
@@ -104,11 +104,11 @@ release_texture :: proc(device: ^Device, handle: Texture_Handle) -> Error {
 		return .Invalid_Handle
 	}
 
-	if err := backend.wait_idle(); err != .None {
+	if err := backend.wait_idle(&device.native); err != .None {
 		return err
 	}
 
-	if err := backend.destroy_texture(&slot.native); err != .None {
+	if err := backend.destroy_texture(&device.native, &slot.native); err != .None {
 		return err
 	}
 

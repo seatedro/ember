@@ -35,7 +35,7 @@ create_shader :: proc(device: ^Device, desc: Shader_Desc) -> (Shader_Handle, Err
 		return {}, .Pool_Exhausted
 	}
 
-	native, err := backend.create_shader(desc, device.shaders.allocator)
+	native, err := backend.create_shader(&device.native, desc, device.shaders.allocator)
 	if err != .None {
 		pool.free(&device.shaders, handle)
 		return {}, err
@@ -56,7 +56,7 @@ destroy_shader :: proc(device: ^Device, handle: Shader_Handle) -> Error {
 		return .Invalid_Handle
 	}
 
-	if err := backend.destroy_shader(&slot.native); err != .None {
+	if err := backend.destroy_shader(&device.native, &slot.native); err != .None {
 		return err
 	}
 

@@ -237,7 +237,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	width := u64(2) if bindings.index_type == .U16 else u64(4)
 	uniforms: [MAX_UNIFORM_BINDINGS]backend.Buffer
 
-	for required_size, binding in pipeline.uniform_sizes {
+	for required_size, binding in pipeline.requirements.uniform_sizes {
 		if required_size == 0 {
 			continue
 		}
@@ -256,7 +256,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 
 	textures: [MAX_TEXTURE_BINDINGS]backend.Texture
 
-	for required, binding in pipeline.texture_bindings {
+	for required, binding in pipeline.requirements.texture_bindings {
 		if !required {
 			continue
 		}
@@ -274,8 +274,8 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	}
 
 	return backend.draw_indexed(
+		&device.native,
 		pipeline.native,
-		pipeline.settings,
 		vertex.native,
 		bindings.vertex_offset,
 		instance,

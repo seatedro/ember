@@ -56,8 +56,8 @@ create_pipeline :: proc(
 	}
 
 	slot := pool.get(&renderer.device.pipelines, pipeline.handle)
-	if slot.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
-	   slot.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) {
+	if slot.requirements.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
+	   slot.requirements.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) {
 		destroy_pipeline(renderer, &pipeline)
 		return pipeline, .Invalid_Size
 	}
@@ -108,11 +108,11 @@ validate_draw :: proc(
 		return .Invalid_Buffer_Binding
 	}
 
-	if slot.uniform_sizes[MATERIAL_BINDING] > parameters.size {
+	if slot.requirements.uniform_sizes[MATERIAL_BINDING] > parameters.size {
 		return .Invalid_Size
 	}
 
-	for required, binding in slot.texture_bindings {
+	for required, binding in slot.requirements.texture_bindings {
 		if !required {
 			continue
 		}

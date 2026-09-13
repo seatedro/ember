@@ -31,10 +31,9 @@ MAX_TEXTURE_BINDINGS :: types.MAX_TEXTURE_BINDINGS
 Texture_Binding_Desc :: types.Texture_Binding_Desc
 
 Pipeline_Resource :: struct {
-	settings:         Pipeline_Settings,
-	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
-	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,
-	native:           backend.Pipeline,
+	settings:     Pipeline_Settings,
+	requirements: types.Pipeline_Requirements,
+	native:       backend.Pipeline,
 }
 
 validate_vertex_layout :: proc(layout: Vertex_Layout) -> Error {
@@ -125,7 +124,7 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 	return .None
 }
 
-// Linking finishes here; the linked pipeline survives destruction of its shader stages.
+// Pipeline creation finishes here; the pipeline survives destruction of its shader stages.
 create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handle, Error) {
 	if err := validate_device(device); err != .None {
 		return {}, err
@@ -159,8 +158,10 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	}
 
 	native, err := backend.create_pipeline(
+		&device.native,
 		vertex.native,
 		fragment.native,
+		desc.settings,
 		desc.label,
 		desc.uniform_blocks,
 		desc.textures,
@@ -173,8 +174,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 
 	slot.native = native
 	slot.settings = desc.settings
-	slot.uniform_sizes = backend.pipeline_uniform_sizes(native)
-	slot.texture_bindings = native.texture_bindings
+	slot.requirements = backend.pipeline_requirements(native)
 
 	return handle, .None
 }
@@ -233,11 +233,11 @@ destroy_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 		return .Invalid_Handle
 	}
 
-	if err := backend.wait_idle(); err != .None {
+	if err := backend.wait_idle(&device.native); err != .None {
 		return err
 	}
 
-	if err := backend.destroy_pipeline(&slot.native); err != .None {
+	if err := backend.destroy_pipeline(&device.native, &slot.native); err != .None {
 		return err
 	}
 

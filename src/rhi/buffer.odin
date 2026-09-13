@@ -35,7 +35,7 @@ create_buffer :: proc(
 		return {}, .Pool_Exhausted
 	}
 
-	native, err := backend.create_buffer(desc, initial_data)
+	native, err := backend.create_buffer(&device.native, desc, initial_data)
 	if err != .None {
 		pool.free(&device.buffers, handle)
 		return {}, err
@@ -99,7 +99,7 @@ update_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64, data:
 		return .None
 	}
 
-	return backend.update_buffer(slot.native, offset, data)
+	return backend.update_buffer(&device.native, slot.native, offset, data)
 }
 
 // Wait for GPU reads to finish before recycling the buffer slot.
@@ -113,11 +113,11 @@ destroy_buffer :: proc(device: ^Device, handle: Buffer_Handle) -> Error {
 		return .Invalid_Handle
 	}
 
-	if err := backend.wait_idle(); err != .None {
+	if err := backend.wait_idle(&device.native); err != .None {
 		return err
 	}
 
-	if err := backend.destroy_buffer(&slot.native); err != .None {
+	if err := backend.destroy_buffer(&device.native, &slot.native); err != .None {
 		return err
 	}
 
