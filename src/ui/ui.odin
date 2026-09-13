@@ -13,6 +13,9 @@ Error :: enum {
 	Invalid_Layout,
 	Layout_Overflow,
 	Allocation_Failed,
+	Invalid_Style,
+	Invalid_Value,
+	Draw_Failed,
 }
 
 Interaction :: struct {
@@ -24,6 +27,7 @@ Capture :: struct {
 }
 
 Context :: struct {
+	style:                 Style,
 	draws:                 draw2d.List,
 	hot, active, focus:    ID,
 	capture:               Capture,

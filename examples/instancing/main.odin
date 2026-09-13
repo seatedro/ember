@@ -3,6 +3,7 @@ package game
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:time"
 import "ember:camera"
 import emath "ember:core/math"
 import "ember:draw2d"
@@ -19,6 +20,7 @@ State :: struct {
 	overlay:             draw2d.Renderer,
 	interface:           ui.Context,
 	ui_failed:           bool,
+	overlay_expanded:    bool,
 	font:                draw2d.Font,
 	preview:             render.Texture,
 	shaders:             shaders.Library,
@@ -34,6 +36,10 @@ State :: struct {
 	batching, paused:    bool,
 	last_stats:          render.Draw_Stats,
 	next_report:         f64,
+	exposure:            f32,
+	fps:                 f64,
+	fps_tick:            time.Tick,
+	fps_frame:           u64,
 }
 
 INITIAL_ORBIT :: camera.Orbit {
@@ -59,8 +65,10 @@ configure :: proc() -> engine.Config {
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {
-		orbit    = INITIAL_ORBIT,
-		batching = true,
+		orbit            = INITIAL_ORBIT,
+		batching         = true,
+		overlay_expanded = true,
+		exposure         = 1,
 	}
 	err: render.Error
 	game.renderer, err = render.create(app.device)
@@ -83,6 +91,22 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	if font_error != .None {
 		log.errorf("Load overlay font: %v", font_error)
 		return false
+	}
+
+	game.interface.style = {
+		font_size    = 16,
+		padding      = {8, 4},
+		border_width = 2,
+		thumb_width  = 12,
+		font         = &game.font,
+		text         = {0.88, 0.85, 0.77, 1},
+		background   = {0.14, 0.13, 0.17, 1},
+		hover        = {0.24, 0.22, 0.28, 1},
+		active       = {0.32, 0.28, 0.36, 1},
+		border       = {0.68, 0.64, 0.55, 1},
+		focus        = {0.94, 0.81, 0.49, 1},
+		disabled     = {0.5, 0.47, 0.48, 1},
+		thumb        = {0.88, 0.85, 0.77, 1},
 	}
 
 	game.preview, err = render.create_texture(
@@ -157,6 +181,8 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	game.presentation, err = render.create_presentation(&game.renderer, &game.shaders)
+	game.fps_tick = time.tick_now()
+	game.fps_frame = app.frame_count
 	return check(err, "create presentation")
 }
 
@@ -206,6 +232,14 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	if game.ui_failed {
 		return false
+	}
+
+	now := time.tick_now()
+	seconds := time.duration_seconds(time.tick_diff(game.fps_tick, now))
+	if seconds >= 0.5 {
+		game.fps = f64(app.frame_count - game.fps_frame) / seconds
+		game.fps_tick = now
+		game.fps_frame = app.frame_count
 	}
 
 	if game.target.width != app.width || game.target.height != app.height {
@@ -304,6 +338,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			&game.presentation,
 			game.target.color,
 			{width = app.width, height = app.height},
+			{exposure = game.exposure},
 		),
 		"present",
 	) {
@@ -363,19 +398,23 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		}
 	}
 
-	panel := ui.Rect{{24, 24}, {336, 204}}
-	if !check_ui(ui.region(ctx, panel)) {
+	buffer: [256]u8
+	body, panel_error := ui.collapsible_panel(
+		ctx,
+		ui.id("overlay"),
+		{{24, 24}, {336, 308}},
+		fmt.bprintf(buffer[:], "FPS %3.0f", game.fps),
+		&game.overlay_expanded,
+	)
+	if !check_ui(panel_error) {
 		return false
 	}
 
-	for rect, i in ([3]draw2d.Rect{panel, {{26, 26}, {332, 200}}, {{28, 28}, {328, 196}}}) {
-		colors := [3][4]f32{{0.035, 0.03, 0.05, 1}, {0.68, 0.64, 0.55, 1}, {0.14, 0.13, 0.17, 1}}
-		if !check(draw2d.rectangle(list, rect, colors[i]), "draw panel") {
-			return false
-		}
+	if !game.overlay_expanded {
+		return check_ui(ui.end(ctx))
 	}
 
-	column, layout_error := ui.layout(panel, .Column, padding = 16, spacing = 8)
+	column, layout_error := ui.layout(body, .Column, spacing = 8)
 	if !check_ui(layout_error) {
 		return false
 	}
@@ -385,7 +424,6 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		return false
 	}
 
-	buffer: [256]u8
 	stats := game.draws.stats
 	value := fmt.bprintf(
 		buffer[:],
@@ -401,48 +439,52 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		return false
 	}
 
-	button_rect, button_error := ui.next(&column, 24)
-	if !check_ui(button_error) {
+	batching_rect, batching_error := ui.next(&column, 24)
+	if !check_ui(batching_error) {
 		return false
 	}
 
-	button, interaction_error := ui.interact(ctx, ui.id("batching"), button_rect)
-	if !check_ui(interaction_error) {
+	changed, batching_control_error := ui.checkbox(
+		ctx,
+		ui.id("batching"),
+		batching_rect,
+		"BATCHING",
+		&game.batching,
+	)
+	if !check_ui(batching_control_error) {
 		return false
 	}
 
-	if button.clicked {
-		game.batching = !game.batching
+	if changed {
 		game.next_report = 0
 	}
 
-	border := [4]f32{0.94, 0.81, 0.49, 1} if button.focused else [4]f32{0.68, 0.64, 0.55, 1}
-	fill :=
-		[4]f32{0.32, 0.28, 0.36, 1} if button.held else ([4]f32{0.24, 0.22, 0.28, 1} if button.hovered else [4]f32{0.14, 0.13, 0.17, 1})
-	if !check(draw2d.rectangle(list, button_rect, border), "draw button border") ||
-	   !check(
-			   draw2d.rectangle(
-				   list,
-				   {button_rect.position + [2]f32{2, 2}, button_rect.size - [2]f32{4, 4}},
-				   fill,
-			   ),
-			   "draw button",
-		   ) {
+	pause_rect, pause_error := ui.next(&column, 24)
+	if !check_ui(pause_error) {
 		return false
 	}
 
-	label := "BATCHING ON" if game.batching else "BATCHING OFF"
-	if !check(
-		draw2d.text(
-			list,
-			&game.font,
-			label,
-			button_rect.position + [2]f32{8, 4},
-			16,
-			{0.88, 0.85, 0.77, 1},
-		),
-		"draw button label",
-	) {
+	_, checkbox_error := ui.checkbox(ctx, ui.id("pause"), pause_rect, "PAUSED", &game.paused)
+	if !check_ui(checkbox_error) {
+		return false
+	}
+
+	exposure_rect, exposure_error := ui.next(&column, 48)
+	if !check_ui(exposure_error) {
+		return false
+	}
+
+	_, slider_error := ui.slider(
+		ctx,
+		ui.id("exposure"),
+		exposure_rect,
+		"EXPOSURE",
+		&game.exposure,
+		0,
+		4,
+		step = 0.05,
+	)
+	if !check_ui(slider_error) {
 		return false
 	}
 
@@ -455,7 +497,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		draw2d.text(
 			list,
 			&game.font,
-			"TAB: FOCUS  ENTER/SPACE: ACTIVATE\nDRAG/SCROLL: CAMERA  B: BATCH\nR: RESET  SPACE: PAUSE  ESC: BACK/QUIT",
+			"TAB: FOCUS  ENTER/SPACE: ACTIVATE\nDRAG/SCROLL: CAMERA  B: BATCH\nARROWS: EXPOSURE  ESC: BACK/QUIT",
 			hints.position,
 			8,
 			{0.7, 0.66, 0.65, 1},
