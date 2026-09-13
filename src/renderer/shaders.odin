@@ -8,6 +8,7 @@ Builtin_Shader :: enum {
 	Grid,
 	Presentation,
 	Bloom,
+	Downsample,
 }
 
 Tint_Parameters :: struct {
@@ -109,6 +110,33 @@ load_builtin_shader :: proc(
 						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
 					},
 					fragment = {entry_point = "main", code = string(#load("glsl/bloom.frag"))},
+				},
+			},
+		)
+	case .Downsample:
+		return shaders.load_source(
+			library,
+			"ember/downsample",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "screen_vertex",
+						code = MSL_COMMON_SOURCE + #load("msl/downsample.metal", string),
+					},
+					fragment = {
+						entry_point = "downsample_fragment",
+						code = MSL_COMMON_SOURCE + #load("msl/downsample.metal", string),
+					},
+				},
+				.GLSL = {
+					vertex = {
+						entry_point = "main",
+						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
+					},
+					fragment = {
+						entry_point = "main",
+						code = string(#load("glsl/downsample.frag")),
+					},
 				},
 			},
 		)

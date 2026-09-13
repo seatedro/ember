@@ -13,11 +13,64 @@ import "ember:ui"
 
 RESOLUTION :: [2]i32{320, 180}
 BACKGROUND :: [4]f32{0.012, 0.016, 0.025, 1}
-TARGET_DESC :: render.Render_Target_Desc {
-	width        = RESOLUTION.x,
-	height       = RESOLUTION.y,
-	color_format = .RGBA16F,
-	color_filter = .Nearest,
+SAMPLE_SCALE :: 4
+
+Pixel_Target :: struct {
+	world, pixels: render.Render_Target,
+	filter:        render.Downsample,
+}
+
+create_pixel_target :: proc(
+	renderer: ^render.Renderer,
+	library: ^shaders.Library,
+) -> (
+	target: Pixel_Target,
+	err: render.Error,
+) {
+	defer {
+		if err != .None {
+			destroy_pixel_target(renderer, &target)
+		}
+	}
+
+	target.world, err = render.create_render_target(
+		renderer,
+		{
+			width = RESOLUTION.x * SAMPLE_SCALE,
+			height = RESOLUTION.y * SAMPLE_SCALE,
+			color_format = .RGBA16F,
+			color_filter = .Nearest,
+		},
+	)
+	if err != .None {
+		return
+	}
+
+	target.pixels, err = render.create_render_target(
+		renderer,
+		{
+			width = RESOLUTION.x,
+			height = RESOLUTION.y,
+			color_format = .RGBA16F,
+			color_filter = .Nearest,
+		},
+	)
+	if err != .None {
+		return
+	}
+
+	target.filter, err = render.create_downsample(renderer, library)
+	return
+}
+
+resolve_pixels :: proc(renderer: ^render.Renderer, target: ^Pixel_Target) -> render.Error {
+	return render.downsample(renderer, &target.filter, target.world, &target.pixels)
+}
+
+destroy_pixel_target :: proc(renderer: ^render.Renderer, target: ^Pixel_Target) {
+	check(render.destroy_downsample(renderer, &target.filter), "destroy downsample")
+	check(render.destroy_render_target(renderer, &target.pixels), "destroy pixels")
+	check(render.destroy_render_target(renderer, &target.world), "destroy world target")
 }
 
 Overlay :: struct {
@@ -135,7 +188,7 @@ info_panel :: proc(
 Surface :: struct {
 	renderer:     render.Renderer,
 	shaders:      shaders.Library,
-	target:       render.Render_Target,
+	target:       Pixel_Target,
 	presentation: render.Presentation,
 }
 
@@ -147,7 +200,7 @@ init_surface :: proc(surface: ^Surface, device: ^rhi.Device) -> bool {
 	}
 
 	surface.shaders = shaders.create(device)
-	surface.target, err = render.create_render_target(&surface.renderer, TARGET_DESC)
+	surface.target, err = create_pixel_target(&surface.renderer, &surface.shaders)
 	if !check(err, "create pixel target") {
 		return false
 	}
@@ -157,10 +210,14 @@ init_surface :: proc(surface: ^Surface, device: ^rhi.Device) -> bool {
 }
 
 present_surface :: proc(surface: ^Surface, app: ^engine.Context) -> rhi.Error {
+	if err := resolve_pixels(&surface.renderer, &surface.target); err != .None {
+		return err
+	}
+
 	return render.present(
 		&surface.renderer,
 		&surface.presentation,
-		surface.target.color,
+		surface.target.pixels.color,
 		render.pixel_viewport(RESOLUTION, {app.width, app.height}),
 	)
 }
@@ -170,7 +227,7 @@ destroy_surface :: proc(surface: ^Surface) {
 		render.destroy_presentation(&surface.renderer, &surface.presentation),
 		"destroy presentation",
 	)
-	check(render.destroy_render_target(&surface.renderer, &surface.target), "destroy pixel target")
+	destroy_pixel_target(&surface.renderer, &surface.target)
 	if err := shaders.destroy(&surface.shaders); err != .None {
 		log.errorf("Destroy example shaders: %v", err)
 	}

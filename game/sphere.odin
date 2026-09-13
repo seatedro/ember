@@ -26,7 +26,7 @@ State :: struct {
 	presentation:      render.Presentation_Settings,
 	shaders:           shader.Library,
 	renderer:          render.Renderer,
-	target:            render.Render_Target,
+	target:            common.Pixel_Target,
 	presenter:         render.Presentation,
 	mesh:              render.Mesh,
 	pipeline:          render.Pipeline,
@@ -306,7 +306,7 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 	}
 
 	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
+		render.begin_pass(&game.renderer, {target = &game.target.world}, common.BACKGROUND),
 		"begin world pass",
 	) {
 		return false
@@ -315,7 +315,7 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 	defer check(render.end_pass(&game.renderer), "end world pass")
 	projection := emath.perspective(
 		1.04719755,
-		f32(game.target.width) / f32(game.target.height),
+		f32(game.target.world.width) / f32(game.target.world.height),
 		0.1,
 		100,
 	)

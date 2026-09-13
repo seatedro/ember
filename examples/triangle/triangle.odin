@@ -159,7 +159,7 @@ draw_triangle :: proc(app: ^engine.Context, game: ^State) -> bool {
 	device := app.device
 
 	if !check(
-		rhi.begin_pass(device, {target = game.surface.target.handle}, common.BACKGROUND),
+		rhi.begin_pass(device, {target = game.surface.target.world.handle}, common.BACKGROUND),
 		"begin pass",
 	) {
 		return false

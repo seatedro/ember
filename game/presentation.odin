@@ -20,7 +20,7 @@ init_presentation :: proc(game: ^State) -> bool {
 		return false
 	}
 
-	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
+	game.target, err = common.create_pixel_target(&game.renderer, &game.shaders)
 	return check(err, "create pixel target")
 }
 
@@ -48,11 +48,15 @@ update_presentation :: proc(game: ^State, controls: ^input.State) {
 }
 
 present :: proc(game: ^State, app: ^engine.Context) -> bool {
+	if !check(common.resolve_pixels(&game.renderer, &game.target), "resolve pixels") {
+		return false
+	}
+
 	return check(
 		render.present(
 			&game.renderer,
 			&game.presenter,
-			game.target.color,
+			game.target.pixels.color,
 			render.pixel_viewport(common.RESOLUTION, {app.width, app.height}),
 			game.presentation,
 		),
@@ -62,5 +66,5 @@ present :: proc(game: ^State, app: ^engine.Context) -> bool {
 
 destroy_presentation :: proc(game: ^State) {
 	check(render.destroy_presentation(&game.renderer, &game.presenter), "destroy presentation")
-	check(render.destroy_render_target(&game.renderer, &game.target), "destroy target")
+	common.destroy_pixel_target(&game.renderer, &game.target)
 }

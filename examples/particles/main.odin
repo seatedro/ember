@@ -32,7 +32,7 @@ State :: struct {
 	pipeline:       render.Pipeline,
 	material:       render.Material,
 	grid:           render.Debug_Grid,
-	target:         render.Render_Target,
+	target:         common.Pixel_Target,
 	presentation:   render.Presentation,
 	bloom:          render.Bloom,
 	overlay:        common.Overlay,
@@ -146,7 +146,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
+	game.target, err = common.create_pixel_target(&game.renderer, &game.shaders)
 	if !check(err, "create target") {
 		return false
 	}
@@ -260,12 +260,12 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	view := camera.from_orbit(game.orbit)
 	projection := emath.perspective(
 		math.PI / 3,
-		f32(game.target.width) / f32(game.target.height),
+		f32(game.target.world.width) / f32(game.target.world.height),
 		0.1,
 		100,
 	)
 	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
+		render.begin_pass(&game.renderer, {target = &game.target.world}, common.BACKGROUND),
 		"begin particles",
 	) {
 		return false
@@ -313,13 +313,17 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	if !check(common.resolve_pixels(&game.renderer, &game.target), "resolve pixels") {
+		return false
+	}
+
 	bloom_texture: render.Texture
 	if game.bloom_enabled && game.bloom_strength > 0 {
 		err: render.Error
 		bloom_texture, err = render.apply_bloom(
 			&game.renderer,
 			&game.bloom,
-			game.target,
+			game.target.pixels,
 			{threshold = 1, softness = 0.5},
 		)
 		if !check(err, "bloom") {
@@ -333,7 +337,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		render.present(
 			&game.renderer,
 			&game.presentation,
-			game.target.color,
+			game.target.pixels.color,
 			viewport,
 			{exposure = 1, bloom_strength = game.bloom_strength if game.bloom_enabled else 0},
 			bloom_texture,
@@ -354,7 +358,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(render.destroy_billboard_renderer(&game.billboards), "destroy billboards")
 	check(render.destroy_bloom(&game.renderer, &game.bloom), "destroy bloom")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
-	check(render.destroy_render_target(&game.renderer, &game.target), "destroy target")
+	common.destroy_pixel_target(&game.renderer, &game.target)
 	check(render.destroy_debug_grid(&game.renderer, &game.grid), "destroy grid")
 	check(render.destroy_material(&game.renderer, &game.material), "destroy material")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")

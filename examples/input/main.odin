@@ -108,7 +108,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		color = {0.1, 0.4, 0.25, 1}
 	}
 
-	if rhi.begin_pass(app.device, {target = game.surface.target.handle}, color) != .None {
+	if rhi.begin_pass(app.device, {target = game.surface.target.world.handle}, color) != .None {
 		return false
 	}
 

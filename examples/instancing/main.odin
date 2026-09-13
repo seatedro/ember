@@ -34,7 +34,7 @@ State :: struct {
 	bloom_settings:   render.Bloom_Settings,
 	bloom_enabled:    bool,
 	bloom_strength:   f32,
-	target:           render.Render_Target,
+	target:           common.Pixel_Target,
 	orbit:            camera.Orbit,
 	angle:            f32,
 	batching, paused: bool,
@@ -178,7 +178,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
+	game.target, err = common.create_pixel_target(&game.renderer, &game.shaders)
 	if !check(err, "create pixel target") {
 		return false
 	}
@@ -273,7 +273,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
+		render.begin_pass(&game.renderer, {target = &game.target.world}, common.BACKGROUND),
 		"begin pass",
 	) {
 		return false
@@ -286,7 +286,12 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		&game.renderer,
 		&game.draws,
 		camera.from_orbit(game.orbit),
-		emath.perspective(math.PI / 3, f32(game.target.width) / f32(game.target.height), 0.1, 200),
+		emath.perspective(
+			math.PI / 3,
+			f32(game.target.world.width) / f32(game.target.world.height),
+			0.1,
+			200,
+		),
 		{ambient = {0.12, 0.14, 0.2}, point_lights = lights[:]},
 		batching = game.batching,
 	)
@@ -309,13 +314,17 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		game.next_report = app.elapsed_time + 0.5
 	}
 
+	if !check(common.resolve_pixels(&game.renderer, &game.target), "resolve pixels") {
+		return false
+	}
+
 	bloom_texture: render.Texture
 	if game.bloom_enabled && game.bloom_strength > 0 {
 		err: render.Error
 		bloom_texture, err = render.apply_bloom(
 			&game.renderer,
 			&game.bloom,
-			game.target,
+			game.target.pixels,
 			game.bloom_settings,
 		)
 		if !check(err, "apply bloom") {
@@ -327,7 +336,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		render.present(
 			&game.renderer,
 			&game.presentation,
-			game.target.color,
+			game.target.pixels.color,
 			render.pixel_viewport(common.RESOLUTION, {app.width, app.height}),
 			{
 				exposure = game.exposure,
@@ -352,7 +361,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
 	check(render.destroy_bloom(&game.renderer, &game.bloom), "destroy bloom")
 
-	check(render.destroy_render_target(&game.renderer, &game.target), "destroy target")
+	common.destroy_pixel_target(&game.renderer, &game.target)
 	for &material in game.materials {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
 	}
