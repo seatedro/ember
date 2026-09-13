@@ -2,6 +2,7 @@ package game
 
 import "core:log"
 import "core:math"
+import emath "ember:core/math"
 import render "ember:renderer"
 import shader "ember:shaders"
 
@@ -9,10 +10,12 @@ Unlit_Parameters :: struct {
 	tint: [4]f32,
 }
 
+LIGHT_COLORS :: [2]emath.Vec3{{1, 0.9, 0.7}, {0.35, 0.65, 1}}
+
 init_light :: proc(game: ^State) -> bool {
 	game.lights[0] = {
 		position  = {0, 2, 3},
-		color     = {1, 0.9, 0.7},
+		color     = LIGHT_COLORS[0],
 		intensity = 2,
 		range     = 7,
 	}
@@ -45,6 +48,27 @@ init_light :: proc(game: ^State) -> bool {
 		Unlit_Parameters{tint = {color.x, color.y, color.z, 1}},
 	)
 	return check(err, "create light marker material")
+}
+
+toggle_light_color :: proc(game: ^State) -> bool {
+	color := LIGHT_COLORS[0]
+	if game.lights[0].color == color {
+		color = LIGHT_COLORS[1]
+	}
+
+	if !check(
+		render.update_material(
+			&game.renderer,
+			&game.light_material,
+			Unlit_Parameters{tint = {color.x, color.y, color.z, 1}},
+		),
+		"update light marker color",
+	) {
+		return false
+	}
+
+	game.lights[0].color = color
+	return true
 }
 
 update_light :: proc(game: ^State, dt: f32) {

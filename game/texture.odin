@@ -4,6 +4,18 @@ import "core:log"
 import "ember:image"
 import render "ember:renderer"
 
+toggle_material_texture :: proc(game: ^State) -> bool {
+	texture := game.textures[0]
+	if game.materials[0].textures[0] == texture.handle {
+		texture = game.textures[1]
+	}
+
+	return check(
+		render.set_material_texture(&game.renderer, &game.materials[0], 0, texture),
+		"replace material texture",
+	)
+}
+
 init_textures :: proc(game: ^State) -> bool {
 	PATH :: "game/assets/textures/earth_daymap.jpg"
 	earth, image_error := image.load(PATH)

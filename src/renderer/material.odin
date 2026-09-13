@@ -80,6 +80,60 @@ create_material :: proc(
 	return
 }
 
+update_material :: proc(
+	renderer: ^Renderer,
+	material: ^Material,
+	parameters: $Parameters,
+) -> Error {
+	device := renderer.device
+	if err := rhi.validate_device(device); err != .None {
+		return err
+	}
+
+	buffer := rhi.buffer_pool_lookup(&device.buffers, material.parameters)
+	if buffer == nil {
+		return .Invalid_Handle
+	}
+
+	if .Uniform not_in buffer.usage {
+		return .Invalid_Buffer_Binding
+	}
+
+	if size_of(Parameters) != buffer.size {
+		return .Invalid_Size
+	}
+
+	data := [1]Parameters{parameters}
+	return rhi.update_buffer(device, material.parameters, 0, mem.slice_to_bytes(data[:]))
+}
+
+set_material_texture :: proc(
+	renderer: ^Renderer,
+	material: ^Material,
+	binding: u32,
+	texture: Texture,
+) -> Error {
+	device := renderer.device
+	if err := rhi.validate_device(device); err != .None {
+		return err
+	}
+
+	if rhi.buffer_pool_lookup(&device.buffers, material.parameters) == nil {
+		return .Invalid_Handle
+	}
+
+	if binding >= rhi.MAX_TEXTURE_BINDINGS {
+		return .Invalid_Texture_Binding
+	}
+
+	if rhi.texture_pool_lookup(&device.textures, texture.handle) == nil {
+		return .Invalid_Handle
+	}
+
+	material.textures[binding] = texture.handle
+	return .None
+}
+
 destroy_material :: proc(renderer: ^Renderer, material: ^Material) -> Error {
 	if material.parameters.generation != 0 {
 		if err := rhi.destroy_buffer(renderer.device, material.parameters); err != .None {

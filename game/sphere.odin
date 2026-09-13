@@ -149,6 +149,17 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if input.pressed(app.input, .Space) {
 		game.light_paused = !game.light_paused
 	}
+
+	if input.pressed(app.input, .C) && !toggle_light_color(game) {
+		engine.request_quit(app)
+		return
+	}
+
+	if input.pressed(app.input, .T) && !toggle_material_texture(game) {
+		engine.request_quit(app)
+		return
+	}
+
 	update_light(game, dt)
 
 	game.angle += dt * 0.05
