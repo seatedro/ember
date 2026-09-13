@@ -1,31 +1,24 @@
 package game
 
-import "ember:camera"
 import emath "ember:core/math"
 import "ember:geometry"
 import render "ember:renderer"
 
 init_blending :: proc(game: ^State) -> bool {
-	vertices := [4]geometry.Vertex {
-		{{-1, -1, 0}, {0, 0, 1}, {0, 0}},
-		{{1, -1, 0}, {0, 0, 1}, {1, 0}},
-		{{1, 1, 0}, {0, 0, 1}, {1, 1}},
-		{{-1, 1, 0}, {0, 0, 1}, {0, 1}},
-	}
-	indices := [6]u32{0, 1, 2, 0, 2, 3}
+	quad := geometry.create_quad()
 	err: render.Error
 	game.blend_mesh, err = render.create_mesh(
 		&game.renderer,
-		vertices[:],
-		indices[:],
-		SPHERE_LAYOUT,
+		quad.vertices[:],
+		quad.indices[:],
+		render.VERTEX_LAYOUT,
 	)
 	if !check(err, "create blend mesh") {
 		return false
 	}
 
 	settings := render.Pipeline_Settings {
-		layout = SPHERE_LAYOUT,
+		layout = render.VERTEX_LAYOUT,
 		primitive = .Triangles,
 		depth = {test_enabled = true, write_enabled = false, compare = .Less},
 		raster = {cull = .None},
@@ -37,6 +30,7 @@ init_blending :: proc(game: ^State) -> bool {
 			dst_factor_alpha = .One_Minus_Src_Alpha,
 		},
 	}
+
 	program := game.light_pipeline.shader
 	for &pipeline, i in game.blend_pipelines {
 		if i == 1 {
@@ -53,7 +47,7 @@ init_blending :: proc(game: ^State) -> bool {
 		game.blend_materials[i], err = render.create_material(
 			&game.renderer,
 			program,
-			Unlit_Parameters{tint = tint},
+			render.Tint_Parameters{tint = tint},
 		)
 		if !check(err, "create blend material") {
 			return false
@@ -76,30 +70,21 @@ init_blending :: proc(game: ^State) -> bool {
 	return true
 }
 
-draw_blending :: proc(game: ^State) -> bool {
-	view := camera.view_matrix(game.camera)
-	depths: [2]f32
+add_blending :: proc(game: ^State) -> bool {
+	pipeline := game.blend_pipelines[1 if game.additive_blending else 0]
 	for transform, i in game.blend_transforms {
-		p := transform.position
-		depths[i] = (view * emath.Vec4{p.x, p.y, p.z, 1}).z
-	}
-
-	order := [2]int{0, 1}
-	if depths[0] > depths[1] {
-		order = {1, 0}
-	}
-
-	pipeline := &game.blend_pipelines[1 if game.additive_blending else 0]
-	for i in order {
 		if !check(
-			render.draw_mesh(
-				&game.renderer,
-				pipeline,
-				&game.blend_mesh,
-				&game.blend_materials[i],
-				game.blend_transforms[i],
+			render.add_draw(
+				&game.draws,
+				{
+					pipeline = pipeline,
+					mesh = game.blend_mesh,
+					material = game.blend_materials[i],
+					transform = transform,
+					order = .Transparent,
+				},
 			),
-			"draw blended panel",
+			"submit blended panel",
 		) {
 			return false
 		}

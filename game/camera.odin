@@ -21,25 +21,27 @@ update_camera :: proc(game: ^State, app: ^engine.Context) {
 		game.orbit = INITIAL_ORBIT
 	} else {
 		if input.mouse_down(app.input, .Left) {
-			game.orbit.yaw -= f32(app.input.mouse_delta.x) * ORBIT_SENSITIVITY
-			game.orbit.yaw = math.mod(game.orbit.yaw, f32(2 * math.PI))
-			game.orbit.pitch = clamp(
-				game.orbit.pitch + f32(app.input.mouse_delta.y) * ORBIT_SENSITIVITY,
-				-PITCH_LIMIT,
+			if !camera.rotate_orbit(
+				&game.orbit,
+				{
+					f32(app.input.mouse_delta.x) * ORBIT_SENSITIVITY,
+					f32(app.input.mouse_delta.y) * ORBIT_SENSITIVITY,
+				},
 				PITCH_LIMIT,
-			)
+			) {
+				engine.request_quit(app)
+			}
 		}
 
 		if app.input.scroll_delta.y != 0 {
-			// Bound the exponent before exp so a large scroll cannot overflow.
-			log_distance :=
-				math.ln(f64(game.orbit.distance)) - app.input.scroll_delta.y * ZOOM_SENSITIVITY
-			log_distance = clamp(
-				log_distance,
-				math.ln(f64(MIN_DISTANCE)),
-				math.ln(f64(MAX_DISTANCE)),
-			)
-			game.orbit.distance = clamp(f32(math.exp(log_distance)), MIN_DISTANCE, MAX_DISTANCE)
+			if !camera.zoom_orbit(
+				&game.orbit,
+				app.input.scroll_delta.y * ZOOM_SENSITIVITY,
+				MIN_DISTANCE,
+				MAX_DISTANCE,
+			) {
+				engine.request_quit(app)
+			}
 		}
 	}
 

@@ -16,21 +16,18 @@ Object :: struct {
 }
 
 State :: struct {
-	presentation:        Presentation_Parameters,
+	draws:               render.Draw_List,
+	presentation:        render.Presentation_Settings,
 	shaders:             shader.Library,
 	renderer:            render.Renderer,
 	target, next_target: render.Render_Target,
-	present_pipeline:    render.Pipeline,
-	present_material:    render.Material,
-	present_mesh:        render.Mesh,
+	presenter:           render.Presentation,
 	mesh:                render.Mesh,
 	pipeline:            render.Pipeline,
 	materials:           [2]render.Material,
 	textures:            [2]render.Texture,
 	objects:             [3]Object,
-	grid_mesh:           render.Mesh,
-	grid_pipeline:       render.Pipeline,
-	grid_material:       render.Material,
+	grid:                render.Debug_Grid,
 	lights:              [1]render.Point_Light,
 	light_pipeline:      render.Pipeline,
 	light_material:      render.Material,
@@ -46,19 +43,10 @@ State :: struct {
 	camera:              camera.Camera,
 }
 
-SPHERE_LAYOUT :: render.Vertex_Layout {
-	stride = size_of(geometry.Vertex),
-	attribute_count = 3,
-	attributes = {
-		0 = {location = 0, format = .F32x3, offset = u32(offset_of(geometry.Vertex, position))},
-		1 = {location = 1, format = .F32x3, offset = u32(offset_of(geometry.Vertex, normal))},
-		2 = {location = 2, format = .F32x2, offset = u32(offset_of(geometry.Vertex, uv))},
-	},
-}
-
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {}
+	game.draws = render.create_draw_list()
 	game.objects = {
 		{
 			transform = {
@@ -85,7 +73,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game.camera = camera.from_orbit(game.orbit)
 
 	game.shaders = shader.create(app.device)
-	banded, shader_error := shader.load(&game.shaders, "game/assets/shaders/banded")
+	banded, shader_error := shader.load_source(
+		&game.shaders,
+		"game/banded",
+		render.MESH_VERTEX_SOURCE,
+		render.LIGHTING_SOURCE + string(#load("assets/shaders/banded.frag")),
+	)
 	if shader_error != .None {
 		log.errorf("Load banded shader: %v", shader_error)
 		return false
@@ -101,7 +94,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		&game.renderer,
 		banded,
 		{
-			layout = SPHERE_LAYOUT,
+			layout = render.VERTEX_LAYOUT,
 			primitive = .Triangles,
 			depth = {test_enabled = true, write_enabled = true, compare = .Less},
 			raster = {cull = .Back, winding = .CCW},
@@ -136,7 +129,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	defer geometry.destroy_sphere(&mesh)
-	game.mesh, err = render.create_mesh(&game.renderer, mesh.vertices, mesh.indices, SPHERE_LAYOUT)
+	game.mesh, err = render.create_mesh(
+		&game.renderer,
+		mesh.vertices,
+		mesh.indices,
+		render.VERTEX_LAYOUT,
+	)
 	if !check(err, "create mesh") {
 		return false
 	}
@@ -179,10 +177,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		return
 	}
 
-	if !update_presentation(game, app) {
-		engine.request_quit(app)
-		return
-	}
+	update_presentation(game, app)
 
 	update_light(game, dt)
 
@@ -210,77 +205,88 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 }
 
 draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
-	if !check(render.begin_pass(&game.renderer, {target = &game.target}), "begin world pass") {
-		return false
-	}
-
-	defer check(render.end_pass(&game.renderer), "end world pass")
-	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
+	render.clear_draw_list(&game.draws)
 	if !check(
-		render.set_view(
-			&game.renderer,
-			game.camera,
-			projection,
-			lighting = {ambient = {0.12, 0.12, 0.12}, point_lights = game.lights[:]},
+		render.add_draw(
+			&game.draws,
+			{
+				pipeline = game.grid.pipeline,
+				mesh = game.grid.mesh,
+				material = game.grid.material,
+				transform = {position = {0, -1.05, 0}, orientation = 1, scale = {1, 1, 1}},
+			},
 		),
-		"set world view",
-	) {
-		return false
-	}
-
-	if !check(
-		render.draw_mesh(
-			&game.renderer,
-			&game.grid_pipeline,
-			&game.grid_mesh,
-			&game.grid_material,
-			{orientation = 1, scale = {1, 1, 1}},
-		),
-		"draw grid",
+		"submit grid",
 	) {
 		return false
 	}
 
 	for object in game.objects {
 		if !check(
-			render.draw_mesh(
-				&game.renderer,
-				&game.pipeline,
-				&game.mesh,
-				&game.materials[object.material],
-				object.transform,
+			render.add_draw(
+				&game.draws,
+				{
+					pipeline = game.pipeline,
+					mesh = game.mesh,
+					material = game.materials[object.material],
+					transform = object.transform,
+				},
 			),
-			"draw sphere",
+			"submit sphere",
 		) {
 			return false
 		}
 	}
 
 	if !check(
-		render.draw_mesh(
-			&game.renderer,
-			&game.light_pipeline,
-			&game.mesh,
-			&game.light_material,
-			{position = game.lights[0].position, orientation = 1, scale = {0.12, 0.12, 0.12}},
+		render.add_draw(
+			&game.draws,
+			{
+				pipeline = game.light_pipeline,
+				mesh = game.mesh,
+				material = game.light_material,
+				transform = {
+					position = game.lights[0].position,
+					orientation = 1,
+					scale = {0.12, 0.12, 0.12},
+				},
+			},
 		),
-		"draw light marker",
+		"submit light marker",
 	) {
 		return false
 	}
 
-	return draw_blending(game)
+	if !add_blending(game) {
+		return false
+	}
+
+	if !check(render.begin_pass(&game.renderer, {target = &game.target}), "begin world pass") {
+		return false
+	}
+
+	defer check(render.end_pass(&game.renderer), "end world pass")
+	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
+	return check(
+		render.draw_list(
+			&game.renderer,
+			&game.draws,
+			game.camera,
+			projection,
+			{ambient = {0.12, 0.12, 0.12}, point_lights = game.lights[:]},
+		),
+		"draw world",
+	)
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	render.destroy_draw_list(&game.draws)
 	destroy_presentation(game)
 	destroy_blending(game)
 	check(render.destroy_material(&game.renderer, &game.light_material), "destroy light material")
 	check(render.destroy_pipeline(&game.renderer, &game.light_pipeline), "destroy light pipeline")
-	check(render.destroy_mesh(&game.renderer, &game.grid_mesh), "destroy grid mesh")
-	check(render.destroy_material(&game.renderer, &game.grid_material), "destroy grid material")
-	check(render.destroy_pipeline(&game.renderer, &game.grid_pipeline), "destroy grid pipeline")
+	check(render.destroy_debug_grid(&game.renderer, &game.grid), "destroy grid")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 
 	for &material in game.materials {

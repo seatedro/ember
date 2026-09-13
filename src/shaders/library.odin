@@ -28,7 +28,7 @@ Library :: struct {
 
 @(private)
 Entry :: struct {
-	path:   string,
+	name:   string,
 	shader: Shader,
 }
 
@@ -58,75 +58,88 @@ load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 		return {}, .Allocation_Failed
 	}
 
-	keep_path := false
-	defer if !keep_path {
-		delete(path, library.allocator)
-	}
-
+	defer delete(path, library.allocator)
 	for entry in library.entries {
-		if entry.path == path {
+		if entry.name == path {
 			return entry.shader, .None
 		}
 	}
 
-	shader: Shader
-	keep_shader := false
-	defer if !keep_shader {
-		release(library.device, &shader)
-	}
-
-	err: Error
-	shader.vertex, err = load_stage(library, path, ".vert", .Vertex)
-	if err != .None {
-		return {}, err
-	}
-
-	shader.fragment, err = load_stage(library, path, ".frag", .Fragment)
-	if err != .None {
-		return {}, err
-	}
-
-	if _, append_error := append(&library.entries, Entry{path, shader}); append_error != .None {
+	vertex_path, vp_error := strings.concatenate({path, ".vert"}, library.allocator)
+	if vp_error != .None {
 		return {}, .Allocation_Failed
 	}
 
-	keep_path, keep_shader = true, true
+	defer delete(vertex_path, library.allocator)
+	fragment_path, fp_error := strings.concatenate({path, ".frag"}, library.allocator)
+	if fp_error != .None {
+		return {}, .Allocation_Failed
+	}
 
-	return shader, .None
+	defer delete(fragment_path, library.allocator)
+	vertex, vertex_error := os.read_entire_file(vertex_path, library.allocator)
+	defer delete(vertex, library.allocator)
+	fragment, fragment_error := os.read_entire_file(fragment_path, library.allocator)
+	defer delete(fragment, library.allocator)
+	if vertex_error != nil {
+		log.errorf("Cannot read shader %s: %v", vertex_path, vertex_error)
+		return {}, .Read_Failed
+	}
+
+	if fragment_error != nil {
+		log.errorf("Cannot read shader %s: %v", fragment_path, fragment_error)
+		return {}, .Read_Failed
+	}
+
+	return load_source(library, path, string(vertex), string(fragment))
 }
 
-@(private)
-load_stage :: proc(
-	library: ^Library,
-	base_path, extension: string,
-	stage: rhi.Shader_Stage,
-) -> (
-	rhi.Shader_Handle,
-	Error,
-) {
-	path, allocation_error := strings.concatenate({base_path, extension}, library.allocator)
+load_source :: proc(library: ^Library, name, vertex, fragment: string) -> (Shader, Error) {
+	if library.device == nil || library.closing {
+		return {}, .Invalid_Library
+	}
+
+	for entry in library.entries {
+		if entry.name == name {
+			return entry.shader, .None
+		}
+	}
+
+	owned_name, allocation_error := strings.clone(name, library.allocator)
 	if allocation_error != .None {
 		return {}, .Allocation_Failed
 	}
 
-	defer delete(path, library.allocator)
-	source, read_error := os.read_entire_file(path, library.allocator)
-	defer delete(source, library.allocator)
-	if read_error != nil {
-		log.errorf("Cannot read shader %s: %v", path, read_error)
-		return {}, .Read_Failed
+	shader: Shader
+	keep := false
+	defer if !keep {
+		release(library.device, &shader)
+		delete(owned_name, library.allocator)
 	}
 
-	handle, gpu_error := rhi.create_shader(
-		library.device,
-		{stage = stage, source = string(source), label = path},
-	)
-	if gpu_error != .None {
-		log.errorf("Cannot compile shader %s: %v", path, gpu_error)
-		return {}, .GPU_Failed
+	for source, i in ([2]string{vertex, fragment}) {
+		stage := rhi.Shader_Stage.Vertex if i == 0 else .Fragment
+		handle, err := rhi.create_shader(
+			library.device,
+			{stage = stage, source = source, label = name},
+		)
+		if err != .None {
+			return {}, .GPU_Failed
+		}
+
+		if i == 0 {
+			shader.vertex = handle
+		} else {
+			shader.fragment = handle
+		}
 	}
 
-	return handle, .None
+	if _, err := append(&library.entries, Entry{owned_name, shader}); err != .None {
+		return {}, .Allocation_Failed
+	}
+
+	keep = true
+	return shader, .None
 }
 
 destroy :: proc(library: ^Library) -> (result: Error) {
@@ -143,7 +156,7 @@ destroy :: proc(library: ^Library) -> (result: Error) {
 	}
 
 	for entry in library.entries {
-		delete(entry.path, library.allocator)
+		delete(entry.name, library.allocator)
 	}
 
 	delete(library.entries)

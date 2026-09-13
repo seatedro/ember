@@ -4,11 +4,6 @@ import "core:log"
 import "core:math"
 import emath "ember:core/math"
 import render "ember:renderer"
-import shader "ember:shaders"
-
-Unlit_Parameters :: struct {
-	tint: [4]f32,
-}
 
 LIGHT_COLORS :: [2]emath.Vec3{{1, 0.9, 0.7}, {0.35, 0.65, 1}}
 
@@ -20,7 +15,7 @@ init_light :: proc(game: ^State) -> bool {
 		range     = 7,
 	}
 
-	program, shader_error := shader.load(&game.shaders, "game/assets/shaders/unlit")
+	program, shader_error := render.load_builtin_shader(&game.shaders, .Unlit)
 	if shader_error != .None {
 		log.errorf("Load unlit shader: %v", shader_error)
 		return false
@@ -31,7 +26,7 @@ init_light :: proc(game: ^State) -> bool {
 		&game.renderer,
 		program,
 		{
-			layout = SPHERE_LAYOUT,
+			layout = render.VERTEX_LAYOUT,
 			primitive = .Triangles,
 			depth = {test_enabled = true, write_enabled = true, compare = .Less},
 			raster = {cull = .Back, winding = .CCW},
@@ -45,7 +40,7 @@ init_light :: proc(game: ^State) -> bool {
 	game.light_material, err = render.create_material(
 		&game.renderer,
 		program,
-		Unlit_Parameters{tint = {color.x, color.y, color.z, 1}},
+		render.Tint_Parameters{tint = {color.x, color.y, color.z, 1}},
 	)
 	return check(err, "create light marker material")
 }
@@ -60,7 +55,7 @@ toggle_light_color :: proc(game: ^State) -> bool {
 		render.update_material(
 			&game.renderer,
 			&game.light_material,
-			Unlit_Parameters{tint = {color.x, color.y, color.z, 1}},
+			render.Tint_Parameters{tint = {color.x, color.y, color.z, 1}},
 		),
 		"update light marker color",
 	) {
