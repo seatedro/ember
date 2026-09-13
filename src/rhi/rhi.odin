@@ -1,5 +1,6 @@
 package rhi
 
+import "../core/pool"
 import "backend"
 import "types"
 
@@ -8,10 +9,10 @@ Device_Context :: backend.Device_Context
 
 Device :: struct {
 	initialized: bool,
-	buffers:     Buffer_Pool,
-	shaders:     Shader_Pool,
-	pipelines:   Pipeline_Pool,
-	textures:    Texture_Pool,
+	buffers:     pool.Pool(Buffer_Resource, Buffer_Handle),
+	shaders:     pool.Pool(Shader_Resource, Shader_Handle),
+	pipelines:   pool.Pool(Pipeline_Resource, Pipeline_Handle),
+	textures:    pool.Pool(Texture_Resource, Texture_Handle),
 	bindings:    Bindings,
 	native:      backend.Device,
 }
@@ -27,7 +28,7 @@ create_device :: proc(
 	Device,
 	Error,
 ) {
-	pool, pool_error := buffer_pool_create(buffer_capacity, allocator)
+	buffers, pool_error := pool.create(Buffer_Resource, Buffer_Handle, buffer_capacity, allocator)
 	if pool_error != .None {
 		if pool_error == .Invalid_Capacity {
 			return {}, .Invalid_Capacity
@@ -36,9 +37,14 @@ create_device :: proc(
 		return {}, .Allocation_Failed
 	}
 
-	shaders, shader_error := shader_pool_create(shader_capacity, allocator)
+	shaders, shader_error := pool.create(
+		Shader_Resource,
+		Shader_Handle,
+		shader_capacity,
+		allocator,
+	)
 	if shader_error != .None {
-		buffer_pool_destroy(&pool)
+		pool.destroy(&buffers)
 		if shader_error == .Invalid_Capacity {
 			return {}, .Invalid_Capacity
 		}
@@ -46,10 +52,15 @@ create_device :: proc(
 		return {}, .Allocation_Failed
 	}
 
-	pipelines, pipeline_error := pipeline_pool_create(pipeline_capacity, allocator)
+	pipelines, pipeline_error := pool.create(
+		Pipeline_Resource,
+		Pipeline_Handle,
+		pipeline_capacity,
+		allocator,
+	)
 	if pipeline_error != .None {
-		shader_pool_destroy(&shaders)
-		buffer_pool_destroy(&pool)
+		pool.destroy(&shaders)
+		pool.destroy(&buffers)
 		if pipeline_error == .Invalid_Capacity {
 			return {}, .Invalid_Capacity
 		}
@@ -57,11 +68,16 @@ create_device :: proc(
 		return {}, .Allocation_Failed
 	}
 
-	textures, texture_error := texture_pool_create(texture_capacity, allocator)
+	textures, texture_error := pool.create(
+		Texture_Resource,
+		Texture_Handle,
+		texture_capacity,
+		allocator,
+	)
 	if texture_error != .None {
-		pipeline_pool_destroy(&pipelines)
-		shader_pool_destroy(&shaders)
-		buffer_pool_destroy(&pool)
+		pool.destroy(&pipelines)
+		pool.destroy(&shaders)
+		pool.destroy(&buffers)
 		if texture_error == .Invalid_Capacity {
 			return {}, .Invalid_Capacity
 		}
@@ -71,16 +87,16 @@ create_device :: proc(
 
 	native, err := backend.create_device(platform_context)
 	if err != .None {
-		texture_pool_destroy(&textures)
-		pipeline_pool_destroy(&pipelines)
-		shader_pool_destroy(&shaders)
-		buffer_pool_destroy(&pool)
+		pool.destroy(&textures)
+		pool.destroy(&pipelines)
+		pool.destroy(&shaders)
+		pool.destroy(&buffers)
 		return {}, err
 	}
 
 	return Device {
 			initialized = true,
-			buffers = pool,
+			buffers = buffers,
 			shaders = shaders,
 			pipelines = pipelines,
 			textures = textures,
@@ -111,56 +127,52 @@ destroy_device :: proc(device: ^Device) -> Error {
 	}
 
 	for &slot, index in device.pipelines.slots {
-		if slot.state == .Live {
-			if err := backend.destroy_pipeline(&slot.native); err != .None {
+		if slot.used {
+			if err := backend.destroy_pipeline(&slot.value.native); err != .None {
 				return err
 			}
 
-			pipeline_pool_retire(&device.pipelines, Pipeline_Handle{u32(index), slot.generation})
-			pipeline_pool_finish_retirement(&device.pipelines, u32(index))
+			pool.free(&device.pipelines, Pipeline_Handle{u32(index), slot.generation})
 		}
 	}
 
 	for &slot, index in device.buffers.slots {
-		if slot.state == .Live {
-			if err := backend.destroy_buffer(&slot.native); err != .None {
+		if slot.used {
+			if err := backend.destroy_buffer(&slot.value.native); err != .None {
 				return err
 			}
 
-			buffer_pool_retire(&device.buffers, Buffer_Handle{u32(index), slot.generation})
-			buffer_pool_finish_retirement(&device.buffers, u32(index))
+			pool.free(&device.buffers, Buffer_Handle{u32(index), slot.generation})
 		}
 	}
 
 	for &slot, index in device.textures.slots {
-		if slot.state == .Live {
-			if err := backend.destroy_texture(&slot.native); err != .None {
+		if slot.used {
+			if err := backend.destroy_texture(&slot.value.native); err != .None {
 				return err
 			}
 
-			texture_pool_retire(&device.textures, Texture_Handle{u32(index), slot.generation})
-			texture_pool_finish_retirement(&device.textures, u32(index))
+			pool.free(&device.textures, Texture_Handle{u32(index), slot.generation})
 		}
 	}
 
 	for &slot, index in device.shaders.slots {
-		if slot.state == .Live {
-			if err := backend.destroy_shader(&slot.native); err != .None {
+		if slot.used {
+			if err := backend.destroy_shader(&slot.value.native); err != .None {
 				return err
 			}
 
-			shader_pool_retire(&device.shaders, Shader_Handle{u32(index), slot.generation})
-			shader_pool_finish_retirement(&device.shaders, u32(index))
+			pool.free(&device.shaders, Shader_Handle{u32(index), slot.generation})
 		}
 	}
 
-	ok := buffer_pool_destroy(&device.buffers)
+	ok := pool.destroy(&device.buffers)
 	assert(ok, "Device has an unfinished buffer operation")
-	ok = shader_pool_destroy(&device.shaders)
+	ok = pool.destroy(&device.shaders)
 	assert(ok, "Device has an unfinished shader operation")
-	ok = pipeline_pool_destroy(&device.pipelines)
+	ok = pool.destroy(&device.pipelines)
 	assert(ok, "Device has an unfinished pipeline operation")
-	ok = texture_pool_destroy(&device.textures)
+	ok = pool.destroy(&device.textures)
 	assert(ok, "Device has an unfinished texture operation")
 	device^ = {}
 

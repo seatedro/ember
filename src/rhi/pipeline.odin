@@ -1,21 +1,13 @@
 package rhi
 
+import "../core/pool"
 import "backend"
-import "core:mem"
 import "core:strings"
 import "types"
 
 Pipeline_Handle :: struct {
 	index:      u32,
 	generation: u32,
-}
-
-Pipeline_State :: enum {
-	Free,
-	Reserved,
-	Live,
-	Retiring,
-	Exhausted,
 }
 
 MAX_VERTEX_ATTRIBUTES :: types.MAX_VERTEX_ATTRIBUTES
@@ -38,175 +30,11 @@ MAX_UNIFORM_BINDINGS :: types.MAX_UNIFORM_BINDINGS
 MAX_TEXTURE_BINDINGS :: types.MAX_TEXTURE_BINDINGS
 Texture_Binding_Desc :: types.Texture_Binding_Desc
 
-Pipeline_Slot :: struct {
-	generation:       u32,
-	state:            Pipeline_State,
+Pipeline_Resource :: struct {
 	settings:         Pipeline_Settings,
 	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
 	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,
 	native:           backend.Pipeline,
-}
-
-Pipeline_Pool :: struct {
-	slots:        []Pipeline_Slot,
-	free_indices: []u32,
-	free_count:   int,
-	allocator:    mem.Allocator,
-}
-
-Pipeline_Pool_Error :: enum {
-	None,
-	Invalid_Capacity,
-	Allocation_Failed,
-}
-
-pipeline_pool_create :: proc(
-	capacity: int,
-	allocator := context.allocator,
-) -> (
-	Pipeline_Pool,
-	Pipeline_Pool_Error,
-) {
-	if capacity <= 0 ||
-	   u64(capacity) > u64(max(u32)) ||
-	   capacity > max(int) / size_of(Pipeline_Slot) {
-		return {}, .Invalid_Capacity
-	}
-
-	slots, slots_error := make([]Pipeline_Slot, capacity, allocator)
-	if slots_error != .None {
-		return {}, .Allocation_Failed
-	}
-
-	free_indices, free_indices_error := make([]u32, capacity, allocator)
-	if free_indices_error != .None {
-		delete(slots, allocator)
-		return {}, .Allocation_Failed
-	}
-
-	for i in 0 ..< capacity {
-		slots[i].generation = 1
-		slots[i].state = .Free
-
-		free_indices[i] = u32(capacity - i - 1)
-	}
-
-	return Pipeline_Pool {
-			slots = slots,
-			free_indices = free_indices,
-			free_count = capacity,
-			allocator = allocator,
-		},
-		.None
-}
-
-pipeline_pool_reserve :: proc(pool: ^Pipeline_Pool) -> (index: u32, slot: ^Pipeline_Slot) {
-	if pool.free_count == 0 {
-		return 0, nil
-	}
-
-	pool.free_count -= 1
-	index = pool.free_indices[pool.free_count]
-	slot = &pool.slots[index]
-
-	assert(slot.state == .Free)
-	assert(slot.generation != 0)
-
-	slot.state = .Reserved
-
-	return index, slot
-}
-
-pipeline_pool_publish :: proc(pool: ^Pipeline_Pool, index: u32) -> Pipeline_Handle {
-	slot := &pool.slots[index]
-	assert(slot.state == .Reserved)
-
-	slot.state = .Live
-
-	return Pipeline_Handle{index = index, generation = slot.generation}
-}
-
-pipeline_pool_return_slot :: proc(pool: ^Pipeline_Pool, index: u32) {
-	generation := pool.slots[index].generation
-
-	pool.slots[index] = Pipeline_Slot {
-		generation = generation,
-		state      = .Free,
-	}
-
-	assert(pool.free_count < len(pool.free_indices))
-	pool.free_indices[pool.free_count] = index
-	pool.free_count += 1
-}
-
-pipeline_pool_cancel :: proc(pool: ^Pipeline_Pool, index: u32) {
-	assert(pool.slots[index].state == .Reserved)
-	pipeline_pool_return_slot(pool, index)
-}
-
-pipeline_pool_lookup :: proc(pool: ^Pipeline_Pool, handle: Pipeline_Handle) -> ^Pipeline_Slot {
-	if handle.generation == 0 {
-		return nil
-	}
-
-	if uint(handle.index) >= uint(len(pool.slots)) {
-		return nil
-	}
-
-	slot := &pool.slots[handle.index]
-
-	if slot.state != .Live || slot.generation != handle.generation {
-		return nil
-	}
-
-	return slot
-}
-
-pipeline_pool_retire :: proc(pool: ^Pipeline_Pool, handle: Pipeline_Handle) -> bool {
-	slot := pipeline_pool_lookup(pool, handle)
-	if slot == nil {
-		return false
-	}
-
-	slot.state = .Retiring
-
-	if slot.generation == max(u32) {
-		// Mark generation overflow so retirement never makes an old handle valid again.
-		slot.generation = 0
-	} else {
-		slot.generation += 1
-	}
-
-	return true
-}
-
-pipeline_pool_finish_retirement :: proc(pool: ^Pipeline_Pool, index: u32) {
-	slot := &pool.slots[index]
-	assert(slot.state == .Retiring)
-
-	if slot.generation == 0 {
-		slot^ = Pipeline_Slot {
-			state = .Exhausted,
-		}
-
-		return
-	}
-
-	pipeline_pool_return_slot(pool, index)
-}
-
-pipeline_pool_destroy :: proc(pool: ^Pipeline_Pool) -> bool {
-	for slot in pool.slots {
-		if slot.state != .Free && slot.state != .Exhausted {
-			return false
-		}
-	}
-
-	delete(pool.slots, pool.allocator)
-	delete(pool.free_indices, pool.allocator)
-	pool^ = {}
-
-	return true
 }
 
 validate_vertex_layout :: proc(layout: Vertex_Layout) -> Error {
@@ -300,8 +128,8 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		return {}, err
 	}
 
-	vertex := shader_pool_lookup(&device.shaders, desc.vertex_shader)
-	fragment := shader_pool_lookup(&device.shaders, desc.fragment_shader)
+	vertex := pool.get(&device.shaders, desc.vertex_shader)
+	fragment := pool.get(&device.shaders, desc.fragment_shader)
 	if vertex == nil || fragment == nil {
 		return {}, .Invalid_Handle
 	}
@@ -310,7 +138,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		return {}, .Unsupported_Shader_Stage
 	}
 
-	index, slot := pipeline_pool_reserve(&device.pipelines)
+	handle, slot := pool.alloc(&device.pipelines)
 	if slot == nil {
 		return {}, .Pool_Exhausted
 	}
@@ -324,7 +152,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 		device.pipelines.allocator,
 	)
 	if err != .None {
-		pipeline_pool_cancel(&device.pipelines, index)
+		pool.free(&device.pipelines, handle)
 		return {}, err
 	}
 
@@ -333,7 +161,7 @@ create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handl
 	slot.uniform_sizes = backend.pipeline_uniform_sizes(native)
 	slot.texture_bindings = native.texture_bindings
 
-	return pipeline_pool_publish(&device.pipelines, index), .None
+	return handle, .None
 }
 
 validate_uniform_blocks :: proc(blocks: []Uniform_Block_Desc) -> Error {
@@ -385,7 +213,7 @@ destroy_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 		return err
 	}
 
-	slot := pipeline_pool_lookup(&device.pipelines, handle)
+	slot := pool.get(&device.pipelines, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
@@ -398,8 +226,7 @@ destroy_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 		return err
 	}
 
-	pipeline_pool_retire(&device.pipelines, handle)
-	pipeline_pool_finish_retirement(&device.pipelines, handle.index)
+	pool.free(&device.pipelines, handle)
 
 	return .None
 }

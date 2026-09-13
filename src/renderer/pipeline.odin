@@ -1,5 +1,6 @@
 package renderer
 
+import "../core/pool"
 import "../rhi"
 import "../shaders"
 
@@ -27,6 +28,7 @@ create_pipeline :: proc(
 		{name = "Material", binding = MATERIAL_BINDING},
 		{name = "Lighting_Uniforms", binding = LIGHTING_BINDING},
 	}
+
 	block_count := 3
 	if lighting {
 		block_count = 4
@@ -47,7 +49,7 @@ create_pipeline :: proc(
 		return
 	}
 
-	slot := rhi.pipeline_pool_lookup(&renderer.device.pipelines, pipeline.handle)
+	slot := pool.get(&renderer.device.pipelines, pipeline.handle)
 	if slot.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
 	   slot.uniform_sizes[OBJECT_BINDING] > size_of(Per_Object) ||
 	   slot.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) {
@@ -79,7 +81,7 @@ validate_draw :: proc(
 	mesh: ^Mesh,
 	material: ^Material,
 ) -> Error {
-	slot := rhi.pipeline_pool_lookup(&device.pipelines, pipeline.handle)
+	slot := pool.get(&device.pipelines, pipeline.handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
@@ -92,7 +94,7 @@ validate_draw :: proc(
 		return .Invalid_Pipeline_State
 	}
 
-	parameters := rhi.buffer_pool_lookup(&device.buffers, material.parameters)
+	parameters := pool.get(&device.buffers, material.parameters)
 	if parameters == nil {
 		return .Invalid_Handle
 	}
@@ -110,7 +112,7 @@ validate_draw :: proc(
 			continue
 		}
 
-		if rhi.texture_pool_lookup(&device.textures, material.textures[binding]) == nil {
+		if pool.get(&device.textures, material.textures[binding]) == nil {
 			return .Invalid_Handle
 		}
 	}

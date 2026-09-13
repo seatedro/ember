@@ -1,5 +1,6 @@
 package renderer
 
+import "../core/pool"
 import "../rhi"
 import "../shaders"
 import "core:mem"
@@ -29,8 +30,8 @@ create_material :: proc(
 		return
 	}
 
-	vertex := rhi.shader_pool_lookup(&device.shaders, shader.vertex)
-	fragment := rhi.shader_pool_lookup(&device.shaders, shader.fragment)
+	vertex := pool.get(&device.shaders, shader.vertex)
+	fragment := pool.get(&device.shaders, shader.fragment)
 	if vertex == nil || fragment == nil {
 		return {}, .Invalid_Handle
 	}
@@ -58,7 +59,7 @@ create_material :: proc(
 			return {}, .Invalid_Texture_Binding
 		}
 
-		if rhi.texture_pool_lookup(&device.textures, texture.texture.handle) == nil {
+		if pool.get(&device.textures, texture.texture.handle) == nil {
 			return {}, .Invalid_Handle
 		}
 
@@ -90,7 +91,7 @@ update_material :: proc(
 		return err
 	}
 
-	buffer := rhi.buffer_pool_lookup(&device.buffers, material.parameters)
+	buffer := pool.get(&device.buffers, material.parameters)
 	if buffer == nil {
 		return .Invalid_Handle
 	}
@@ -118,7 +119,7 @@ set_material_texture :: proc(
 		return err
 	}
 
-	if rhi.buffer_pool_lookup(&device.buffers, material.parameters) == nil {
+	if pool.get(&device.buffers, material.parameters) == nil {
 		return .Invalid_Handle
 	}
 
@@ -126,7 +127,7 @@ set_material_texture :: proc(
 		return .Invalid_Texture_Binding
 	}
 
-	if rhi.texture_pool_lookup(&device.textures, texture.handle) == nil {
+	if pool.get(&device.textures, texture.handle) == nil {
 		return .Invalid_Handle
 	}
 

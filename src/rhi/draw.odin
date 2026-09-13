@@ -1,5 +1,6 @@
 package rhi
 
+import "../core/pool"
 import "backend"
 import "types"
 
@@ -26,7 +27,7 @@ bind_texture :: proc(device: ^Device, binding: u32, handle: Texture_Handle) -> E
 		return .Invalid_Texture_Binding
 	}
 
-	if texture_pool_lookup(&device.textures, handle) == nil {
+	if pool.get(&device.textures, handle) == nil {
 		return .Invalid_Handle
 	}
 
@@ -44,7 +45,7 @@ bind_uniform_buffer :: proc(device: ^Device, binding: u32, handle: Buffer_Handle
 		return .Invalid_Uniform_Binding
 	}
 
-	slot := buffer_pool_lookup(&device.buffers, handle)
+	slot := pool.get(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
@@ -64,7 +65,7 @@ bind_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 		return err
 	}
 
-	if pipeline_pool_lookup(&device.pipelines, handle) == nil {
+	if pool.get(&device.pipelines, handle) == nil {
 		return .Invalid_Handle
 	}
 
@@ -78,7 +79,7 @@ bind_vertex_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64 =
 		return err
 	}
 
-	slot := buffer_pool_lookup(&device.buffers, handle)
+	slot := pool.get(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
@@ -103,7 +104,7 @@ bind_index_buffer :: proc(
 		return err
 	}
 
-	slot := buffer_pool_lookup(&device.buffers, handle)
+	slot := pool.get(&device.buffers, handle)
 	if slot == nil {
 		return .Invalid_Handle
 	}
@@ -159,9 +160,9 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	}
 
 	bindings := device.bindings
-	pipeline := pipeline_pool_lookup(&device.pipelines, bindings.pipeline)
-	vertex := buffer_pool_lookup(&device.buffers, bindings.vertex_buffer)
-	index := buffer_pool_lookup(&device.buffers, bindings.index_buffer)
+	pipeline := pool.get(&device.pipelines, bindings.pipeline)
+	vertex := pool.get(&device.buffers, bindings.vertex_buffer)
+	index := pool.get(&device.buffers, bindings.index_buffer)
 	if pipeline == nil || vertex == nil || index == nil {
 		return .Invalid_Handle
 	}
@@ -188,7 +189,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 			continue
 		}
 
-		uniform := buffer_pool_lookup(&device.buffers, bindings.uniform_buffers[binding])
+		uniform := pool.get(&device.buffers, bindings.uniform_buffers[binding])
 		if uniform == nil {
 			return .Invalid_Handle
 		}
@@ -207,7 +208,7 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 			continue
 		}
 
-		texture := texture_pool_lookup(&device.textures, bindings.textures[binding])
+		texture := pool.get(&device.textures, bindings.textures[binding])
 		if texture == nil {
 			return .Invalid_Handle
 		}
