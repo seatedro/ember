@@ -1,7 +1,7 @@
-package backend
+package opengl
 
-import platform_gl "../../platform/gl_context"
-import "../types"
+import platform_gl "../../../platform/gl_context"
+import "../../types"
 import "core:log"
 import "core:strings"
 import gl "vendor:OpenGL"
@@ -934,7 +934,7 @@ draw_indexed :: proc(
 	return check_errors("draw indexed")
 }
 
-update_buffer :: proc(device: ^Device, native: Buffer, offset: u64, data: []u8) -> types.Error {
+update_buffer :: proc(device: ^Device, native: ^Buffer, offset: u64, data: []u8) -> types.Error {
 	if err := check_errors("before buffer update"); err != .None {
 		return err
 	}

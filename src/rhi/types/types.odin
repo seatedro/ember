@@ -31,6 +31,7 @@ Error :: enum {
 	Invalid_Texture_Binding,
 	Invalid_Pass,
 	Invalid_Frame,
+	Surface_Unavailable,
 	Resource_In_Use,
 	Feedback_Loop,
 }

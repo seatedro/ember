@@ -99,7 +99,7 @@ update_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64, data:
 		return .None
 	}
 
-	return backend.update_buffer(&device.native, slot.native, offset, data)
+	return backend.update_buffer(&device.native, &slot.native, offset, data)
 }
 
 // Wait for GPU reads to finish before recycling the buffer slot.

@@ -7,6 +7,10 @@ import "ember:rhi"
 
 @(private)
 TRIANGLE_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
+	.MSL  = {
+		{entry_point = "vertex_main", code = #load("shaders/triangle.metal", string)},
+		{entry_point = "fragment_main", code = #load("shaders/triangle.metal", string)},
+	},
 	.GLSL = {
 		{entry_point = "main", code = #load("shaders/triangle.vert", string)},
 		{entry_point = "main", code = #load("shaders/triangle.frag", string)},

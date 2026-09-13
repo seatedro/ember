@@ -27,8 +27,8 @@ begin_frame :: proc(device: ^Device, size: [2]i32) -> Error {
 	return .None
 }
 
-// Present only after every pass is closed. On failure the frame remains active
-// so the caller can discard it before destroying resources.
+// Present only after every pass is closed. Once submitted to the backend, the
+// frame is consumed even if submission or GPU execution fails.
 end_frame :: proc(device: ^Device) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -67,12 +67,10 @@ discard_frame :: proc(device: ^Device) -> Error {
 
 @(private)
 finish_frame :: proc(device: ^Device, present: bool) -> Error {
-	if err := backend.end_frame(&device.native, present); err != .None {
-		return err
-	}
+	err := backend.end_frame(&device.native, present)
 
 	device.frame_active = false
 	device.frame_size = {}
 	device.bindings = {}
-	return .None
+	return err
 }

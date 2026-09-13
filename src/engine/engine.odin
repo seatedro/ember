@@ -146,6 +146,10 @@ run :: proc(config: Config) -> (result: Error) {
 		}
 
 		if err := rhi.begin_frame(&device, {app.width, app.height}); err != .None {
+			if err == .Surface_Unavailable {
+				win.wait_events(0.01)
+				continue
+			}
 			log.errorf("Failed to begin frame: %v", err)
 			return .Draw_Failed
 		}

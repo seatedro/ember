@@ -1,6 +1,7 @@
 package window
 
 import "../../input"
+import "../graphics"
 import "base:runtime"
 import "core:log"
 import "core:strings"
@@ -16,6 +17,7 @@ Config :: struct {
 
 Window :: struct {
 	handle:              glfw.WindowHandle,
+	vsync:               bool,
 	width:               i32,
 	height:              i32,
 	framebuffer_resized: bool,
@@ -38,16 +40,21 @@ create :: proc(window: ^Window, config: Config) -> bool {
 		return false
 	}
 
-	when ODIN_OS == .Darwin {
-		glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
-		glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 1)
-		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
+	when graphics.METAL {
+		glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 	} else {
-		glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
-		glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 6)
+		when ODIN_OS == .Darwin {
+			glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
+			glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 1)
+			glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
+		} else {
+			glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
+			glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 6)
+		}
+
+		glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	}
 
-	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	glfw.WindowHint(glfw.VISIBLE, glfw.FALSE if config.hidden else glfw.TRUE)
 
 	title := strings.clone_to_cstring(config.title, context.temp_allocator)
@@ -58,14 +65,17 @@ create :: proc(window: ^Window, config: Config) -> bool {
 		return false
 	}
 
-	glfw.MakeContextCurrent(handle)
-	if config.vsync {
-		glfw.SwapInterval(1)
-	} else {
-		glfw.SwapInterval(0)
+	when !graphics.METAL {
+		glfw.MakeContextCurrent(handle)
+		if config.vsync {
+			glfw.SwapInterval(1)
+		} else {
+			glfw.SwapInterval(0)
+		}
 	}
 
 	window.handle = handle
+	window.vsync = config.vsync
 	glfw.SetWindowUserPointer(handle, rawptr(window))
 	glfw.SetFramebufferSizeCallback(handle, framebuffer_size_callback)
 	init_input(window)
