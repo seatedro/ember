@@ -67,11 +67,10 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 	return
 }
 
-begin_frame :: proc(
+set_view :: proc(
 	renderer: ^Renderer,
 	view: camera.Camera,
 	projection: emath.Mat4,
-	clear_color: [4]f32 = {0.1, 0.1, 0.1, 1},
 	lighting: Lighting = {},
 ) -> Error {
 	if err := rhi.validate_device(renderer.device); err != .None {
@@ -103,8 +102,6 @@ begin_frame :: proc(
 		return err
 	}
 
-	rhi.clear(renderer.device, clear_color, 1)
-
 	return .None
 }
 
@@ -118,6 +115,10 @@ draw_mesh :: proc(
 	device := renderer.device
 	if err := rhi.validate_device(device); err != .None {
 		return err
+	}
+
+	if !device.pass_active {
+		return .Invalid_Pass
 	}
 
 	if err := bind_mesh(device, mesh); err != .None {

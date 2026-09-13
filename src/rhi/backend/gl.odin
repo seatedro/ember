@@ -20,6 +20,10 @@ Texture :: struct {
 	id, sampler: u32,
 }
 
+Render_Target :: struct {
+	framebuffer, depth: u32,
+}
+
 Shader :: struct {
 	id: u32,
 }
@@ -63,6 +67,18 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 
 	gl.load_up_to(platform_context.major, platform_context.minor, platform_context.load_proc)
 	if gl.impl_GetError == nil ||
+	   gl.impl_GenFramebuffers == nil ||
+	   gl.impl_DeleteFramebuffers == nil ||
+	   gl.impl_BindFramebuffer == nil ||
+	   gl.impl_FramebufferTexture2D == nil ||
+	   gl.impl_CheckFramebufferStatus == nil ||
+	   gl.impl_GenRenderbuffers == nil ||
+	   gl.impl_DeleteRenderbuffers == nil ||
+	   gl.impl_BindRenderbuffer == nil ||
+	   gl.impl_RenderbufferStorage == nil ||
+	   gl.impl_FramebufferRenderbuffer == nil ||
+	   gl.impl_DrawBuffer == nil ||
+	   gl.impl_ReadBuffer == nil ||
 	   gl.impl_GetIntegerv == nil ||
 	   gl.impl_GenBuffers == nil ||
 	   gl.impl_BindBuffer == nil ||
@@ -238,18 +254,146 @@ destroy_buffer :: proc(native: ^Buffer) -> types.Error {
 	return .None
 }
 
-set_viewport :: proc(width, height: i32) {
-	gl.Viewport(0, 0, width, height)
+create_render_target :: proc(
+	desc: types.Render_Target_Desc,
+	color: Texture,
+) -> (
+	Render_Target,
+	types.Error,
+) {
+	if err := check_errors("before render target creation"); err != .None {
+		return {}, err
+	}
+
+	previous_draw, previous_read, previous_depth, maximum: i32
+	gl.impl_GetIntegerv(gl.DRAW_FRAMEBUFFER_BINDING, &previous_draw)
+	gl.impl_GetIntegerv(gl.READ_FRAMEBUFFER_BINDING, &previous_read)
+	gl.impl_GetIntegerv(gl.RENDERBUFFER_BINDING, &previous_depth)
+	gl.impl_GetIntegerv(gl.MAX_RENDERBUFFER_SIZE, &maximum)
+	if err := check_errors("query render target bindings"); err != .None {
+		return {}, err
+	}
+
+	if desc.width > maximum || desc.height > maximum {
+		return {}, .Invalid_Size
+	}
+
+	defer {
+		gl.impl_BindFramebuffer(gl.DRAW_FRAMEBUFFER, u32(previous_draw))
+		gl.impl_BindFramebuffer(gl.READ_FRAMEBUFFER, u32(previous_read))
+		gl.impl_BindRenderbuffer(gl.RENDERBUFFER, u32(previous_depth))
+	}
+
+	native: Render_Target
+	succeeded := false
+	defer if !succeeded {
+		if native.framebuffer != 0 {
+			gl.impl_DeleteFramebuffers(1, &native.framebuffer)
+		}
+
+		if native.depth != 0 {
+			gl.impl_DeleteRenderbuffers(1, &native.depth)
+		}
+	}
+
+	gl.impl_GenFramebuffers(1, &native.framebuffer)
+	gl.impl_GenRenderbuffers(1, &native.depth)
+	if err := check_errors("create framebuffer and depth attachment"); err != .None {
+		return {}, err
+	}
+
+	if native.framebuffer == 0 || native.depth == 0 {
+		return {}, .Backend_Failed
+	}
+
+	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, native.framebuffer)
+	gl.impl_FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color.id, 0)
+	gl.impl_BindRenderbuffer(gl.RENDERBUFFER, native.depth)
+	gl.impl_RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, desc.width, desc.height)
+	gl.impl_FramebufferRenderbuffer(
+		gl.FRAMEBUFFER,
+		gl.DEPTH_ATTACHMENT,
+		gl.RENDERBUFFER,
+		native.depth,
+	)
+	gl.impl_DrawBuffer(gl.COLOR_ATTACHMENT0)
+	gl.impl_ReadBuffer(gl.COLOR_ATTACHMENT0)
+	status := gl.impl_CheckFramebufferStatus(gl.FRAMEBUFFER)
+	if err := check_errors("configure render target"); err != .None {
+		return {}, err
+	}
+
+	if status != gl.FRAMEBUFFER_COMPLETE {
+		return {}, .Backend_Failed
+	}
+
+	succeeded = true
+	return native, .None
 }
 
-clear :: proc(color: [4]f32, depth: f64) {
-	// A previous pipeline may have disabled depth writes. Clears still initialize
-	// the complete target; the next draw reapplies its pipeline's write state.
-	gl.DepthMask(true)
-	gl.ColorMask(true, true, true, true)
-	gl.ClearColor(color[0], color[1], color[2], color[3])
-	gl.ClearDepth(depth)
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+destroy_render_target :: proc(native: ^Render_Target) -> types.Error {
+	if err := check_errors("before render target deletion"); err != .None {
+		return err
+	}
+
+	if native.framebuffer != 0 {
+		gl.impl_DeleteFramebuffers(1, &native.framebuffer)
+		if err := check_errors("delete framebuffer"); err != .None {
+			return err
+		}
+
+		native.framebuffer = 0
+	}
+
+	if native.depth != 0 {
+		gl.impl_DeleteRenderbuffers(1, &native.depth)
+		if err := check_errors("delete depth attachment"); err != .None {
+			return err
+		}
+
+		native.depth = 0
+	}
+
+	return .None
+}
+
+begin_pass :: proc(
+	target: Render_Target,
+	viewport: types.Viewport,
+	color_load, depth_load: types.Load_Op,
+	color: [4]f32,
+	depth: f64,
+) -> types.Error {
+	if err := check_errors("before render pass"); err != .None {
+		return err
+	}
+
+	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
+	gl.impl_Viewport(viewport.x, viewport.y, viewport.width, viewport.height)
+	gl.impl_Disable(gl.SCISSOR_TEST)
+	mask: u32
+	if color_load == .Clear {
+		gl.impl_ColorMask(true, true, true, true)
+		gl.impl_ClearColor(color[0], color[1], color[2], color[3])
+		mask |= gl.COLOR_BUFFER_BIT
+	}
+
+	if depth_load == .Clear {
+		gl.impl_DepthMask(true)
+		gl.impl_ClearDepth(depth)
+		mask |= gl.DEPTH_BUFFER_BIT
+	}
+
+	if mask != 0 {
+		gl.impl_Clear(mask)
+	}
+
+	return check_errors("begin render pass")
+}
+
+end_pass :: proc() -> types.Error {
+	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, 0)
+	return check_errors("end render pass")
 }
 
 create_shader :: proc(

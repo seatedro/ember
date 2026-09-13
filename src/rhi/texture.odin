@@ -16,6 +16,7 @@ Texture_Wrap :: types.Texture_Wrap
 
 Texture_Resource :: struct {
 	native: backend.Texture,
+	owner:  Render_Target_Handle,
 }
 
 validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
@@ -74,6 +75,24 @@ create_texture :: proc(
 }
 
 destroy_texture :: proc(device: ^Device, handle: Texture_Handle) -> Error {
+	if err := validate_device(device); err != .None {
+		return err
+	}
+
+	slot := pool.get(&device.textures, handle)
+	if slot == nil {
+		return .Invalid_Handle
+	}
+
+	if slot.owner.generation != 0 {
+		return .Resource_In_Use
+	}
+
+	return release_texture(device, handle)
+}
+
+@(private)
+release_texture :: proc(device: ^Device, handle: Texture_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
 	}

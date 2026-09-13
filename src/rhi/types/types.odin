@@ -27,6 +27,9 @@ Error :: enum {
 	Invalid_Uniform_Binding,
 	Invalid_Texture,
 	Invalid_Texture_Binding,
+	Invalid_Pass,
+	Resource_In_Use,
+	Feedback_Loop,
 }
 
 Texture_Format :: enum {
@@ -224,4 +227,18 @@ Uniform_Block_Desc :: struct {
 Draw_Indexed_Desc :: struct {
 	index_count: u32,
 	first_index: u32,
+}
+
+Render_Target_Desc :: struct {
+	width, height: i32,
+	label:         string,
+}
+
+Load_Op :: enum {
+	Clear,
+	Load,
+}
+
+Viewport :: struct {
+	x, y, width, height: i32,
 }

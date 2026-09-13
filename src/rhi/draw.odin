@@ -159,6 +159,10 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		return err
 	}
 
+	if !device.pass_active {
+		return .Invalid_Pass
+	}
+
 	bindings := device.bindings
 	pipeline := pool.get(&device.pipelines, bindings.pipeline)
 	vertex := pool.get(&device.buffers, bindings.vertex_buffer)
@@ -211,6 +215,10 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		texture := pool.get(&device.textures, bindings.textures[binding])
 		if texture == nil {
 			return .Invalid_Handle
+		}
+
+		if device.pass_target.generation != 0 && texture.owner == device.pass_target {
+			return .Feedback_Loop
 		}
 
 		textures[binding] = texture.native

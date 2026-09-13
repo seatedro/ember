@@ -118,7 +118,6 @@ run :: proc(config: Config) -> (result: Error) {
 		}
 		if window.framebuffer_resized {
 			window.framebuffer_resized = false
-			rhi.set_viewport(&device, app.width, app.height)
 		}
 
 		now := time.tick_now()
@@ -132,6 +131,10 @@ run :: proc(config: Config) -> (result: Error) {
 		}
 		if config.draw != nil && !config.draw(&app, config.userdata) {
 			log.error("Game draw failed")
+			return .Draw_Failed
+		}
+		if device.pass_active {
+			log.error("Game left a render pass open")
 			return .Draw_Failed
 		}
 		win.swap_buffers(&window)

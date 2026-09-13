@@ -16,29 +16,33 @@ Object :: struct {
 }
 
 State :: struct {
-	shaders:           shader.Library,
-	renderer:          render.Renderer,
-	mesh:              render.Mesh,
-	pipeline:          render.Pipeline,
-	materials:         [2]render.Material,
-	textures:          [2]render.Texture,
-	objects:           [3]Object,
-	grid_mesh:         render.Mesh,
-	grid_pipeline:     render.Pipeline,
-	grid_material:     render.Material,
-	lights:            [1]render.Point_Light,
-	light_pipeline:    render.Pipeline,
-	light_material:    render.Material,
-	light_angle:       f32,
-	light_paused:      bool,
-	blend_mesh:        render.Mesh,
-	blend_pipelines:   [2]render.Pipeline,
-	blend_materials:   [2]render.Material,
-	blend_transforms:  [2]emath.Transform,
-	additive_blending: bool,
-	angle:             f32,
-	orbit:             camera.Orbit,
-	camera:            camera.Camera,
+	shaders:             shader.Library,
+	renderer:            render.Renderer,
+	target, next_target: render.Render_Target,
+	present_pipeline:    render.Pipeline,
+	present_material:    render.Material,
+	present_mesh:        render.Mesh,
+	mesh:                render.Mesh,
+	pipeline:            render.Pipeline,
+	materials:           [2]render.Material,
+	textures:            [2]render.Texture,
+	objects:             [3]Object,
+	grid_mesh:           render.Mesh,
+	grid_pipeline:       render.Pipeline,
+	grid_material:       render.Material,
+	lights:              [1]render.Point_Light,
+	light_pipeline:      render.Pipeline,
+	light_material:      render.Material,
+	light_angle:         f32,
+	light_paused:        bool,
+	blend_mesh:          render.Mesh,
+	blend_pipelines:     [2]render.Pipeline,
+	blend_materials:     [2]render.Material,
+	blend_transforms:    [2]emath.Transform,
+	additive_blending:   bool,
+	angle:               f32,
+	orbit:               camera.Orbit,
+	camera:              camera.Camera,
 }
 
 SPHERE_LAYOUT :: render.Vertex_Layout {
@@ -136,7 +140,11 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return init_grid(game) && init_light(game) && init_blending(game)
+	if !init_grid(game) || !init_light(game) || !init_blending(game) {
+		return false
+	}
+
+	return init_presentation(game, app.width, app.height)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -184,15 +192,32 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
+	if !resize_target(game, app.width, app.height) {
+		return false
+	}
+
+	if !draw_world(game, app) {
+		return false
+	}
+
+	return present(game, app)
+}
+
+draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
+	if !check(render.begin_pass(&game.renderer, {target = &game.target}), "begin world pass") {
+		return false
+	}
+
+	defer check(render.end_pass(&game.renderer), "end world pass")
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
 	if !check(
-		render.begin_frame(
+		render.set_view(
 			&game.renderer,
 			game.camera,
 			projection,
 			lighting = {ambient = {0.12, 0.12, 0.12}, point_lights = game.lights[:]},
 		),
-		"begin frame",
+		"set world view",
 	) {
 		return false
 	}
@@ -243,6 +268,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	destroy_presentation(game)
 	destroy_blending(game)
 	check(render.destroy_material(&game.renderer, &game.light_material), "destroy light material")
 	check(render.destroy_pipeline(&game.renderer, &game.light_pipeline), "destroy light pipeline")

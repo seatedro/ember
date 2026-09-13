@@ -8,13 +8,16 @@ Error :: types.Error
 Device_Context :: backend.Device_Context
 
 Device :: struct {
-	initialized: bool,
-	buffers:     pool.Pool(Buffer_Resource, Buffer_Handle),
-	shaders:     pool.Pool(Shader_Resource, Shader_Handle),
-	pipelines:   pool.Pool(Pipeline_Resource, Pipeline_Handle),
-	textures:    pool.Pool(Texture_Resource, Texture_Handle),
-	bindings:    Bindings,
-	native:      backend.Device,
+	initialized:    bool,
+	buffers:        pool.Pool(Buffer_Resource, Buffer_Handle),
+	shaders:        pool.Pool(Shader_Resource, Shader_Handle),
+	pipelines:      pool.Pool(Pipeline_Resource, Pipeline_Handle),
+	textures:       pool.Pool(Texture_Resource, Texture_Handle),
+	render_targets: pool.Pool(Render_Target_Resource, Render_Target_Handle),
+	pass_active:    bool,
+	pass_target:    Render_Target_Handle,
+	bindings:       Bindings,
+	native:         backend.Device,
 }
 
 create_device :: proc(
@@ -85,8 +88,23 @@ create_device :: proc(
 		return {}, .Allocation_Failed
 	}
 
+	targets, target_error := pool.create(
+		Render_Target_Resource,
+		Render_Target_Handle,
+		texture_capacity,
+		allocator,
+	)
+	if target_error != .None {
+		pool.destroy(&textures)
+		pool.destroy(&pipelines)
+		pool.destroy(&shaders)
+		pool.destroy(&buffers)
+		return {}, .Allocation_Failed
+	}
+
 	native, err := backend.create_device(platform_context)
 	if err != .None {
+		pool.destroy(&targets)
 		pool.destroy(&textures)
 		pool.destroy(&pipelines)
 		pool.destroy(&shaders)
@@ -100,6 +118,7 @@ create_device :: proc(
 			shaders = shaders,
 			pipelines = pipelines,
 			textures = textures,
+			render_targets = targets,
 			native = native,
 		},
 		.None
@@ -124,6 +143,20 @@ destroy_device :: proc(device: ^Device) -> Error {
 
 	if err := backend.wait_idle(); err != .None {
 		return err
+	}
+
+	if device.pass_active {
+		if err := end_pass(device); err != .None {
+			return err
+		}
+	}
+
+	for slot, index in device.render_targets.slots {
+		if slot.used {
+			if err := destroy_render_target(device, {u32(index), slot.generation}); err != .None {
+				return err
+			}
+		}
 	}
 
 	for &slot, index in device.pipelines.slots {
@@ -174,17 +207,9 @@ destroy_device :: proc(device: ^Device) -> Error {
 	assert(ok, "Device has an unfinished pipeline operation")
 	ok = pool.destroy(&device.textures)
 	assert(ok, "Device has an unfinished texture operation")
+	ok = pool.destroy(&device.render_targets)
+	assert(ok, "Device has an unfinished render target operation")
 	device^ = {}
 
 	return .None
-}
-
-set_viewport :: proc(device: ^Device, width, height: i32) {
-	assert(validate_device(device) == .None)
-	backend.set_viewport(width, height)
-}
-
-clear :: proc(device: ^Device, color: [4]f32, depth: f64) {
-	assert(validate_device(device) == .None)
-	backend.clear(color, depth)
 }

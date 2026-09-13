@@ -94,7 +94,14 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	device := app.device
 
-	rhi.clear(device, {0.1, 0.1, 0.1, 1}, 1)
+	if !check(
+		rhi.begin_pass(device, {viewport = {width = app.width, height = app.height}}),
+		"begin pass",
+	) {
+		return false
+	}
+
+	defer check(rhi.end_pass(device), "end pass")
 	if !check(rhi.bind_pipeline(device, game.pipeline), "bind pipeline") {
 		return false
 	}

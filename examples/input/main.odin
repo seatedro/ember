@@ -75,6 +75,15 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	if game.space_down {
 		color = {0.1, 0.4, 0.25, 1}
 	}
-	rhi.clear(app.device, color, 1)
+
+	if rhi.begin_pass(app.device, {viewport = {width = app.width, height = app.height}}, color) !=
+	   .None {
+		return false
+	}
+
+	if rhi.end_pass(app.device) != .None {
+		return false
+	}
+
 	return true
 }
