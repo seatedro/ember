@@ -208,3 +208,41 @@ ensure_capacity :: proc(array: ^[dynamic]$T, count: int) -> mem.Allocator_Error 
 
 	return reserve(array, max(count, min(cap(array^), max(int) / 2) * 2))
 }
+
+append_list :: proc(destination, source: ^List) -> Error {
+	if destination == source ||
+	   destination.size != source.size ||
+	   len(destination.clips) != 1 ||
+	   len(source.clips) != 1 {
+		return .Invalid_Draw
+	}
+
+	if len(source.indices) > int(max(i32)) - len(destination.indices) ||
+	   len(source.vertices) > int(max(u32)) - len(destination.vertices) {
+		return .Invalid_Size
+	}
+
+	if ensure_capacity(&destination.vertices, len(destination.vertices) + len(source.vertices)) !=
+		   nil ||
+	   ensure_capacity(&destination.indices, len(destination.indices) + len(source.indices)) !=
+		   nil ||
+	   ensure_capacity(&destination.batches, len(destination.batches) + len(source.batches)) !=
+		   nil {
+		return .Allocation_Failed
+	}
+
+	vertex_offset := u32(len(destination.vertices))
+	index_offset := u32(len(destination.indices))
+	append(&destination.vertices, ..source.vertices[:])
+	for index in source.indices {
+		append(&destination.indices, index + vertex_offset)
+	}
+
+	for source_batch in source.batches {
+		batch := source_batch
+		batch.first_index += index_offset
+		append(&destination.batches, batch)
+	}
+
+	return .None
+}

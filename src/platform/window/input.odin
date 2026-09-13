@@ -1,6 +1,7 @@
 package window
 
 import "../../input"
+import "core:strings"
 import "vendor:glfw"
 
 @(private)
@@ -9,6 +10,7 @@ init_input :: proc(window: ^Window) {
 	focused := glfw.GetWindowAttrib(window.handle, glfw.FOCUSED) != 0
 	input.init(&window.input, focused, {x, y})
 	glfw.SetKeyCallback(window.handle, key_callback)
+	glfw.SetCharCallback(window.handle, text_callback)
 	glfw.SetMouseButtonCallback(window.handle, mouse_button_callback)
 	glfw.SetCursorPosCallback(window.handle, cursor_position_callback)
 	glfw.SetScrollCallback(window.handle, scroll_callback)
@@ -19,10 +21,20 @@ init_input :: proc(window: ^Window) {
 key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	context = glfw_callback_context
 	window := cast(^Window)glfw.GetWindowUserPointer(handle)
-	if window == nil || (action != glfw.PRESS && action != glfw.RELEASE) {
+	if window == nil {
 		return
 	}
-	input.record_key(&window.input, translate_key(key), action == glfw.PRESS)
+
+	if action == glfw.REPEAT {
+		input.record_repeat(&window.input, translate_key(key), translate_modifiers(mods))
+	} else if action == glfw.PRESS || action == glfw.RELEASE {
+		input.record_key(
+			&window.input,
+			translate_key(key),
+			action == glfw.PRESS,
+			translate_modifiers(mods),
+		)
+	}
 }
 
 @(private)
@@ -213,4 +225,55 @@ KEY_MAP := [glfw.KEY_LAST + 1]input.Key {
 	glfw.KEY_RIGHT_ALT     = .Right_Alt,
 	glfw.KEY_RIGHT_SUPER   = .Right_Super,
 	glfw.KEY_MENU          = .Menu,
+}
+
+@(private)
+text_callback :: proc "c" (handle: glfw.WindowHandle, character: rune) {
+	context = glfw_callback_context
+	window := cast(^Window)glfw.GetWindowUserPointer(handle)
+	if window != nil {
+		input.record_text(&window.input, character)
+	}
+}
+
+clipboard :: proc(window: ^Window) -> input.Clipboard {
+	return {get = get_clipboard, set = set_clipboard, userdata = rawptr(window.handle)}
+}
+
+@(private)
+get_clipboard :: proc(userdata: rawptr) -> (string, bool) {
+	value := glfw.GetClipboardString(cast(glfw.WindowHandle)userdata)
+	return value, true
+}
+
+@(private)
+set_clipboard :: proc(userdata: rawptr, value: string) -> bool {
+	text, err := strings.clone_to_cstring(value)
+	if err != nil {
+		return false
+	}
+
+	defer {
+		delete(text)
+	}
+	glfw.SetClipboardString(cast(glfw.WindowHandle)userdata, text)
+	return true
+}
+
+@(private)
+translate_modifiers :: proc(mods: i32) -> input.Modifiers {
+	result: input.Modifiers
+	if mods & glfw.MOD_SHIFT != 0 {
+		result += {.Shift}
+	}
+	if mods & glfw.MOD_CONTROL != 0 {
+		result += {.Control}
+	}
+	if mods & glfw.MOD_ALT != 0 {
+		result += {.Alt}
+	}
+	if mods & glfw.MOD_SUPER != 0 {
+		result += {.Super}
+	}
+	return result
 }

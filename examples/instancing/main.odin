@@ -1,6 +1,5 @@
 package game
 
-import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:time"
@@ -21,6 +20,10 @@ State :: struct {
 	interface:           ui.Context,
 	ui_failed:           bool,
 	overlay_expanded:    bool,
+	ui_scroll:           [2][2]f32,
+	ui_tab:              int,
+	tone_mapping:        int,
+	note:                ui.Text_Edit,
 	font:                draw2d.Font,
 	preview:             render.Texture,
 	shaders:             shaders.Library,
@@ -82,6 +85,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	game.interface = ui.create()
+	game.interface.clipboard = app.clipboard
+	note_error: ui.Error
+	game.note, note_error = ui.create_text_edit("Hello, world!")
+	if !check_ui(note_error) {
+		return false
+	}
 	font_error: draw2d.Font_Error
 	game.font, font_error = draw2d.load_font(
 		app.device,
@@ -94,7 +103,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	game.interface.style = {
-		font_size    = 16,
+		font_size    = 12,
 		padding      = {8, 4},
 		border_width = 2,
 		thumb_width  = 12,
@@ -338,7 +347,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			&game.presentation,
 			game.target.color,
 			{width = app.width, height = app.height},
-			{exposure = game.exposure},
+			{exposure = game.exposure, tone_mapping = render.Tone_Mapping(game.tone_mapping)},
 		),
 		"present",
 	) {
@@ -353,6 +362,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	check(draw2d.destroy_font(app.device, &game.font), "destroy font")
 	check(draw2d.destroy(&game.overlay), "destroy 2D renderer")
 	ui.destroy(&game.interface)
+	ui.destroy_text_edit(&game.note)
 	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
 	check(
@@ -377,178 +387,6 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 check :: proc(err: render.Error, operation: string) -> bool {
 	if err != .None {
 		log.errorf("%s: %v", operation, err)
-	}
-
-	return err == .None
-}
-
-build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
-	ctx := &game.interface
-	list := &ctx.draws
-	width := 720 * f32(app.width) / f32(app.height)
-	if !check_ui(
-		ui.begin(ctx, app.input^, {width, 720}, {f32(app.window_size.x), f32(app.window_size.y)}),
-	) {
-		return false
-	}
-
-	defer {
-		if ctx.frame_active {
-			ui.end(ctx)
-		}
-	}
-
-	buffer: [256]u8
-	body, panel_error := ui.collapsible_panel(
-		ctx,
-		ui.id("overlay"),
-		{{24, 24}, {336, 308}},
-		fmt.bprintf(buffer[:], "FPS %3.0f", game.fps),
-		&game.overlay_expanded,
-	)
-	if !check_ui(panel_error) {
-		return false
-	}
-
-	if !game.overlay_expanded {
-		return check_ui(ui.end(ctx))
-	}
-
-	column, layout_error := ui.layout(body, .Column, spacing = 8)
-	if !check_ui(layout_error) {
-		return false
-	}
-
-	stats_rect, stats_error := ui.next(&column, 48)
-	if !check_ui(stats_error) {
-		return false
-	}
-
-	stats := game.draws.stats
-	value := fmt.bprintf(
-		buffer[:],
-		"SUBMITTED %3d\nVISIBLE   %3d\nDRAWS     %3d",
-		stats.submitted,
-		stats.visible,
-		stats.draw_calls,
-	)
-	if !check(
-		draw2d.text(list, &game.font, value, stats_rect.position, 16, {0.88, 0.85, 0.77, 1}),
-		"draw counts",
-	) {
-		return false
-	}
-
-	batching_rect, batching_error := ui.next(&column, 24)
-	if !check_ui(batching_error) {
-		return false
-	}
-
-	changed, batching_control_error := ui.checkbox(
-		ctx,
-		ui.id("batching"),
-		batching_rect,
-		"BATCHING",
-		&game.batching,
-	)
-	if !check_ui(batching_control_error) {
-		return false
-	}
-
-	if changed {
-		game.next_report = 0
-	}
-
-	pause_rect, pause_error := ui.next(&column, 24)
-	if !check_ui(pause_error) {
-		return false
-	}
-
-	_, checkbox_error := ui.checkbox(ctx, ui.id("pause"), pause_rect, "PAUSED", &game.paused)
-	if !check_ui(checkbox_error) {
-		return false
-	}
-
-	exposure_rect, exposure_error := ui.next(&column, 48)
-	if !check_ui(exposure_error) {
-		return false
-	}
-
-	_, slider_error := ui.slider(
-		ctx,
-		ui.id("exposure"),
-		exposure_rect,
-		"EXPOSURE",
-		&game.exposure,
-		0,
-		4,
-		step = 0.05,
-	)
-	if !check_ui(slider_error) {
-		return false
-	}
-
-	hints, hints_error := ui.next(&column, 24)
-	if !check_ui(hints_error) {
-		return false
-	}
-
-	if !check(
-		draw2d.text(
-			list,
-			&game.font,
-			"TAB: FOCUS  ENTER/SPACE: ACTIVATE\nDRAG/SCROLL: CAMERA  B: BATCH\nARROWS: EXPOSURE  ESC: BACK/QUIT",
-			hints.position,
-			8,
-			{0.7, 0.66, 0.65, 1},
-		),
-		"draw controls",
-	) {
-		return false
-	}
-
-	samples, samples_error := ui.next(&column, 32)
-	if !check_ui(samples_error) {
-		return false
-	}
-
-	row, row_error := ui.layout(samples, .Row, spacing = 16)
-	if !check_ui(row_error) {
-		return false
-	}
-
-	image_rect, image_error := ui.next(&row, 32)
-	if !check_ui(image_error) ||
-	   !check(draw2d.quad(list, image_rect, game.preview.handle), "draw image") {
-		return false
-	}
-
-	text_rect, text_error := ui.next(&row, samples.size.x - 48)
-	if !check_ui(text_error) || !check(draw2d.push_clip(list, text_rect), "clip sample") {
-		return false
-	}
-
-	if !check(
-		   draw2d.text(
-			   list,
-			   &game.font,
-			   "CLIP TEST 0123456789",
-			   text_rect.position + [2]f32{0, 8},
-			   16,
-			   {0.94, 0.81, 0.49, 1},
-		   ),
-		   "draw clipped text",
-	   ) ||
-	   !check(draw2d.pop_clip(list), "end clip") {
-		return false
-	}
-
-	return check_ui(ui.end(ctx))
-}
-
-check_ui :: proc(err: ui.Error) -> bool {
-	if err != .None {
-		log.errorf("UI: %v", err)
 	}
 
 	return err == .None

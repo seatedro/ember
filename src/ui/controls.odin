@@ -165,19 +165,19 @@ slider :: proc(
 		}
 
 		if interaction.focused {
-			if input.pressed(&ctx.raw_input, .Left) || input.pressed(&ctx.raw_input, .Down) {
+			if key_action(ctx, .Left) || key_action(ctx, .Down) {
 				v -= f64(step)
 			}
 
-			if input.pressed(&ctx.raw_input, .Right) || input.pressed(&ctx.raw_input, .Up) {
+			if key_action(ctx, .Right) || key_action(ctx, .Up) {
 				v += f64(step)
 			}
 
-			if input.pressed(&ctx.raw_input, .Home) {
+			if key_action(ctx, .Home) {
 				v = f64(low)
 			}
 
-			if input.pressed(&ctx.raw_input, .End) {
+			if key_action(ctx, .End) {
 				v = f64(high)
 			}
 		}
@@ -288,6 +288,11 @@ control_text :: proc(ctx: ^Context, rect: Rect, label: string, enabled: bool) ->
 		draw2d.pop_clip(&ctx.draws)
 	}
 	content := inset_rect(rect, style.padding)
+	size, err := draw2d.measure_text(style.font, label, style.font_size)
+	if err != .None {
+		return draw_error(err)
+	}
+	content.position.y = rect.position.y + math.floor((rect.size.y - size.y) / 2)
 	color := style.text if enabled else style.disabled
 	return draw_error(
 		draw2d.text(&ctx.draws, style.font, label, content.position, style.font_size, color),

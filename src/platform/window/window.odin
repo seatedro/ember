@@ -78,6 +78,7 @@ create :: proc(window: ^Window, config: Config) -> bool {
 }
 
 destroy :: proc(window: ^Window) {
+	input.destroy(&window.input)
 	if window.handle != nil {
 		glfw.DestroyWindow(window.handle)
 		window.handle = nil

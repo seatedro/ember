@@ -28,6 +28,7 @@ Context :: struct {
 	elapsed_time:  f64,
 	frame_count:   u64,
 	running:       bool,
+	clipboard:     input.Clipboard,
 	input:         ^input.State,
 }
 
@@ -93,6 +94,7 @@ run :: proc(config: Config) -> (result: Error) {
 		height      = window.height,
 		running     = true,
 		input       = &window.input,
+		clipboard   = win.clipboard(&window),
 		window_size = win.size(&window),
 	}
 	defer if config.quit != nil {

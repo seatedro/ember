@@ -1,13 +1,25 @@
 package input
 
+Modifier :: enum {
+	Shift,
+	Control,
+	Alt,
+	Super,
+}
+Modifiers :: bit_set[Modifier;u8]
+
 Button_State :: struct {
-	down:     bool,
-	pressed:  bool,
-	released: bool,
+	modifiers: Modifiers,
+	down:      bool,
+	pressed:   bool,
+	released:  bool,
+	repeated:  bool,
 }
 
 State :: struct {
 	keys:                 [Key]Button_State,
+	text:                 [dynamic]rune,
+	text_failed:          bool,
 	mouse_buttons:        [Mouse_Button]Button_State,
 	focused:              bool,
 	mouse_position:       [2]f64,
@@ -48,11 +60,14 @@ init :: proc(state: ^State, focused: bool, position: [2]f64 = {}) {
 	}
 }
 
-record_key :: proc(state: ^State, key: Key, is_down: bool) {
+record_key :: proc(state: ^State, key: Key, is_down: bool, modifiers: Modifiers = {}) {
 	if !state.focused || !valid_key(key) {
 		return
 	}
 	transition(&state.keys[key], is_down)
+	if is_down {
+		state.keys[key].modifiers = modifiers | current_modifiers(state)
+	}
 }
 
 record_mouse_button :: proc(state: ^State, button: Mouse_Button, is_down: bool) {
@@ -120,12 +135,16 @@ transition :: proc(button: ^Button_State, is_down: bool) {
 clear :: proc(state: ^State) {
 	for &button in state.keys {
 		button.pressed, button.released = false, false
+		button.repeated = false
 	}
 	for &button in state.mouse_buttons {
 		button.pressed, button.released = false, false
+		button.repeated = false
 	}
 	state.mouse_delta = {}
 	state.scroll_delta = {}
+	resize(&state.text, 0)
+	state.text_failed = false
 }
 
 @(private)
@@ -133,11 +152,72 @@ release_all :: proc(state: ^State) {
 	for &button in state.keys {
 		transition(&button, false)
 		button.pressed = false
+		button.repeated = false
 	}
 	for &button in state.mouse_buttons {
 		transition(&button, false)
 		button.pressed = false
+		button.repeated = false
 	}
 	state.mouse_delta = {}
 	state.scroll_delta = {}
+	resize(&state.text, 0)
+	state.text_failed = false
+}
+
+Clipboard :: struct {
+	get:      proc(userdata: rawptr) -> (string, bool),
+	set:      proc(userdata: rawptr, value: string) -> bool,
+	userdata: rawptr,
+}
+
+record_text :: proc(state: ^State, character: rune) {
+	if !state.focused ||
+	   character < 32 ||
+	   character == 127 ||
+	   character > 0x10ffff ||
+	   (character >= 0xd800 && character <= 0xdfff) {
+		return
+	}
+
+	if _, err := append(&state.text, character); err != nil {
+		state.text_failed = true
+	}
+}
+
+record_repeat :: proc(state: ^State, key: Key, modifiers: Modifiers = {}) {
+	if state.focused && valid_key(key) && state.keys[key].down {
+		state.keys[key].repeated = true
+		state.keys[key].modifiers = modifiers | current_modifiers(state)
+	}
+}
+
+destroy :: proc(state: ^State) {
+	delete(state.text)
+	state^ = {}
+}
+
+current_modifiers :: proc(state: ^State) -> Modifiers {
+	modifiers: Modifiers
+	if down(state, .Left_Shift) || down(state, .Right_Shift) {
+		modifiers += {.Shift}
+	}
+	if down(state, .Left_Control) || down(state, .Right_Control) {
+		modifiers += {.Control}
+	}
+	if down(state, .Left_Alt) || down(state, .Right_Alt) {
+		modifiers += {.Alt}
+	}
+	if down(state, .Left_Super) || down(state, .Right_Super) {
+		modifiers += {.Super}
+	}
+	return modifiers
+}
+
+key_modifiers :: proc(state: ^State, key: Key) -> Modifiers {
+	if valid_key(key) && (state.keys[key].pressed || state.keys[key].repeated) {
+		return state.keys[key].modifiers
+	}
+
+	return current_modifiers(state)
 }
