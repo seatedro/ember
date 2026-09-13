@@ -6,6 +6,10 @@ import "core:mem"
 
 @(private)
 QUAD_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
+	.MSL  = {
+		{entry_point = "vertex_main", code = #load("msl/quad.metal", string)},
+		{entry_point = "fragment_main", code = #load("msl/quad.metal", string)},
+	},
 	.GLSL = {
 		{entry_point = "main", code = #load("glsl/quad.vert", string)},
 		{entry_point = "main", code = #load("glsl/quad.frag", string)},

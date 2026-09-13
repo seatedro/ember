@@ -77,6 +77,13 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		&game.shaders,
 		"game/banded",
 		#partial shader.Sources {
+			.MSL = {
+				vertex = {entry_point = "mesh_vertex", code = render.MSL_COMMON_SOURCE},
+				fragment = {
+					entry_point = "banded_fragment",
+					code = render.MSL_COMMON_SOURCE + #load("assets/shaders/banded.metal", string),
+				},
+			},
 			.GLSL = {
 				vertex = {entry_point = "main", code = render.GLSL_MESH_VERTEX_SOURCE},
 				fragment = {

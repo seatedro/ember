@@ -29,3 +29,12 @@ Escape closes.
 ```
 
 Indexed drawing with depth testing and face culling.
+
+## Metal (macOS 13+)
+
+```sh
+./build.sh --backend metal
+./build/debug/metal/game
+./build.sh --backend metal --example instancing
+./build/debug/metal/examples/instancing
+```

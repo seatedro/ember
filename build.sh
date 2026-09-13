@@ -21,7 +21,6 @@ usage() {
     echo "  ./build.sh --example triangle"
     echo "  ./build.sh --backend metal --example triangle"
     echo ""
-    echo "Metal currently supports the triangle example; scene shader ports are pending."
     exit 0
 }
 
