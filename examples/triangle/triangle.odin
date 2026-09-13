@@ -114,7 +114,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return check(rhi.draw_indexed(device, {index_count = 3}), "draw triangle")
+	return check(rhi.draw_indexed(device, {index_count = 3, instance_count = 1}), "draw triangle")
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {

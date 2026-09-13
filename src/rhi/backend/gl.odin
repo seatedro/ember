@@ -110,8 +110,10 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	   gl.impl_DeleteVertexArrays == nil ||
 	   gl.impl_BindVertexArray == nil ||
 	   gl.impl_VertexAttribPointer == nil ||
+	   gl.impl_VertexAttribDivisor == nil ||
 	   gl.impl_EnableVertexAttribArray == nil ||
 	   gl.impl_DrawElements == nil ||
+	   gl.impl_DrawElementsInstanced == nil ||
 	   gl.impl_Disable == nil ||
 	   gl.impl_DepthMask == nil ||
 	   gl.impl_DepthFunc == nil ||
@@ -657,10 +659,13 @@ draw_indexed :: proc(
 	settings: types.Pipeline_Settings,
 	vertex: Buffer,
 	vertex_offset: u64,
+	instance: Buffer,
+	instance_offset: u64,
 	index: Buffer,
 	index_type: types.Index_Type,
 	index_offset: u64,
 	index_count: u32,
+	instance_count: u32,
 	uniforms: [types.MAX_UNIFORM_BINDINGS]Buffer,
 	textures: [types.MAX_TEXTURE_BINDINGS]Texture,
 ) -> types.Error {
@@ -747,6 +752,7 @@ draw_indexed :: proc(
 	for i in 0 ..< settings.layout.attribute_count {
 		attribute := settings.layout.attributes[i]
 		gl.impl_EnableVertexAttribArray(attribute.location)
+		gl.impl_VertexAttribDivisor(attribute.location, 0)
 		gl.impl_VertexAttribPointer(
 			attribute.location,
 			i32(attribute.format) + 1,
@@ -755,6 +761,23 @@ draw_indexed :: proc(
 			i32(settings.layout.stride),
 			uintptr(vertex_offset + u64(attribute.offset)),
 		)
+	}
+
+	if settings.instance_layout.attribute_count != 0 {
+		gl.impl_BindBuffer(gl.ARRAY_BUFFER, instance.id)
+		for i in 0 ..< settings.instance_layout.attribute_count {
+			attribute := settings.instance_layout.attributes[i]
+			gl.impl_EnableVertexAttribArray(attribute.location)
+			gl.impl_VertexAttribDivisor(attribute.location, 1)
+			gl.impl_VertexAttribPointer(
+				attribute.location,
+				i32(attribute.format) + 1,
+				gl.FLOAT,
+				false,
+				i32(settings.instance_layout.stride),
+				uintptr(instance_offset + u64(attribute.offset)),
+			)
+		}
 	}
 
 	gl.impl_BindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.id)
@@ -846,11 +869,12 @@ draw_indexed :: proc(
 		.Points    = gl.POINTS,
 	}
 
-	gl.impl_DrawElements(
+	gl.impl_DrawElementsInstanced(
 		primitives[settings.primitive],
 		i32(index_count),
 		gl.UNSIGNED_SHORT if index_type == .U16 else gl.UNSIGNED_INT,
 		rawptr(uintptr(index_offset)),
+		i32(instance_count),
 	)
 
 	return check_errors("draw indexed")

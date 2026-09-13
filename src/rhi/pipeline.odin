@@ -78,6 +78,21 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 		return err
 	}
 
+	if settings.instance_layout != (Vertex_Layout{}) {
+		if err := validate_vertex_layout(settings.instance_layout); err != .None {
+			return err
+		}
+
+		for i in 0 ..< settings.instance_layout.attribute_count {
+			for j in 0 ..< settings.layout.attribute_count {
+				if settings.instance_layout.attributes[i].location ==
+				   settings.layout.attributes[j].location {
+					return .Invalid_Vertex_Layout
+				}
+			}
+		}
+	}
+
 	if settings.depth.compare < .Less ||
 	   settings.depth.compare > .Always ||
 	   settings.raster.cull < .None ||

@@ -56,3 +56,46 @@ test_draw_list_rejects_invalid_sort_values :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, len(list.items) == 0)
 }
+
+@(test)
+test_batches_preserve_materials_and_transparency :: proc(t: ^testing.T) {
+	list := create_draw_list()
+	defer destroy_draw_list(&list)
+	for i in 0 ..< 5 {
+		item := Draw_Item {
+			transform = {position = {f32(i), 0, -f32(i)}, orientation = 1, scale = {1, 1, 1}},
+			order = .Transparent if i >= 3 else .Opaque,
+		}
+		if i == 1 {
+			item.material.textures[0] = {
+				index      = 1,
+				generation = 1,
+			}
+		}
+
+		testing.expect(t, add_draw(&list, item) == .None)
+	}
+
+	testing.expect(t, sort_draw_list(&list, {orientation = 1}) == .None)
+	for entry in list.items {
+		append(&list.visible, entry)
+	}
+
+	testing.expect(t, build_draw_batches(&list, true) == .None)
+	testing.expect_value(t, len(list.batches), 4)
+	for count, i in ([4]int{2, 1, 1, 1}) {
+		testing.expect_value(t, list.batches[i].count, count)
+	}
+
+	for x, i in ([5]f32{0, 2, 1, 4, 3}) {
+		testing.expect_value(t, list.instances[i].rows[0][3], x)
+	}
+
+	testing.expect(t, build_draw_batches(&list, false) == .None)
+	testing.expect_value(t, len(list.batches), 5)
+	for x, i in ([5]f32{0, 1, 2, 4, 3}) {
+		testing.expect_value(t, list.instances[i].rows[0][3], x)
+		testing.expect_value(t, list.batches[i].first, i)
+		testing.expect_value(t, list.batches[i].count, 1)
+	}
+}

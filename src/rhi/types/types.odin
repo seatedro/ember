@@ -195,11 +195,12 @@ Blend_State :: struct {
 }
 
 Pipeline_Settings :: struct {
-	layout:    Vertex_Layout,
-	depth:     Depth_State,
-	raster:    Raster_State,
-	blend:     Blend_State,
-	primitive: Primitive,
+	layout:          Vertex_Layout,
+	instance_layout: Vertex_Layout,
+	depth:           Depth_State,
+	raster:          Raster_State,
+	blend:           Blend_State,
+	primitive:       Primitive,
 }
 
 Pipeline_Desc :: struct {
@@ -226,8 +227,9 @@ Uniform_Block_Desc :: struct {
 }
 
 Draw_Indexed_Desc :: struct {
-	index_count: u32,
-	first_index: u32,
+	index_count:    u32,
+	first_index:    u32,
+	instance_count: u32,
 }
 
 Render_Target_Desc :: struct {

@@ -11,6 +11,8 @@ Bindings :: struct {
 	pipeline:        Pipeline_Handle,
 	vertex_buffer:   Buffer_Handle,
 	vertex_offset:   u64,
+	instance_buffer: Buffer_Handle,
+	instance_offset: u64,
 	index_buffer:    Buffer_Handle,
 	index_offset:    u64,
 	index_type:      Index_Type,
@@ -75,6 +77,20 @@ bind_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 }
 
 bind_vertex_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64 = 0) -> Error {
+	return bind_vertex_stream(device, handle, offset, false)
+}
+
+bind_instance_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64 = 0) -> Error {
+	return bind_vertex_stream(device, handle, offset, true)
+}
+
+@(private)
+bind_vertex_stream :: proc(
+	device: ^Device,
+	handle: Buffer_Handle,
+	offset: u64,
+	instance: bool,
+) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
 	}
@@ -88,8 +104,13 @@ bind_vertex_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64 =
 		return .Invalid_Buffer_Binding
 	}
 
-	device.bindings.vertex_buffer = handle
-	device.bindings.vertex_offset = offset
+	if instance {
+		device.bindings.instance_buffer = handle
+		device.bindings.instance_offset = offset
+	} else {
+		device.bindings.vertex_buffer = handle
+		device.bindings.vertex_offset = offset
+	}
 
 	return .None
 }
@@ -130,7 +151,10 @@ validate_indexed_range :: proc(
 	index_type: Index_Type,
 	offset, size: u64,
 ) -> Error {
-	if desc.index_count == 0 || desc.index_count > u32(max(i32)) {
+	if desc.index_count == 0 ||
+	   desc.index_count > u32(max(i32)) ||
+	   desc.instance_count == 0 ||
+	   desc.instance_count > u32(max(i32)) {
 		return .Invalid_Draw
 	}
 
@@ -185,6 +209,26 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		return err
 	}
 
+	instance: backend.Buffer
+	if pipeline.settings.instance_layout.attribute_count != 0 {
+		buffer := pool.get(&device.buffers, bindings.instance_buffer)
+		if buffer == nil {
+			return .Invalid_Handle
+		}
+
+		if .Vertex not_in buffer.usage {
+			return .Invalid_Buffer_Binding
+		}
+
+		stride := u64(pipeline.settings.instance_layout.stride)
+		if bindings.instance_offset > buffer.size ||
+		   u64(desc.instance_count) > (buffer.size - bindings.instance_offset) / stride {
+			return .Invalid_Buffer_Range
+		}
+
+		instance = buffer.native
+	}
+
 	width := u64(2) if bindings.index_type == .U16 else u64(4)
 	uniforms: [MAX_UNIFORM_BINDINGS]backend.Buffer
 
@@ -229,10 +273,13 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		pipeline.settings,
 		vertex.native,
 		bindings.vertex_offset,
+		instance,
+		bindings.instance_offset,
 		index.native,
 		bindings.index_type,
 		bindings.index_offset + u64(desc.first_index) * width,
 		desc.index_count,
+		desc.instance_count,
 		uniforms,
 		textures,
 	)
