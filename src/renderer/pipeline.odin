@@ -27,8 +27,9 @@ create_pipeline :: proc(
 			fragment_shader = shader.fragment,
 			settings = settings,
 			uniform_blocks = {
-				{name = "Per_Object", binding = 0},
-				{name = "Material", binding = 1},
+				{name = "Per_View", binding = VIEW_BINDING},
+				{name = "Per_Object", binding = OBJECT_BINDING},
+				{name = "Material", binding = MATERIAL_BINDING},
 			},
 			textures = textures,
 			label = "mesh draw",
@@ -39,7 +40,8 @@ create_pipeline :: proc(
 	}
 
 	slot := rhi.pipeline_pool_lookup(&renderer.device.pipelines, pipeline.handle)
-	if slot.uniform_sizes[0] > size_of(Per_Object) {
+	if slot.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
+	   slot.uniform_sizes[OBJECT_BINDING] > size_of(Per_Object) {
 		destroy_pipeline(renderer, &pipeline)
 		return pipeline, .Invalid_Size
 	}
@@ -90,7 +92,7 @@ validate_draw :: proc(
 		return .Invalid_Buffer_Binding
 	}
 
-	if slot.uniform_sizes[1] > parameters.size {
+	if slot.uniform_sizes[MATERIAL_BINDING] > parameters.size {
 		return .Invalid_Size
 	}
 

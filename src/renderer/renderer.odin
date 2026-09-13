@@ -9,23 +9,46 @@ Error :: rhi.Error
 
 Renderer :: struct {
 	device:          ^rhi.Device,
-	uniforms:        rhi.Buffer_Handle,
+	view_uniforms:   rhi.Buffer_Handle,
+	object_uniforms: rhi.Buffer_Handle,
+}
+
+@(private)
+VIEW_BINDING :: 0
+
+@(private)
+OBJECT_BINDING :: 1
+
+@(private)
+MATERIAL_BINDING :: 2
+
+@(private)
+Per_View :: struct {
 	view_projection: emath.Mat4,
 }
 
 @(private)
 Per_Object :: struct {
-	mvp, normals: emath.Mat4,
+	model, normals: emath.Mat4,
 }
 
 create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 	renderer.device = device
-	renderer.uniforms, err = rhi.create_buffer(
+	renderer.view_uniforms, err = rhi.create_buffer(
+		device,
+		{size = size_of(Per_View), usage = {.Uniform}, label = "view transforms"},
+	)
+	if err != .None {
+		return {}, err
+	}
+
+	renderer.object_uniforms, err = rhi.create_buffer(
 		device,
 		{size = size_of(Per_Object), usage = {.Uniform}, label = "mesh transforms"},
 	)
 	if err != .None {
-		return {}, err
+		destroy(&renderer)
+		return
 	}
 
 	return
@@ -41,7 +64,16 @@ begin_frame :: proc(
 		return err
 	}
 
-	renderer.view_projection = projection * camera.view_matrix(view)
+	data := [1]Per_View{{view_projection = projection * camera.view_matrix(view)}}
+	if err := rhi.update_buffer(
+		renderer.device,
+		renderer.view_uniforms,
+		0,
+		mem.slice_to_bytes(data[:]),
+	); err != .None {
+		return err
+	}
+
 	rhi.clear(renderer.device, clear_color, 1)
 
 	return .None
@@ -68,13 +100,10 @@ draw_mesh :: proc(
 	}
 
 	data := [1]Per_Object {
-		{
-			mvp = renderer.view_projection * emath.transform_matrix(transform),
-			normals = emath.normal_matrix(transform),
-		},
+		{model = emath.transform_matrix(transform), normals = emath.normal_matrix(transform)},
 	}
 
-	if err := rhi.update_buffer(device, renderer.uniforms, 0, mem.slice_to_bytes(data[:]));
+	if err := rhi.update_buffer(device, renderer.object_uniforms, 0, mem.slice_to_bytes(data[:]));
 	   err != .None {
 		return err
 	}
@@ -83,11 +112,17 @@ draw_mesh :: proc(
 		return err
 	}
 
-	if err := rhi.bind_uniform_buffer(device, 0, renderer.uniforms); err != .None {
+	if err := rhi.bind_uniform_buffer(device, VIEW_BINDING, renderer.view_uniforms); err != .None {
 		return err
 	}
 
-	if err := rhi.bind_uniform_buffer(device, 1, material.parameters); err != .None {
+	if err := rhi.bind_uniform_buffer(device, OBJECT_BINDING, renderer.object_uniforms);
+	   err != .None {
+		return err
+	}
+
+	if err := rhi.bind_uniform_buffer(device, MATERIAL_BINDING, material.parameters);
+	   err != .None {
 		return err
 	}
 
@@ -105,10 +140,14 @@ draw_mesh :: proc(
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
-	if renderer.uniforms.generation != 0 {
-		err := rhi.destroy_buffer(renderer.device, renderer.uniforms)
+	for handle in ([2]^rhi.Buffer_Handle{&renderer.object_uniforms, &renderer.view_uniforms}) {
+		if handle.generation == 0 {
+			continue
+		}
+
+		err := rhi.destroy_buffer(renderer.device, handle^)
 		if err == .None {
-			renderer.uniforms = {}
+			handle^ = {}
 		} else if result == .None {
 			result = err
 		}
