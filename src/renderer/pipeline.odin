@@ -16,21 +16,29 @@ create_pipeline :: proc(
 	shader: shaders.Shader,
 	settings: Pipeline_Settings,
 	textures: []Texture_Binding_Desc = nil,
+	lighting: bool = false,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
 ) {
+	blocks := [4]rhi.Uniform_Block_Desc {
+		{name = "Per_View", binding = VIEW_BINDING},
+		{name = "Per_Object", binding = OBJECT_BINDING},
+		{name = "Material", binding = MATERIAL_BINDING},
+		{name = "Lighting_Uniforms", binding = LIGHTING_BINDING},
+	}
+	block_count := 3
+	if lighting {
+		block_count = 4
+	}
+
 	pipeline.handle, err = rhi.create_pipeline(
 		renderer.device,
 		{
 			vertex_shader = shader.vertex,
 			fragment_shader = shader.fragment,
 			settings = settings,
-			uniform_blocks = {
-				{name = "Per_View", binding = VIEW_BINDING},
-				{name = "Per_Object", binding = OBJECT_BINDING},
-				{name = "Material", binding = MATERIAL_BINDING},
-			},
+			uniform_blocks = blocks[:block_count],
 			textures = textures,
 			label = "mesh draw",
 		},
@@ -41,7 +49,8 @@ create_pipeline :: proc(
 
 	slot := rhi.pipeline_pool_lookup(&renderer.device.pipelines, pipeline.handle)
 	if slot.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
-	   slot.uniform_sizes[OBJECT_BINDING] > size_of(Per_Object) {
+	   slot.uniform_sizes[OBJECT_BINDING] > size_of(Per_Object) ||
+	   slot.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) {
 		destroy_pipeline(renderer, &pipeline)
 		return pipeline, .Invalid_Size
 	}

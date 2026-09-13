@@ -8,9 +8,10 @@ import "core:mem"
 Error :: rhi.Error
 
 Renderer :: struct {
-	device:          ^rhi.Device,
-	view_uniforms:   rhi.Buffer_Handle,
-	object_uniforms: rhi.Buffer_Handle,
+	device:            ^rhi.Device,
+	view_uniforms:     rhi.Buffer_Handle,
+	object_uniforms:   rhi.Buffer_Handle,
+	lighting_uniforms: rhi.Buffer_Handle,
 }
 
 @(private)
@@ -21,6 +22,9 @@ OBJECT_BINDING :: 1
 
 @(private)
 MATERIAL_BINDING :: 2
+
+@(private)
+LIGHTING_BINDING :: 3
 
 @(private)
 Per_View :: struct {
@@ -51,6 +55,15 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 		return
 	}
 
+	renderer.lighting_uniforms, err = rhi.create_buffer(
+		device,
+		{size = size_of(Lighting_Uniforms), usage = {.Uniform}, label = "lighting"},
+	)
+	if err != .None {
+		destroy(&renderer)
+		return
+	}
+
 	return
 }
 
@@ -59,8 +72,24 @@ begin_frame :: proc(
 	view: camera.Camera,
 	projection: emath.Mat4,
 	clear_color: [4]f32 = {0.1, 0.1, 0.1, 1},
+	lighting: Lighting = {},
 ) -> Error {
 	if err := rhi.validate_device(renderer.device); err != .None {
+		return err
+	}
+
+	packed_lighting, lighting_error := pack_lighting(lighting)
+	if lighting_error != .None {
+		return lighting_error
+	}
+
+	lighting_data := [1]Lighting_Uniforms{packed_lighting}
+	if err := rhi.update_buffer(
+		renderer.device,
+		renderer.lighting_uniforms,
+		0,
+		mem.slice_to_bytes(lighting_data[:]),
+	); err != .None {
 		return err
 	}
 
@@ -126,6 +155,11 @@ draw_mesh :: proc(
 		return err
 	}
 
+	if err := rhi.bind_uniform_buffer(device, LIGHTING_BINDING, renderer.lighting_uniforms);
+	   err != .None {
+		return err
+	}
+
 	for texture, binding in material.textures {
 		if texture.generation == 0 {
 			continue
@@ -140,7 +174,11 @@ draw_mesh :: proc(
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
-	for handle in ([2]^rhi.Buffer_Handle{&renderer.object_uniforms, &renderer.view_uniforms}) {
+	for handle in ([3]^rhi.Buffer_Handle {
+			&renderer.lighting_uniforms,
+			&renderer.object_uniforms,
+			&renderer.view_uniforms,
+		}) {
 		if handle.generation == 0 {
 			continue
 		}

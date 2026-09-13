@@ -16,19 +16,24 @@ Object :: struct {
 }
 
 State :: struct {
-	shaders:       shader.Library,
-	renderer:      render.Renderer,
-	mesh:          render.Mesh,
-	pipeline:      render.Pipeline,
-	materials:     [2]render.Material,
-	textures:      [2]render.Texture,
-	objects:       [3]Object,
-	grid_mesh:     render.Mesh,
-	grid_pipeline: render.Pipeline,
-	grid_material: render.Material,
-	angle:         f32,
-	orbit:         camera.Orbit,
-	camera:        camera.Camera,
+	shaders:        shader.Library,
+	renderer:       render.Renderer,
+	mesh:           render.Mesh,
+	pipeline:       render.Pipeline,
+	materials:      [2]render.Material,
+	textures:       [2]render.Texture,
+	objects:        [3]Object,
+	grid_mesh:      render.Mesh,
+	grid_pipeline:  render.Pipeline,
+	grid_material:  render.Material,
+	lights:         [1]render.Point_Light,
+	light_pipeline: render.Pipeline,
+	light_material: render.Material,
+	light_angle:    f32,
+	light_paused:   bool,
+	angle:          f32,
+	orbit:          camera.Orbit,
+	camera:         camera.Camera,
 }
 
 SPHERE_LAYOUT :: render.Vertex_Layout {
@@ -91,6 +96,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			raster = {cull = .Back, winding = .CCW},
 		},
 		{{name = "albedo_texture", binding = 0}},
+		lighting = true,
 	)
 	if !check(err, "create pipeline") {
 		return false
@@ -124,7 +130,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return init_grid(game)
+	return init_grid(game) && init_light(game)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -140,6 +146,11 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		}
 	}
 
+	if input.pressed(app.input, .Space) {
+		game.light_paused = !game.light_paused
+	}
+	update_light(game, dt)
+
 	game.angle += dt * 0.05
 	if game.angle >= 2 * math.PI {
 		game.angle -= 2 * math.PI
@@ -153,7 +164,15 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
-	if !check(render.begin_frame(&game.renderer, game.camera, projection), "begin frame") {
+	if !check(
+		render.begin_frame(
+			&game.renderer,
+			game.camera,
+			projection,
+			lighting = {ambient = {0.12, 0.12, 0.12}, point_lights = game.lights[:]},
+		),
+		"begin frame",
+	) {
 		return false
 	}
 
@@ -185,11 +204,22 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		}
 	}
 
-	return true
+	return check(
+		render.draw_mesh(
+			&game.renderer,
+			&game.light_pipeline,
+			&game.mesh,
+			&game.light_material,
+			{position = game.lights[0].position, orientation = 1, scale = {0.12, 0.12, 0.12}},
+		),
+		"draw light marker",
+	)
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	check(render.destroy_material(&game.renderer, &game.light_material), "destroy light material")
+	check(render.destroy_pipeline(&game.renderer, &game.light_pipeline), "destroy light pipeline")
 	check(render.destroy_mesh(&game.renderer, &game.grid_mesh), "destroy grid mesh")
 	check(render.destroy_material(&game.renderer, &game.grid_material), "destroy grid material")
 	check(render.destroy_pipeline(&game.renderer, &game.grid_pipeline), "destroy grid pipeline")
