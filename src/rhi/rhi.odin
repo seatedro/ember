@@ -14,6 +14,8 @@ Device :: struct {
 	pipelines:      pool.Pool(Pipeline_Resource, Pipeline_Handle),
 	textures:       pool.Pool(Texture_Resource, Texture_Handle),
 	render_targets: pool.Pool(Render_Target_Resource, Render_Target_Handle),
+	frame_active:   bool,
+	frame_size:     [2]i32,
 	pass_active:    bool,
 	pass_viewport:  Viewport,
 	pass_target:    Render_Target_Handle,
@@ -142,10 +144,8 @@ destroy_device :: proc(device: ^Device) -> Error {
 		return err
 	}
 
-	if device.pass_active {
-		if err := end_pass(device); err != .None {
-			return err
-		}
+	if err := discard_frame(device); err != .None {
+		return err
 	}
 
 	if err := backend.wait_idle(&device.native); err != .None {

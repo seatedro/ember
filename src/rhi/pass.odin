@@ -23,6 +23,10 @@ begin_pass :: proc(
 		return err
 	}
 
+	if !device.frame_active {
+		return .Invalid_Frame
+	}
+
 	if device.pass_active ||
 	   desc.color_load < .Clear ||
 	   desc.color_load > .Load ||
@@ -33,6 +37,7 @@ begin_pass :: proc(
 	}
 
 	viewport := desc.viewport
+	target_size := device.frame_size
 	native: backend.Render_Target
 	if desc.target != (Render_Target_Handle{}) {
 		slot := pool.get(&device.render_targets, desc.target)
@@ -40,22 +45,23 @@ begin_pass :: proc(
 			return .Invalid_Handle
 		}
 
-		if viewport == (Viewport{}) {
-			viewport = {
-				width  = slot.width,
-				height = slot.height,
-			}
-		}
-
-		if i64(viewport.x) + i64(viewport.width) > i64(slot.width) ||
-		   i64(viewport.y) + i64(viewport.height) > i64(slot.height) {
-			return .Invalid_Size
-		}
-
+		target_size = {slot.width, slot.height}
 		native = slot.native
 	}
 
-	if viewport.x < 0 || viewport.y < 0 || viewport.width <= 0 || viewport.height <= 0 {
+	if viewport == (Viewport{}) {
+		viewport = {
+			width  = target_size.x,
+			height = target_size.y,
+		}
+	}
+
+	if viewport.x < 0 ||
+	   viewport.y < 0 ||
+	   viewport.width <= 0 ||
+	   viewport.height <= 0 ||
+	   i64(viewport.x) + i64(viewport.width) > i64(target_size.x) ||
+	   i64(viewport.y) + i64(viewport.height) > i64(target_size.y) {
 		return .Invalid_Size
 	}
 

@@ -74,7 +74,7 @@ run :: proc(config: Config) -> (result: Error) {
 	}
 	defer win.destroy(&window)
 
-	device, device_error := rhi.create_device(win.gl_context(&window))
+	device, device_error := rhi.create_device(win.device_context(&window))
 	if device_error != .None {
 		log.errorf("Failed to create rendering device: %v", device_error)
 		return .Device_Failed
@@ -97,8 +97,18 @@ run :: proc(config: Config) -> (result: Error) {
 		clipboard   = win.clipboard(&window),
 		window_size = win.size(&window),
 	}
-	defer if config.quit != nil {
-		config.quit(&app, config.userdata)
+	defer {
+		// Close unfinished GPU work before the game releases its resources.
+		if err := rhi.discard_frame(&device); err != .None {
+			log.errorf("Failed to discard frame: %v", err)
+			if result == .None {
+				result = .Shutdown_Failed
+			}
+		}
+
+		if config.quit != nil {
+			config.quit(&app, config.userdata)
+		}
 	}
 
 	if config.init != nil && !config.init(&app, config.userdata) {
@@ -134,15 +144,22 @@ run :: proc(config: Config) -> (result: Error) {
 		if !app.running {
 			break
 		}
+
+		if err := rhi.begin_frame(&device, {app.width, app.height}); err != .None {
+			log.errorf("Failed to begin frame: %v", err)
+			return .Draw_Failed
+		}
+
 		if config.draw != nil && !config.draw(&app, config.userdata) {
 			log.error("Game draw failed")
 			return .Draw_Failed
 		}
-		if device.pass_active {
-			log.error("Game left a render pass open")
+
+		if err := rhi.end_frame(&device); err != .None {
+			log.errorf("Failed to end frame: %v", err)
 			return .Draw_Failed
 		}
-		win.swap_buffers(&window)
+
 		app.frame_count += 1
 	}
 	return .None

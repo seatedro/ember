@@ -28,6 +28,7 @@ Error :: enum {
 	Invalid_Texture,
 	Invalid_Texture_Binding,
 	Invalid_Pass,
+	Invalid_Frame,
 	Resource_In_Use,
 	Feedback_Loop,
 }

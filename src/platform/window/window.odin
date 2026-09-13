@@ -95,10 +95,6 @@ wait_events :: proc(timeout: f64) {
 	glfw.WaitEventsTimeout(timeout)
 }
 
-swap_buffers :: proc(window: ^Window) {
-	glfw.SwapBuffers(window.handle)
-}
-
 should_close :: proc(window: ^Window) -> bool {
 	return bool(glfw.WindowShouldClose(window.handle))
 }

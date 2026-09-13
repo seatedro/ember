@@ -58,7 +58,7 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 		return {}, err
 	}
 
-	if platform_context.load_proc == nil {
+	if platform_context.load_proc == nil || platform_context.swap_buffers == nil {
 		return {}, .Unsupported_Backend
 	}
 
@@ -167,6 +167,25 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	}
 
 	return backend, .None
+}
+
+// OpenGL needs no per-frame command buffer. These boundaries allow other
+// backends to acquire a drawable and record the same RHI operations.
+begin_frame :: proc(device: ^Device, size: [2]i32) -> types.Error {
+	return check_errors("begin frame")
+}
+
+end_frame :: proc(device: ^Device, present: bool) -> types.Error {
+	if err := check_errors("end frame"); err != .None {
+		return err
+	}
+
+	if present {
+		platform_context := device.platform_context
+		platform_context.swap_buffers(platform_context.id)
+	}
+
+	return .None
 }
 
 // Called after the RHI has ended outstanding work and destroyed all resources.
