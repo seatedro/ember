@@ -45,7 +45,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
-	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 288, lighting_controls) && ok
+	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 432, lighting_controls) && ok
 	return check_ui(ui.end(ctx)) && ok
 }
 
@@ -366,6 +366,47 @@ lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 			control.low,
 			control.high,
 			step = 0.05,
+		)
+		if !check_ui(control_error) {
+			return false
+		}
+	}
+
+	rect, err := ui.next(column, 24)
+	if !check_ui(err) {
+		return false
+	}
+	_, control_error := ui.checkbox(
+		ctx,
+		ui.id("shadows"),
+		rect,
+		"SHADOWS",
+		&game.shadow_settings.enabled,
+	)
+	if !check_ui(control_error) {
+		return false
+	}
+	for control in ([2]struct {
+			name, label: string,
+			value:       ^f32,
+		} {
+			{"shadow-bias", "BIAS", &game.shadow_settings.bias},
+			{"shadow-slope-bias", "SLOPE BIAS", &game.shadow_settings.slope_bias},
+		}) {
+		rect, err = ui.next(column, 48)
+		if !check_ui(err) {
+			return false
+		}
+		_, control_error = ui.slider(
+			ctx,
+			ui.id(control.name),
+			rect,
+			control.label,
+			control.value,
+			0,
+			0.01,
+			step = 0.0001,
+			precision = 4,
 		)
 		if !check_ui(control_error) {
 			return false

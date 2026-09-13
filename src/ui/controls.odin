@@ -108,6 +108,7 @@ slider :: proc(
 	low, high: f32,
 	step: f32 = 0.01,
 	enabled := true,
+	precision: int = 2,
 ) -> (
 	bool,
 	Error,
@@ -118,7 +119,9 @@ slider :: proc(
 	   !finite(high) ||
 	   high <= low ||
 	   !finite(step) ||
-	   step <= 0 {
+	   step <= 0 ||
+	   precision < 0 ||
+	   precision > 9 {
 		return false, .Invalid_Value
 	}
 
@@ -209,7 +212,7 @@ slider :: proc(
 	}
 
 	buffer: [256]u8
-	text := fmt.bprintf(buffer[:], "%s %.2f", label, v)
+	text := fmt.bprintf(buffer[:], "%s %.*f", label, precision, v)
 	if err = control_text(ctx, label_rect, text, enabled); err != .None {
 		return false, err
 	}

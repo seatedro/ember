@@ -14,9 +14,13 @@ layout(std140) uniform Lighting_Uniforms {
     uint directional_light_count;
     Point_Light point_lights[16];
     Directional_Light directional_lights[4];
+    mat4 shadow_matrix;
+    vec4 shadow_bias;
+    uint shadow_light_index;
+    uint shadow_enabled;
 };
 
-vec3 diffuse_lighting(vec3 position, vec3 normal) {
+vec3 diffuse_lighting(vec3 position, vec3 normal, float shadow_visibility) {
     normal = normalize(normal);
     vec3 illumination = ambient.rgb;
     for (uint i = 0u; i < point_light_count; ++i) {
@@ -35,8 +39,13 @@ vec3 diffuse_lighting(vec3 position, vec3 normal) {
     for (uint i = 0u; i < directional_light_count; ++i) {
         Directional_Light light = directional_lights[i];
         float diffuse = max(dot(normal, light.direction.xyz), 0.0);
-        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse;
+        float visibility = i == shadow_light_index ? shadow_visibility : 1.0;
+        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse * visibility;
     }
 
     return illumination;
+}
+
+vec3 diffuse_lighting(vec3 position, vec3 normal) {
+    return diffuse_lighting(position, normal, 1.0);
 }

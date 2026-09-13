@@ -40,6 +40,7 @@ Texture_Format :: enum {
 	RGBA8,
 	RGBA8_SRGB,
 	RGBA16F,
+	Depth32F,
 }
 
 Texture_Filter :: enum {
@@ -210,6 +211,7 @@ Blend_State :: struct {
 }
 
 Pipeline_Settings :: struct {
+	depth_only:      bool,
 	layout:          Vertex_Layout,
 	instance_layout: Vertex_Layout,
 	depth:           Depth_State,
@@ -261,6 +263,7 @@ Scissor :: struct {
 }
 
 Render_Target_Desc :: struct {
+	depth_only:    bool,
 	color_format:  Texture_Format,
 	color_filter:  Texture_Filter,
 	width, height: i32,

@@ -5,6 +5,8 @@ import "../shaders"
 Builtin_Shader :: enum {
 	Unlit,
 	Lit,
+	Lit_Shadowed,
+	Shadow_Depth,
 	Grid,
 	Presentation,
 	Bloom,
@@ -76,6 +78,60 @@ load_builtin_shader :: proc(
 						entry_point = "main",
 						code = GLSL_LIGHTING_SOURCE + string(#load("glsl/lit.frag")),
 					},
+				},
+			},
+		)
+	case .Lit_Shadowed:
+		return shaders.load_source(
+			library,
+			"ember/lit-shadowed",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "mesh_vertex",
+						code = MSL_COMMON_SOURCE +
+						#load("msl/shadow.metal", string) +
+						#load("msl/lit_shadowed.metal", string),
+					},
+					fragment = {
+						entry_point = "lit_fragment",
+						code = MSL_COMMON_SOURCE +
+						#load("msl/shadow.metal", string) +
+						#load("msl/lit_shadowed.metal", string),
+					},
+				},
+				.GLSL = {
+					vertex = {entry_point = "main", code = GLSL_MESH_VERTEX_SOURCE},
+					fragment = {
+						entry_point = "main",
+						code = GLSL_LIGHTING_SOURCE +
+						string(#load("glsl/shadow.glsl")) +
+						string(#load("glsl/lit_shadowed.frag")),
+					},
+				},
+			},
+		)
+	case .Shadow_Depth:
+		return shaders.load_source(
+			library,
+			"ember/shadow-depth",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "shadow_vertex",
+						code = MSL_COMMON_SOURCE + #load("msl/shadow_depth.metal", string),
+					},
+					fragment = {
+						entry_point = "shadow_fragment",
+						code = MSL_COMMON_SOURCE + #load("msl/shadow_depth.metal", string),
+					},
+				},
+				.GLSL = {
+					vertex = {
+						entry_point = "main",
+						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/unlit.vert")),
+					},
+					fragment = {entry_point = "main", code = "#version 410 core\nvoid main() {}"},
 				},
 			},
 		)

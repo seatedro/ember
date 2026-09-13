@@ -8,6 +8,7 @@ import "core:mem"
 Error :: rhi.Error
 
 Renderer :: struct {
+	shadow_texture:          rhi.Texture_Handle,
 	device:                  ^rhi.Device,
 	view_uniforms:           rhi.Buffer_Handle,
 	instance_buffer:         rhi.Buffer_Handle,
@@ -15,6 +16,9 @@ Renderer :: struct {
 	instance_capacity:       int,
 	lighting_uniforms:       rhi.Buffer_Handle,
 }
+
+@(private)
+SHADOW_TEXTURE_BINDING :: rhi.MAX_TEXTURE_BINDINGS - 1
 
 @(private)
 VIEW_BINDING :: 0
@@ -75,6 +79,15 @@ set_view :: proc(
 	packed_lighting, lighting_error := pack_lighting(lighting)
 	if lighting_error != .None {
 		return lighting_error
+	}
+
+	renderer.shadow_texture = {}
+	if lighting.shadow != nil {
+		depth, err := rhi.render_target_depth(renderer.device, lighting.shadow.target.handle)
+		if err != .None {
+			return err
+		}
+		renderer.shadow_texture = depth
 	}
 
 	lighting_data := [1]Lighting_Uniforms{packed_lighting}
@@ -177,6 +190,13 @@ draw_mesh_instances :: proc(
 		}
 
 		if err := rhi.bind_texture(device, u32(binding), texture); err != .None {
+			return err
+		}
+	}
+
+	if pipeline.shadows {
+		if err := rhi.bind_texture(device, SHADOW_TEXTURE_BINDING, renderer.shadow_texture);
+		   err != .None {
 			return err
 		}
 	}

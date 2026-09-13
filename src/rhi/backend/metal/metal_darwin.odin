@@ -37,7 +37,7 @@ Shader :: struct {
 }
 
 Pipeline :: struct {
-	states:                             [4]^MTL.RenderPipelineState,
+	states:                             [5]^MTL.RenderPipelineState,
 	requirements:                       types.Pipeline_Requirements,
 	vertex_bindings, fragment_bindings: Stage_Bindings,
 	depth:                              ^MTL.DepthStencilState,
@@ -366,6 +366,9 @@ create_pipeline :: proc(
 	// The RHI pipeline can be used on the window or any supported target format.
 	// Build each state now so later draws cannot trigger shader compilation.
 	for format, i in COLOR_FORMATS {
+		if settings.depth_only != (i == 4) {
+			continue
+		}
 		color->setPixelFormat(format)
 		reflection: MTL.AutoreleasedRenderPipelineReflection
 		state, error := device.gpu->newRenderPipelineStateWithDescriptorWithReflection(
@@ -378,7 +381,7 @@ create_pipeline :: proc(
 			return {}, .Pipeline_Link_Failed
 		}
 		native.states[i] = state
-		if i != 0 {
+		if i != 0 && i != 4 {
 			continue
 		}
 
@@ -520,7 +523,6 @@ reflect_bindings :: proc(
 			if index >= 128 ||
 			   texture->textureType() != .Type2D ||
 			   texture->arrayLength() > 1 ||
-			   texture->isDepthTexture() ||
 			   texture->textureDataType() != .Float ||
 			   argument->access() != .ReadOnly {
 				return .Invalid_Texture_Binding
@@ -593,11 +595,11 @@ begin_pass :: proc(
 	depth_texture := device.depth
 	device.pass_size = device.size
 	device.pass_format = 0
-	if target.color.object != nil {
+	if target.depth != nil {
 		color_texture = target.color.object
 		depth_texture = target.depth
 		device.pass_size = target.size
-		device.pass_format = int(target.color.format) + 1
+		device.pass_format = int(target.color.format) + 1 if target.color.object != nil else 4
 	}
 	attachment->setTexture(color_texture)
 	attachment->setLoadAction(.Clear if color_load == .Clear else .Load)
@@ -749,7 +751,9 @@ create_texture :: proc(
 	descriptor->setTextureType(.Type2D)
 	descriptor->setWidth(NS.UInteger(desc.width))
 	descriptor->setHeight(NS.UInteger(desc.height))
-	descriptor->setPixelFormat(COLOR_FORMATS[int(desc.format) + 1])
+	descriptor->setPixelFormat(
+		.Depth32Float if desc.format == .Depth32F else COLOR_FORMATS[int(desc.format) + 1],
+	)
 	descriptor->setUsage({.ShaderRead, .RenderTarget} if len(pixels) == 0 else {.ShaderRead})
 	descriptor->setStorageMode(
 		.Private if len(pixels) == 0 else (.Shared if device.gpu->hasUnifiedMemory() else .Managed),
@@ -817,38 +821,27 @@ destroy_texture :: proc(device: ^Device, native: ^Texture) -> types.Error {
 create_render_target :: proc(
 	device: ^Device,
 	desc: types.Render_Target_Desc,
-	color: Texture,
+	color, depth: Texture,
 ) -> (
 	Render_Target,
 	types.Error,
 ) {
-	descriptor := MTL.TextureDescriptor.alloc()->init()
-	defer descriptor->release()
-	descriptor->setTextureType(.Type2D)
-	descriptor->setWidth(NS.UInteger(desc.width))
-	descriptor->setHeight(NS.UInteger(desc.height))
-	descriptor->setPixelFormat(.Depth32Float)
-	descriptor->setUsage({.RenderTarget})
-	descriptor->setStorageMode(.Private)
-	depth := device.gpu->newTextureWithDescriptor(descriptor)
-	if depth == nil {
-		return {}, .Allocation_Failed
-	}
-	return {color = color, depth = depth, size = {desc.width, desc.height}}, .None
+	return {color = color, depth = depth.object, size = {desc.width, desc.height}}, .None
 }
 
 destroy_render_target :: proc(device: ^Device, native: ^Render_Target) -> types.Error {
-	if native.depth != nil {
-		native.depth->release()
-	}
-
-	// The RHI owns and releases the color texture separately.
 	native^ = {}
 	return .None
 }
 
 @(private)
-COLOR_FORMATS := [4]MTL.PixelFormat{.BGRA8Unorm, .RGBA8Unorm, .RGBA8Unorm_sRGB, .RGBA16Float}
+COLOR_FORMATS := [5]MTL.PixelFormat {
+	.BGRA8Unorm,
+	.RGBA8Unorm,
+	.RGBA8Unorm_sRGB,
+	.RGBA16Float,
+	.Invalid,
+}
 
 @(private)
 report_error :: proc(operation: string, error: ^NS.Error) {

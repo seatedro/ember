@@ -17,6 +17,11 @@ struct Lighting_Data {
     uint directional_light_count;
     Point_Light point_lights[16];
     Directional_Light directional_lights[4];
+    float4x4 shadow_matrix;
+    float4 shadow_bias;
+    uint shadow_light_index;
+    uint shadow_enabled;
+
 };
 
 float4 clip_position(float4 position) {
@@ -47,7 +52,7 @@ float3 transform_normal(float4x4 model, float3 normal) {
     return (cofactors * normal) / dot(a, cross(b,c));
 }
 
-float3 diffuse_lighting(float3 position, float3 normal, constant Lighting_Data &lighting) {
+float3 diffuse_lighting(float3 position, float3 normal, constant Lighting_Data &lighting, float shadow_visibility) {
     normal = normalize(normal);
     float3 illumination = lighting.ambient.rgb;
     for (uint i = 0; i < lighting.point_light_count; ++i) {
@@ -65,10 +70,15 @@ float3 diffuse_lighting(float3 position, float3 normal, constant Lighting_Data &
     for (uint i = 0; i < lighting.directional_light_count; ++i) {
         Directional_Light light = lighting.directional_lights[i];
         float diffuse = max(dot(normal, light.direction.xyz), 0.0);
-        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse;
+        float visibility = i == lighting.shadow_light_index ? shadow_visibility : 1.0;
+        illumination += light.color_intensity.rgb * light.color_intensity.w * diffuse * visibility;
     }
 
     return illumination;
+}
+
+float3 diffuse_lighting(float3 position, float3 normal, constant Lighting_Data &lighting) {
+    return diffuse_lighting(position, normal, lighting, 1.0);
 }
 
 struct Mesh_Vertex {

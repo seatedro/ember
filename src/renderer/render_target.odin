@@ -4,7 +4,7 @@ import "../rhi"
 
 Render_Target :: struct {
 	handle:        rhi.Render_Target_Handle,
-	color:         Texture,
+	color, depth:  Texture,
 	width, height: i32,
 }
 
@@ -28,6 +28,7 @@ create_render_target :: proc(
 	target.handle, err = rhi.create_render_target(renderer.device, desc)
 	if target.handle.generation != 0 {
 		target.color.handle, _ = rhi.render_target_color(renderer.device, target.handle)
+		target.depth.handle, _ = rhi.render_target_depth(renderer.device, target.handle)
 		target.width, target.height = desc.width, desc.height
 	}
 

@@ -5,8 +5,9 @@ import "../rhi"
 import "../shaders"
 
 Pipeline :: struct {
-	shader: shaders.Shader,
-	handle: rhi.Pipeline_Handle,
+	shadows: bool,
+	shader:  shaders.Shader,
+	handle:  rhi.Pipeline_Handle,
 }
 
 Pipeline_Settings :: rhi.Pipeline_Settings
@@ -18,6 +19,8 @@ create_pipeline :: proc(
 	settings: Pipeline_Settings,
 	textures: []Texture_Binding_Desc = nil,
 	lighting: bool = false,
+	shadows: bool = false,
+	material_uniforms := true,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
@@ -40,6 +43,27 @@ create_pipeline :: proc(
 		block_count = 3
 	}
 
+	if !material_uniforms {
+		if lighting || shadows {
+			return {}, .Invalid_Usage
+		}
+		block_count = 1
+	}
+
+	bindings := textures
+	texture_bindings: [rhi.MAX_TEXTURE_BINDINGS]Texture_Binding_Desc
+	if shadows {
+		if !lighting || len(textures) >= len(texture_bindings) {
+			return {}, .Invalid_Usage
+		}
+		copy(texture_bindings[:], textures)
+		texture_bindings[len(textures)] = {
+			name    = "shadow_texture",
+			binding = SHADOW_TEXTURE_BINDING,
+		}
+		bindings = texture_bindings[:len(textures) + 1]
+	}
+
 	pipeline.handle, err = rhi.create_pipeline(
 		renderer.device,
 		{
@@ -47,7 +71,7 @@ create_pipeline :: proc(
 			fragment_shader = shader.fragment,
 			settings = mesh_settings,
 			uniform_blocks = blocks[:block_count],
-			textures = textures,
+			textures = bindings,
 			label = "mesh draw",
 		},
 	)
@@ -63,6 +87,7 @@ create_pipeline :: proc(
 	}
 
 	pipeline.shader = shader
+	pipeline.shadows = shadows
 
 	return
 }
@@ -113,7 +138,7 @@ validate_draw :: proc(
 	}
 
 	for required, binding in slot.requirements.texture_bindings {
-		if !required {
+		if !required || (pipeline.shadows && binding == SHADOW_TEXTURE_BINDING) {
 			continue
 		}
 

@@ -200,6 +200,12 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 		return .Invalid_Handle
 	}
 
+	target := pool.get(&device.render_targets, device.pass_target)
+	depth_only := target != nil && target.color.generation == 0
+	if pipeline.settings.depth_only != depth_only {
+		return .Invalid_Pipeline_State
+	}
+
 	if .Vertex not_in vertex.usage || .Index not_in index.usage {
 		return .Invalid_Buffer_Binding
 	}

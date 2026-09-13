@@ -13,6 +13,10 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	shadow:                                                    render.Shadow_Map,
+	shadow_settings:                                           render.Shadow_Settings,
+	ground_mesh:                                               render.Mesh,
+	ground_material:                                           render.Material,
 	renderer:                                                  render.Renderer,
 	overlay:                                                   common.Overlay,
 	ui_failed:                                                 bool,
@@ -97,6 +101,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			minimum_size = {264, 160},
 			open = true,
 		},
+		shadow_settings = {enabled = true, bias = 0.0003, slope_bias = 0.001},
 		directional_enabled = true,
 		light_azimuth = 2.1,
 		light_elevation = 0.9,
@@ -134,7 +139,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	game.draws = render.create_draw_list()
 	game.shaders = shaders.create(app.device)
-	shader, shader_error := render.load_builtin_shader(&game.shaders, .Lit)
+	shader, shader_error := render.load_builtin_shader(&game.shaders, .Lit_Shadowed)
 	if shader_error != .None {
 		log.errorf("Load lit shader: %v", shader_error)
 		return false
@@ -150,6 +155,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		},
 		{{name = "albedo_texture", binding = 0}},
 		lighting = true,
+		shadows = true,
 	)
 	if !check(err, "create pipeline") {
 		return false
@@ -174,6 +180,31 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		if !check(err, "create material") {
 			return false
 		}
+	}
+
+	game.shadow, err = render.create_shadow_map(&game.renderer, &game.shaders, 2048)
+	if !check(err, "create shadow map") {
+		return false
+	}
+	quad := geometry.create_quad()
+	game.ground_mesh, err = render.create_mesh(
+		&game.renderer,
+		quad.vertices[:],
+		quad.indices[:],
+		render.VERTEX_LAYOUT,
+		quad.bounds,
+	)
+	if !check(err, "create ground") {
+		return false
+	}
+	game.ground_material, err = render.create_material(
+		&game.renderer,
+		shader,
+		render.Lit_Parameters{tint = {0.25, 0.28, 0.32, 1}},
+		{{binding = 0, texture = game.texture}},
+	)
+	if !check(err, "create ground material") {
+		return false
 	}
 
 	mesh, geometry_error := geometry.create_sphere(segments = 16, stacks = 8)
@@ -288,13 +319,6 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		}
 	}
 
-	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target.world}, common.BACKGROUND),
-		"begin pass",
-	) {
-		return false
-	}
-
 	lights := [1]render.Point_Light {
 		{position = {-15, 30, 20}, color = {1, 0.9, 0.8}, intensity = 6, range = 130},
 	}
@@ -309,6 +333,47 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			intensity = game.light_intensity,
 		},
 	}
+	if !check(
+		render.add_draw(
+			&game.draws,
+			{
+				pipeline = game.pipeline,
+				mesh = game.ground_mesh,
+				material = game.ground_material,
+				transform = {
+					position = {0, -2.5, 0},
+					orientation = emath.quaternion_angle_axis(-math.PI / 2, {1, 0, 0}),
+					scale = {34, 34, 1},
+				},
+			},
+		),
+		"submit ground",
+	) {
+		return false
+	}
+
+	if !check(
+		render.draw_directional_shadow(
+			&game.renderer,
+			&game.shadow,
+			&game.draws,
+			directional_lights[0],
+			{half_size = {48, 48}, depth = 140},
+		),
+		"draw shadow map",
+	) {
+		return false
+	}
+
+	if !check(
+		render.begin_pass(&game.renderer, {target = &game.target.world}, common.BACKGROUND),
+		"begin pass",
+	) {
+		return false
+	}
+
+	shadow_settings := game.shadow_settings
+	shadow_settings.enabled = shadow_settings.enabled && game.directional_enabled
 	draw_error := render.draw_list(
 		&game.renderer,
 		&game.draws,
@@ -320,6 +385,8 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			200,
 		),
 		{
+			shadow = &game.shadow,
+			shadow_settings = shadow_settings,
 			point_lights = lights[:1 if game.point_enabled else 0],
 			directional_lights = directional_lights[:1 if game.directional_enabled else 0],
 		},
@@ -385,6 +452,12 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	check(render.destroy_shadow_map(&game.renderer, &game.shadow), "destroy shadow map")
+	check(
+		render.destroy_material(&game.renderer, &game.ground_material),
+		"destroy ground material",
+	)
+	check(render.destroy_mesh(&game.renderer, &game.ground_mesh), "destroy ground")
 	common.destroy_overlay(&game.overlay, app.device)
 	ui.destroy_text_edit(&game.note)
 	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")

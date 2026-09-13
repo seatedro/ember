@@ -14,7 +14,7 @@ Render_Target_Desc :: types.Render_Target_Desc
 Render_Target_Resource :: struct {
 	ready:         bool,
 	native:        backend.Render_Target,
-	color:         Texture_Handle,
+	color, depth:  Texture_Handle,
 	width, height: i32,
 }
 
@@ -45,43 +45,59 @@ create_render_target :: proc(
 		return {}, .Pool_Exhausted
 	}
 
-	color_handle, color_slot := pool.alloc(&device.textures)
-	if color_slot == nil {
-		pool.free(&device.render_targets, handle)
-		return {}, .Pool_Exhausted
-	}
-
-	color, color_error := backend.create_texture(
-		&device.native,
-		{
-			width = desc.width,
-			height = desc.height,
-			format = desc.color_format,
-			filter = desc.color_filter,
-			wrap_u = .Clamp,
-			wrap_v = .Clamp,
-			label = desc.label,
-		},
-		nil,
-	)
-	if color_error != .None {
-		pool.free(&device.textures, color_handle)
-		pool.free(&device.render_targets, handle)
-		return {}, color_error
-	}
-
-	color_slot.native = color
-	slot.color = color_handle
 	slot.width, slot.height = desc.width, desc.height
-	color_slot.owner = handle
+	for attachment in 0 ..< 2 {
+		if attachment == 0 && desc.depth_only {
+			continue
+		}
 
-	native, err := backend.create_render_target(&device.native, desc, color)
+		texture_handle, texture_slot := pool.alloc(&device.textures)
+		if texture_slot == nil {
+			if destroy_render_target(device, handle) != .None {
+				return handle, .Pool_Exhausted
+			}
+			return {}, .Pool_Exhausted
+		}
+
+		texture_slot.owner = handle
+		if attachment == 0 {
+			slot.color = texture_handle
+		} else {
+			slot.depth = texture_handle
+		}
+
+		texture, err := backend.create_texture(
+			&device.native,
+			{
+				width = desc.width,
+				height = desc.height,
+				format = desc.color_format if attachment == 0 else .Depth32F,
+				filter = desc.color_filter if attachment == 0 else .Nearest,
+				wrap_u = .Clamp,
+				wrap_v = .Clamp,
+				label = desc.label,
+			},
+			nil,
+		)
+		if err != .None {
+			if destroy_render_target(device, handle) == .None {
+				return {}, err
+			}
+			return handle, err
+		}
+		texture_slot.native = texture
+	}
+
+	color: backend.Texture
+	if slot.color.generation != 0 {
+		color = pool.get(&device.textures, slot.color).native
+	}
+	depth := pool.get(&device.textures, slot.depth).native
+	native, err := backend.create_render_target(&device.native, desc, color, depth)
 	if err != .None {
-		// Preserve the owning handle if releasing its color texture also fails.
 		if destroy_render_target(device, handle) == .None {
 			return {}, err
 		}
-
 		return handle, err
 	}
 
@@ -109,6 +125,25 @@ render_target_color :: proc(
 	return slot.color, .None
 }
 
+render_target_depth :: proc(
+	device: ^Device,
+	handle: Render_Target_Handle,
+) -> (
+	Texture_Handle,
+	Error,
+) {
+	if err := validate_device(device); err != .None {
+		return {}, err
+	}
+
+	slot := pool.get(&device.render_targets, handle)
+	if slot == nil {
+		return {}, .Invalid_Handle
+	}
+
+	return slot.depth, .None
+}
+
 destroy_render_target :: proc(device: ^Device, handle: Render_Target_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -132,12 +167,13 @@ destroy_render_target :: proc(device: ^Device, handle: Render_Target_Handle) -> 
 		return err
 	}
 
-	if slot.color.generation != 0 {
-		if err := release_texture(device, slot.color); err != .None {
-			return err
+	for texture in ([2]^Texture_Handle{&slot.color, &slot.depth}) {
+		if texture.generation != 0 {
+			if err := release_texture(device, texture^); err != .None {
+				return err
+			}
+			texture^ = {}
 		}
-
-		slot.color = {}
 	}
 
 	pool.free(&device.render_targets, handle)

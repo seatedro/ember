@@ -22,6 +22,8 @@ Directional_Light :: struct {
 }
 
 Lighting :: struct {
+	shadow:             ^Shadow_Map,
+	shadow_settings:    Shadow_Settings,
 	ambient:            emath.Vec3,
 	point_lights:       []Point_Light,
 	directional_lights: []Directional_Light,
@@ -41,18 +43,27 @@ Directional_Light_Uniform :: struct {
 
 @(private)
 Lighting_Uniforms :: struct {
-	ambient:                 [4]f32,
-	point_light_count:       u32,
-	directional_light_count: u32,
-	_padding:                [2]u32,
-	point_lights:            [MAX_POINT_LIGHTS]Point_Light_Uniform,
-	directional_lights:      [MAX_DIRECTIONAL_LIGHTS]Directional_Light_Uniform,
+	ambient:                            [4]f32,
+	point_light_count:                  u32,
+	directional_light_count:            u32,
+	_padding:                           [2]u32,
+	point_lights:                       [MAX_POINT_LIGHTS]Point_Light_Uniform,
+	directional_lights:                 [MAX_DIRECTIONAL_LIGHTS]Directional_Light_Uniform,
+	shadow_matrix:                      emath.Mat4,
+	shadow_bias:                        [4]f32,
+	shadow_light_index, shadow_enabled: u32,
+	_shadow_padding:                    [2]u32,
 }
 
 #assert(size_of(Point_Light_Uniform) == 32)
 #assert(size_of(Directional_Light_Uniform) == 32)
 #assert(offset_of(Lighting_Uniforms, point_lights) == 32)
 #assert(offset_of(Lighting_Uniforms, directional_lights) == 32 + MAX_POINT_LIGHTS * 32)
+#assert(
+	offset_of(Lighting_Uniforms, shadow_matrix) ==
+	32 + (MAX_POINT_LIGHTS + MAX_DIRECTIONAL_LIGHTS) * 32,
+)
+#assert(size_of(Lighting_Uniforms) == offset_of(Lighting_Uniforms, shadow_matrix) + 96)
 
 @(private)
 pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Error) {
@@ -116,6 +127,28 @@ pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Erro
 			direction       = {direction.x, direction.y, direction.z, 0},
 			color_intensity = {light.color.x, light.color.y, light.color.z, light.intensity},
 		}
+	}
+
+	if lighting.shadow_settings.enabled {
+		if lighting.shadow == nil ||
+		   !lighting.shadow.ready ||
+		   lighting.shadow_settings.light_index >= data.directional_light_count {
+			return {}, .Invalid_Usage
+		}
+		for value in ([2]f32{lighting.shadow_settings.bias, lighting.shadow_settings.slope_bias}) {
+			if !(value >= 0) || math.is_inf(value) {
+				return {}, .Invalid_Usage
+			}
+		}
+		data.shadow_matrix = lighting.shadow.view_projection
+		data.shadow_bias = {
+			lighting.shadow_settings.bias,
+			lighting.shadow_settings.slope_bias,
+			0,
+			0,
+		}
+		data.shadow_light_index = lighting.shadow_settings.light_index
+		data.shadow_enabled = 1
 	}
 
 	return

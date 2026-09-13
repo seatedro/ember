@@ -22,8 +22,8 @@ Texture :: struct {
 }
 
 Render_Target :: struct {
-	srgb:               bool,
-	framebuffer, depth: u32,
+	srgb:        bool,
+	framebuffer: u32,
 }
 
 Shader :: struct {
@@ -295,7 +295,7 @@ destroy_buffer :: proc(device: ^Device, native: ^Buffer) -> types.Error {
 create_render_target :: proc(
 	device: ^Device,
 	desc: types.Render_Target_Desc,
-	color: Texture,
+	color, depth: Texture,
 ) -> (
 	Render_Target,
 	types.Error,
@@ -304,66 +304,49 @@ create_render_target :: proc(
 		return {}, err
 	}
 
-	previous_draw, previous_read, previous_depth, maximum: i32
+	previous_draw, previous_read: i32
 	gl.impl_GetIntegerv(gl.DRAW_FRAMEBUFFER_BINDING, &previous_draw)
 	gl.impl_GetIntegerv(gl.READ_FRAMEBUFFER_BINDING, &previous_read)
-	gl.impl_GetIntegerv(gl.RENDERBUFFER_BINDING, &previous_depth)
-	gl.impl_GetIntegerv(gl.MAX_RENDERBUFFER_SIZE, &maximum)
-	if err := check_errors("query render target bindings"); err != .None {
-		return {}, err
-	}
-
-	if desc.width > maximum || desc.height > maximum {
-		return {}, .Invalid_Size
-	}
-
 	defer {
 		gl.impl_BindFramebuffer(gl.DRAW_FRAMEBUFFER, u32(previous_draw))
 		gl.impl_BindFramebuffer(gl.READ_FRAMEBUFFER, u32(previous_read))
-		gl.impl_BindRenderbuffer(gl.RENDERBUFFER, u32(previous_depth))
 	}
 
 	native := Render_Target {
-		srgb = desc.color_format == .RGBA8_SRGB,
+		srgb = !desc.depth_only && desc.color_format == .RGBA8_SRGB,
 	}
 	succeeded := false
-	defer if !succeeded {
-		if native.framebuffer != 0 {
+	defer {
+		if !succeeded && native.framebuffer != 0 {
 			gl.impl_DeleteFramebuffers(1, &native.framebuffer)
-		}
-
-		if native.depth != 0 {
-			gl.impl_DeleteRenderbuffers(1, &native.depth)
 		}
 	}
 
 	gl.impl_GenFramebuffers(1, &native.framebuffer)
-	gl.impl_GenRenderbuffers(1, &native.depth)
-	if err := check_errors("create framebuffer and depth attachment"); err != .None {
+	if err := check_errors("create framebuffer"); err != .None {
 		return {}, err
 	}
-
-	if native.framebuffer == 0 || native.depth == 0 {
+	if native.framebuffer == 0 {
 		return {}, .Backend_Failed
 	}
 
 	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, native.framebuffer)
-	gl.impl_FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color.id, 0)
-	gl.impl_BindRenderbuffer(gl.RENDERBUFFER, native.depth)
-	gl.impl_RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, desc.width, desc.height)
-	gl.impl_FramebufferRenderbuffer(
-		gl.FRAMEBUFFER,
-		gl.DEPTH_ATTACHMENT,
-		gl.RENDERBUFFER,
-		native.depth,
-	)
-	gl.impl_DrawBuffer(gl.COLOR_ATTACHMENT0)
-	gl.impl_ReadBuffer(gl.COLOR_ATTACHMENT0)
+	gl.impl_FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth.id, 0)
+	if !desc.depth_only {
+		gl.impl_FramebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_2D,
+			color.id,
+			0,
+		)
+	}
+	gl.impl_DrawBuffer(gl.NONE if desc.depth_only else gl.COLOR_ATTACHMENT0)
+	gl.impl_ReadBuffer(gl.NONE if desc.depth_only else gl.COLOR_ATTACHMENT0)
 	status := gl.impl_CheckFramebufferStatus(gl.FRAMEBUFFER)
 	if err := check_errors("configure render target"); err != .None {
 		return {}, err
 	}
-
 	if status != gl.FRAMEBUFFER_COMPLETE {
 		return {}, .Backend_Failed
 	}
@@ -376,25 +359,13 @@ destroy_render_target :: proc(device: ^Device, native: ^Render_Target) -> types.
 	if err := check_errors("before render target deletion"); err != .None {
 		return err
 	}
-
 	if native.framebuffer != 0 {
 		gl.impl_DeleteFramebuffers(1, &native.framebuffer)
 		if err := check_errors("delete framebuffer"); err != .None {
 			return err
 		}
-
-		native.framebuffer = 0
 	}
-
-	if native.depth != 0 {
-		gl.impl_DeleteRenderbuffers(1, &native.depth)
-		if err := check_errors("delete depth attachment"); err != .None {
-			return err
-		}
-
-		native.depth = 0
-	}
-
+	native^ = {}
 	return .None
 }
 
@@ -1101,11 +1072,16 @@ create_texture :: proc(
 	gl.impl_TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 0)
 
 	internal_format := i32(gl.RGBA8)
+	format := u32(gl.RGBA)
 	pixel_type := u32(gl.UNSIGNED_BYTE)
 	switch desc.format {
 	case .RGBA8:
 	case .RGBA8_SRGB:
 		internal_format = gl.SRGB8_ALPHA8
+	case .Depth32F:
+		internal_format = gl.DEPTH_COMPONENT32F
+		format = gl.DEPTH_COMPONENT
+		pixel_type = gl.FLOAT
 	case .RGBA16F:
 		internal_format = gl.RGBA16F
 		pixel_type = gl.HALF_FLOAT
@@ -1118,7 +1094,7 @@ create_texture :: proc(
 		desc.width,
 		desc.height,
 		0,
-		gl.RGBA,
+		format,
 		pixel_type,
 		raw_data(pixels),
 	)
