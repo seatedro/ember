@@ -8,7 +8,7 @@ usage() {
     echo "options:"
     echo "  -h, --help    show this help"
     echo "  --example NAME build an example from examples/NAME"
-    echo "  --backend opengl|metal (default: opengl; Metal requires macOS 13+)"
+    echo "  --backend opengl|metal (default: metal on macOS, opengl elsewhere; Metal requires macOS 13+)"
     echo ""
     echo "environment:"
     echo "  BUILD=debug   (default) debug build"
@@ -25,6 +25,9 @@ usage() {
 }
 
 BACKEND="opengl"
+if [ "$(uname -s)" = Darwin ]; then
+    BACKEND="metal"
+fi
 EXAMPLE=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
