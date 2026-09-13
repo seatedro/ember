@@ -16,8 +16,8 @@ Sphere_Error :: enum {
 	Allocation_Failed,
 }
 
-// Latitude/longitude sphere with one vertex at each pole and no duplicated
-// longitude seam. Triangles wind counterclockwise when viewed from outside.
+// Seam vertices share positions but carry U=0 and U=1. Each pole triangle
+// has its own pole vertex so its U stays within that longitude slice.
 create_sphere :: proc(
 	segments := 48,
 	stacks := 24,
@@ -35,17 +35,18 @@ create_sphere :: proc(
 		return {}, .Invalid_Resolution
 	}
 
-	ring_vertices := u64(segments) * u64(stacks - 1)
-	if ring_vertices > u64(max(u32)) - 2 || ring_vertices + 2 > u64(max(int) / size_of(Vertex)) {
+	ring_vertices := (u64(segments) + 1) * u64(stacks - 1)
+	vertex_count := ring_vertices + 2 * u64(segments)
+	if vertex_count > u64(max(u32)) || vertex_count > u64(max(int) / size_of(Vertex)) {
 		return {}, .Invalid_Resolution
 	}
 
-	index_count := ring_vertices * 6
+	index_count := u64(segments) * u64(stacks - 1) * 6
 	if index_count > u64(max(int) / size_of(u32)) {
 		return {}, .Invalid_Resolution
 	}
 
-	vertices, vertex_error := make([]Vertex, int(ring_vertices + 2), allocator)
+	vertices, vertex_error := make([]Vertex, int(vertex_count), allocator)
 	if vertex_error != .None {
 		return {}, .Allocation_Failed
 	}
@@ -56,42 +57,55 @@ create_sphere :: proc(
 		return {}, .Allocation_Failed
 	}
 
-	vertices[0] = {{0, radius, 0}, {0, 1, 0}}
-	vertices[len(vertices) - 1] = {{0, -radius, 0}, {0, -1, 0}}
+	south_pole := segments + int(ring_vertices)
+	for segment in 0 ..< segments {
+		u := (f32(segment) + 0.5) / f32(segments)
+		vertices[segment] = {{0, radius, 0}, {0, 1, 0}, {u, 0}}
+		vertices[south_pole + segment] = {{0, -radius, 0}, {0, -1, 0}, {u, 1}}
+	}
+
+	ring_stride := segments + 1
 
 	for stack in 1 ..< stacks {
-		theta := f32(math.PI) * f32(stack) / f32(stacks)
+		v := f32(stack) / f32(stacks)
+		theta := f32(math.PI) * v
 		y := math.cos(theta)
 		ring_radius := math.sin(theta)
 
 		for segment in 0 ..< segments {
-			phi := f32(2 * math.PI) * f32(segment) / f32(segments)
+			u := f32(segment) / f32(segments)
+			phi := f32(2 * math.PI) * (u - 0.5)
 			normal := [3]f32{ring_radius * math.cos(phi), y, ring_radius * math.sin(phi)}
-			index := 1 + (stack - 1) * segments + segment
+			index := segments + (stack - 1) * ring_stride + segment
 			vertices[index] = {
 				position = normal * radius,
 				normal   = normal,
+				uv       = {u, v},
 			}
 		}
+
+		first := segments + (stack - 1) * ring_stride
+		vertices[first + segments] = vertices[first]
+		vertices[first + segments].uv.x = 1
 	}
 
 	cursor := 0
 
 	for segment in 0 ..< segments {
-		next := (segment + 1) % segments
-		indices[cursor + 0] = 0
-		indices[cursor + 1] = u32(1 + next)
-		indices[cursor + 2] = u32(1 + segment)
+		next := segment + 1
+		indices[cursor + 0] = u32(segment)
+		indices[cursor + 1] = u32(segments + next)
+		indices[cursor + 2] = u32(segments + segment)
 		cursor += 3
 	}
 
 	for ring in 0 ..< stacks - 2 {
 		for segment in 0 ..< segments {
-			next := (segment + 1) % segments
-			upper := u32(1 + ring * segments + segment)
-			upper_next := u32(1 + ring * segments + next)
-			lower := upper + u32(segments)
-			lower_next := upper_next + u32(segments)
+			next := segment + 1
+			upper := u32(segments + ring * ring_stride + segment)
+			upper_next := u32(segments + ring * ring_stride + next)
+			lower := upper + u32(ring_stride)
+			lower_next := upper_next + u32(ring_stride)
 			indices[cursor + 0] = upper
 			indices[cursor + 1] = upper_next
 			indices[cursor + 2] = lower
@@ -102,11 +116,11 @@ create_sphere :: proc(
 		}
 	}
 
-	last_ring := 1 + (stacks - 2) * segments
+	last_ring := segments + (stacks - 2) * ring_stride
 
 	for segment in 0 ..< segments {
-		next := (segment + 1) % segments
-		indices[cursor + 0] = u32(len(vertices) - 1)
+		next := segment + 1
+		indices[cursor + 0] = u32(south_pole + segment)
 		indices[cursor + 1] = u32(last_ring + segment)
 		indices[cursor + 2] = u32(last_ring + next)
 		cursor += 3

@@ -2,6 +2,7 @@
 in vec3 world_position;
 in vec3 world_normal;
 in vec3 local_normal;
+in vec2 texture_uv;
 layout(location = 0) out vec4 color;
 uniform sampler2D albedo_texture;
 
@@ -40,9 +41,6 @@ void main() {
     vec3 local = normalize(local_normal);
     float bands = smoothstep(-0.2, 0.2, sin(local.x * 8.0 + local.z * 6.0));
     vec3 albedo = mix(color_a.rgb, color_b.rgb, bands);
-    const float PI = 3.14159265359;
-    vec2 uv = vec2(atan(local.z, local.x) / (2.0 * PI) + 0.5,
-                   0.5 - asin(clamp(local.y, -1.0, 1.0)) / PI);
-    albedo *= texture(albedo_texture, uv).rgb;
+    albedo *= texture(albedo_texture, texture_uv).rgb;
     color = vec4(albedo * illumination, 1.0);
 }
