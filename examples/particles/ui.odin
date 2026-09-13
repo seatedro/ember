@@ -8,7 +8,7 @@ import "ember:particles"
 import "ember:ui"
 
 build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	if input.pressed(app.input, .F1) {
 		game.window.open = !game.window.open
 	}
@@ -19,9 +19,9 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	}
 
 	buffer: [128]u8
-	title := fmt.bprintf(buffer[:], "PARTICLES  FPS %3.0f", game.fps)
+	title := fmt.bprintf(buffer[:], "PARTICLES  FPS %3.0f", game.overlay.fps)
 	if game.window.collapsed {
-		title = fmt.bprintf(buffer[:], "FPS %3.0f", game.fps)
+		title = fmt.bprintf(buffer[:], "FPS %3.0f", game.overlay.fps)
 	}
 	body, visible, err := ui.begin_window(ctx, &game.window, title)
 	ok := check_ui(err)
@@ -47,7 +47,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 }
 
 controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	rect, err := ui.next(column, 44)
 	buffer: [128]u8
 	stats := fmt.bprintf(

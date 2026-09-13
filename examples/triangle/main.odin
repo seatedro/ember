@@ -12,6 +12,7 @@ configure :: proc() -> engine.Config {
 		vsync = true,
 		userdata = &state,
 		init = init,
+		update = update,
 		draw = draw,
 		quit = quit,
 	}

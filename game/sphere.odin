@@ -1,5 +1,7 @@
 package game
 
+import "../examples/common"
+
 import "core:log"
 import "core:math"
 import "ember:camera"
@@ -9,6 +11,7 @@ import "ember:geometry"
 import "ember:input"
 import render "ember:renderer"
 import shader "ember:shaders"
+import "ember:ui"
 
 Object :: struct {
 	transform: emath.Transform,
@@ -16,36 +19,45 @@ Object :: struct {
 }
 
 State :: struct {
-	draws:               render.Draw_List,
-	presentation:        render.Presentation_Settings,
-	shaders:             shader.Library,
-	renderer:            render.Renderer,
-	target, next_target: render.Render_Target,
-	presenter:           render.Presentation,
-	mesh:                render.Mesh,
-	pipeline:            render.Pipeline,
-	materials:           [2]render.Material,
-	textures:            [2]render.Texture,
-	objects:             [3]Object,
-	grid:                render.Debug_Grid,
-	lights:              [1]render.Point_Light,
-	light_pipeline:      render.Pipeline,
-	light_material:      render.Material,
-	light_angle:         f32,
-	light_paused:        bool,
-	blend_mesh:          render.Mesh,
-	blend_pipelines:     [2]render.Pipeline,
-	blend_materials:     [2]render.Material,
-	blend_transforms:    [2]emath.Transform,
-	additive_blending:   bool,
-	angle:               f32,
-	orbit:               camera.Orbit,
-	camera:              camera.Camera,
+	overlay:           common.Overlay,
+	window:            ui.Window,
+	failed:            bool,
+	draws:             render.Draw_List,
+	presentation:      render.Presentation_Settings,
+	shaders:           shader.Library,
+	renderer:          render.Renderer,
+	target:            render.Render_Target,
+	presenter:         render.Presentation,
+	mesh:              render.Mesh,
+	pipeline:          render.Pipeline,
+	materials:         [2]render.Material,
+	textures:          [2]render.Texture,
+	objects:           [3]Object,
+	grid:              render.Debug_Grid,
+	lights:            [1]render.Point_Light,
+	light_pipeline:    render.Pipeline,
+	light_material:    render.Material,
+	light_angle:       f32,
+	light_paused:      bool,
+	blend_mesh:        render.Mesh,
+	blend_pipelines:   [2]render.Pipeline,
+	blend_materials:   [2]render.Material,
+	blend_transforms:  [2]emath.Transform,
+	additive_blending: bool,
+	angle:             f32,
+	orbit:             camera.Orbit,
+	camera:            camera.Camera,
 }
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
-	game^ = {}
+	game^ = {
+		window = common.info_window("sphere", 292),
+	}
+	if !common.init_overlay(&game.overlay, app) {
+		return false
+	}
+
 	game.draws = render.create_draw_list()
 	game.objects = {
 		{
@@ -159,41 +171,53 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return init_presentation(game, app.width, app.height)
+	return init_presentation(game)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	game := cast(^State)userdata
-	update_camera(game, app)
-	if input.pressed(app.input, .Escape) {
+	if !common.info_panel(
+		&game.overlay,
+		app,
+		&game.window,
+		"SPHERE",
+		"Drag / scroll Camera\nR   Reset camera\nSpace Pause light\nC   Light color\nT   Texture\nM   Material\nB   Blend mode\nO   Tone mapping\n-/+ Exposure\n\nF1  Toggle overlay\nEsc Close",
+	) {
+		game.failed = true
+		return
+	}
+
+	controls := ui.remaining_input(&game.overlay.interface)
+	update_camera(game, app, &controls)
+	if input.pressed(&controls, .Escape) {
 		engine.request_quit(app)
 	}
 
-	if input.pressed(app.input, .M) {
+	if input.pressed(&controls, .M) {
 		for &object in game.objects {
 			object.material = (object.material + 1) % len(game.materials)
 		}
 	}
 
-	if input.pressed(app.input, .Space) {
+	if input.pressed(&controls, .Space) {
 		game.light_paused = !game.light_paused
 	}
 
-	if input.pressed(app.input, .B) {
+	if input.pressed(&controls, .B) {
 		game.additive_blending = !game.additive_blending
 	}
 
-	if input.pressed(app.input, .C) && !toggle_light_color(game) {
+	if input.pressed(&controls, .C) && !toggle_light_color(game) {
 		engine.request_quit(app)
 		return
 	}
 
-	if input.pressed(app.input, .T) && !toggle_material_texture(game) {
+	if input.pressed(&controls, .T) && !toggle_material_texture(game) {
 		engine.request_quit(app)
 		return
 	}
 
-	update_presentation(game, app)
+	update_presentation(game, &controls)
 
 	update_light(game, dt)
 
@@ -209,7 +233,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
-	if !resize_target(game, app.width, app.height) {
+	if game.failed {
 		return false
 	}
 
@@ -217,7 +241,11 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return present(game, app)
+	if !present(game, app) {
+		return false
+	}
+
+	return check(common.draw_overlay(&game.overlay, app), "draw overlay")
 }
 
 draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
@@ -277,12 +305,20 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 		return false
 	}
 
-	if !check(render.begin_pass(&game.renderer, {target = &game.target}), "begin world pass") {
+	if !check(
+		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
+		"begin world pass",
+	) {
 		return false
 	}
 
 	defer check(render.end_pass(&game.renderer), "end world pass")
-	projection := emath.perspective(1.04719755, f32(app.width) / f32(app.height), 0.1, 100)
+	projection := emath.perspective(
+		1.04719755,
+		f32(game.target.width) / f32(game.target.height),
+		0.1,
+		100,
+	)
 	return check(
 		render.draw_list(
 			&game.renderer,
@@ -297,6 +333,7 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	common.destroy_overlay(&game.overlay, app.device)
 	render.destroy_draw_list(&game.draws)
 	destroy_presentation(game)
 	destroy_blending(game)

@@ -121,7 +121,7 @@ present :: proc(
 		return
 	}
 
-	if err = begin_pass(renderer, {viewport = viewport}); err != .None {
+	if err = begin_pass(renderer, {viewport = viewport}, {0, 0, 0, 1}); err != .None {
 		return
 	}
 
@@ -159,4 +159,24 @@ destroy_presentation :: proc(renderer: ^Renderer, presentation: ^Presentation) -
 	}
 
 	return
+}
+
+pixel_viewport :: proc(source, framebuffer: [2]i32) -> Viewport {
+	if source.x <= 0 || source.y <= 0 || framebuffer.x <= 0 || framebuffer.y <= 0 {
+		return {}
+	}
+
+	scale := min(f64(framebuffer.x) / f64(source.x), f64(framebuffer.y) / f64(source.y))
+	if scale >= 1 {
+		scale = math.floor(scale)
+	}
+
+	width := max(1, i32(f64(source.x) * scale))
+	height := max(1, i32(f64(source.y) * scale))
+	return {
+		x = (framebuffer.x - width) / 2,
+		y = (framebuffer.y - height) / 2,
+		width = width,
+		height = height,
+	}
 }

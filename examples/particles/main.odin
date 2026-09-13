@@ -1,17 +1,16 @@
 package game
 
+import "../common"
+
 import "core:log"
 import "core:math"
-import "core:time"
 import "ember:camera"
 import emath "ember:core/math"
-import "ember:draw2d"
 import "ember:engine"
 import "ember:geometry"
 import "ember:input"
 import "ember:particles"
 import render "ember:renderer"
-import "ember:rhi"
 import "ember:shaders"
 import "ember:ui"
 
@@ -36,9 +35,7 @@ State :: struct {
 	target:         render.Render_Target,
 	presentation:   render.Presentation,
 	bloom:          render.Bloom,
-	overlay:        draw2d.Renderer,
-	font:           draw2d.Font,
-	interface:      ui.Context,
+	overlay:        common.Overlay,
 	window:         ui.Window,
 	scroll:         [2]f32,
 	orbit:          camera.Orbit,
@@ -46,9 +43,6 @@ State :: struct {
 	bloom_enabled:  bool,
 	bloom_strength: f32,
 	failed:         bool,
-	fps:            f64,
-	fps_tick:       time.Tick,
-	fps_frame:      u64,
 }
 
 state: State
@@ -152,10 +146,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.target, err = render.create_render_target(
-		&game.renderer,
-		{width = 320, height = 180, color_format = .RGBA16F, color_filter = .Nearest},
-	)
+	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
 	if !check(err, "create target") {
 		return false
 	}
@@ -170,41 +161,10 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.overlay, err = draw2d.create(app.device)
-	if !check(err, "create overlay") {
+	if !common.init_overlay(&game.overlay, app) {
 		return false
 	}
 
-	game.interface = ui.create()
-	game.interface.clipboard = app.clipboard
-	font_error: draw2d.Font_Error
-	game.font, font_error = draw2d.load_font(
-		app.device,
-		"assets/fonts/press-start-2p.json",
-		"assets/fonts/press-start-2p.png",
-	)
-	if font_error != .None {
-		log.errorf("Load font: %v", font_error)
-		return false
-	}
-
-	game.interface.style = {
-		font_size    = 12,
-		padding      = {8, 4},
-		border_width = 2,
-		thumb_width  = 12,
-		font         = &game.font,
-		text         = {0.88, 0.85, 0.77, 1},
-		background   = {0.14, 0.13, 0.17, 1},
-		hover        = {0.24, 0.22, 0.28, 1},
-		active       = {0.32, 0.28, 0.36, 1},
-		border       = {0.68, 0.64, 0.55, 1},
-		focus        = {0.94, 0.81, 0.49, 1},
-		disabled     = {0.5, 0.47, 0.48, 1},
-		thumb        = {0.88, 0.85, 0.77, 1},
-	}
-
-	game.fps_tick = time.tick_now()
 	return true
 }
 
@@ -256,7 +216,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		return
 	}
 
-	controls := ui.remaining_input(&game.interface)
+	controls := ui.remaining_input(&game.overlay.interface)
 	if input.pressed(&controls, .Escape) {
 		engine.request_quit(app)
 	}
@@ -292,12 +252,6 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	now := time.tick_now()
-	seconds := time.duration_seconds(time.tick_diff(game.fps_tick, now))
-	if seconds >= 0.5 {
-		game.fps = f64(app.frame_count - game.fps_frame) / seconds
-		game.fps_tick, game.fps_frame = now, app.frame_count
-	}
 	clear(&game.items)
 	if !check(render.append_particle_billboards(&game.items, &game.emitter), "gather particles") {
 		return false
@@ -311,7 +265,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		100,
 	)
 	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target}, {0.012, 0.016, 0.025, 1}),
+		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
 		"begin particles",
 	) {
 		return false
@@ -373,21 +327,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		}
 	}
 
-	scale := min(
-		f32(app.width) / f32(game.target.width),
-		f32(app.height) / f32(game.target.height),
-	)
-	if scale >= 1 {
-		scale = math.floor(scale)
-	}
-	width, height :=
-		max(1, i32(f32(game.target.width) * scale)), max(1, i32(f32(game.target.height) * scale))
-	viewport := rhi.Viewport {
-		x      = (app.width - width) / 2,
-		y      = (app.height - height) / 2,
-		width  = width,
-		height = height,
-	}
+	viewport := render.pixel_viewport(common.RESOLUTION, {app.width, app.height})
 
 	if !check(
 		render.present(
@@ -403,24 +343,14 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	if !check(
-		rhi.begin_pass(app.device, {color_load = .Load, depth_load = .Load}),
-		"begin overlay",
-	) {
-		return false
-	}
-
-	ok = check(draw2d.draw(&game.overlay, &game.interface.draws), "draw overlay")
-	return check(rhi.end_pass(app.device), "end overlay") && ok
+	return check(common.draw_overlay(&game.overlay, app), "draw overlay")
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
 	particles.destroy(&game.emitter)
 	delete(game.items)
-	ui.destroy(&game.interface)
-	check(draw2d.destroy_font(app.device, &game.font), "destroy font")
-	check(draw2d.destroy(&game.overlay), "destroy overlay")
+	common.destroy_overlay(&game.overlay, app.device)
 	check(render.destroy_billboard_renderer(&game.billboards), "destroy billboards")
 	check(render.destroy_bloom(&game.renderer, &game.bloom), "destroy bloom")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")

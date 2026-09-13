@@ -1,11 +1,19 @@
 package game
 
+import "../common"
+
+import "core:fmt"
 import "core:log"
 import "ember:engine"
 import "ember:input"
 import "ember:rhi"
+import "ember:ui"
 
 State :: struct {
+	surface:    common.Surface,
+	overlay:    common.Overlay,
+	window:     ui.Window,
+	failed:     bool,
 	focused:    bool,
 	space_down: bool,
 }
@@ -14,19 +22,28 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return engine.Config {
-		title = "Ember - Input: hold Space, drag, scroll; Escape closes",
-		width = 960,
-		height = 540,
+		title = "Ember - Input",
+		width = 1280,
+		height = 720,
 		vsync = true,
 		userdata = &state,
 		init = init,
 		update = update,
 		draw = draw,
+		quit = quit,
 	}
 }
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
+	game^ = {
+		window = common.info_window("input", 252),
+	}
+	if !common.init_surface(&game.surface, app.device) ||
+	   !common.init_overlay(&game.overlay, app) {
+		return false
+	}
+
 	game.focused = app.input.focused
 	log.info(
 		"Hold Space to change the background; drag left mouse for motion; scroll; Escape closes.",
@@ -64,20 +81,34 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	if app.input.scroll_delta != ([2]f64{}) {
 		log.infof("Scroll: %v", app.input.scroll_delta)
 	}
-	if input.pressed(app.input, .Escape) {
+
+	buffer: [512]u8
+	text := fmt.bprintf(
+		buffer[:],
+		"Space held: %v\nFocused: %v\n\nSpace Change background\nDrag / scroll: log input\n\nF1  Toggle overlay\nEsc Close",
+		game.space_down,
+		game.focused,
+	)
+	game.failed = !common.info_panel(&game.overlay, app, &game.window, "INPUT", text)
+	controls := ui.remaining_input(&game.overlay.interface)
+
+	if input.pressed(&controls, .Escape) {
 		engine.request_quit(app)
 	}
 }
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
-	color: [4]f32 = {0.1, 0.1, 0.1, 1}
+	if game.failed {
+		return false
+	}
+
+	color := common.BACKGROUND
 	if game.space_down {
 		color = {0.1, 0.4, 0.25, 1}
 	}
 
-	if rhi.begin_pass(app.device, {viewport = {width = app.width, height = app.height}}, color) !=
-	   .None {
+	if rhi.begin_pass(app.device, {target = game.surface.target.handle}, color) != .None {
 		return false
 	}
 
@@ -85,5 +116,16 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return true
+	if !common.check(common.present_surface(&game.surface, app), "present") {
+		return false
+	}
+
+	return common.check(common.draw_overlay(&game.overlay, app), "draw overlay")
+}
+
+quit :: proc(app: ^engine.Context, userdata: rawptr) {
+	game := cast(^State)userdata
+	common.destroy_overlay(&game.overlay, app.device)
+	common.destroy_surface(&game.surface)
+	game^ = {}
 }

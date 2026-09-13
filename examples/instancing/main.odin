@@ -1,53 +1,46 @@
 package game
 
+import "../common"
 import "core:log"
 import "core:math"
-import "core:time"
 import "ember:camera"
 import emath "ember:core/math"
-import "ember:draw2d"
 import "ember:engine"
 import "ember:geometry"
 import "ember:input"
 import render "ember:renderer"
-import "ember:rhi"
 import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
-	renderer:            render.Renderer,
-	overlay:             draw2d.Renderer,
-	interface:           ui.Context,
-	ui_failed:           bool,
-	render_window:       ui.Window,
-	camera_window:       ui.Window,
-	bloom_window:        ui.Window,
-	ui_scroll:           [3][2]f32,
-	tone_mapping:        int,
-	note:                ui.Text_Edit,
-	font:                draw2d.Font,
-	preview:             render.Texture,
-	shaders:             shaders.Library,
-	draws:               render.Draw_List,
-	mesh:                render.Mesh,
-	pipeline:            render.Pipeline,
-	materials:           [2]render.Material,
-	texture:             render.Texture,
-	presentation:        render.Presentation,
-	bloom:               render.Bloom,
-	bloom_settings:      render.Bloom_Settings,
-	bloom_enabled:       bool,
-	bloom_strength:      f32,
-	target, next_target: render.Render_Target,
-	orbit:               camera.Orbit,
-	angle:               f32,
-	batching, paused:    bool,
-	last_stats:          render.Draw_Stats,
-	next_report:         f64,
-	exposure:            f32,
-	fps:                 f64,
-	fps_tick:            time.Tick,
-	fps_frame:           u64,
+	renderer:         render.Renderer,
+	overlay:          common.Overlay,
+	ui_failed:        bool,
+	render_window:    ui.Window,
+	camera_window:    ui.Window,
+	bloom_window:     ui.Window,
+	ui_scroll:        [3][2]f32,
+	tone_mapping:     int,
+	note:             ui.Text_Edit,
+	preview:          render.Texture,
+	shaders:          shaders.Library,
+	draws:            render.Draw_List,
+	mesh:             render.Mesh,
+	pipeline:         render.Pipeline,
+	materials:        [2]render.Material,
+	texture:          render.Texture,
+	presentation:     render.Presentation,
+	bloom:            render.Bloom,
+	bloom_settings:   render.Bloom_Settings,
+	bloom_enabled:    bool,
+	bloom_strength:   f32,
+	target:           render.Render_Target,
+	orbit:            camera.Orbit,
+	angle:            f32,
+	batching, paused: bool,
+	last_stats:       render.Draw_Stats,
+	next_report:      f64,
+	exposure:         f32,
 }
 
 INITIAL_ORBIT :: camera.Orbit {
@@ -58,7 +51,7 @@ state: State
 
 configure :: proc() -> engine.Config {
 	return {
-		title = "Ember - Instancing and 2D",
+		title = "Ember - Instancing",
 		width = 1280,
 		height = 720,
 		vsync = true,
@@ -104,43 +97,14 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.overlay, err = draw2d.create(app.device)
-	if !check(err, "create 2D renderer") {
+	if !common.init_overlay(&game.overlay, app) {
 		return false
 	}
 
-	game.interface = ui.create()
-	game.interface.clipboard = app.clipboard
 	note_error: ui.Error
 	game.note, note_error = ui.create_text_edit("Hello, world!")
 	if !check_ui(note_error) {
 		return false
-	}
-	font_error: draw2d.Font_Error
-	game.font, font_error = draw2d.load_font(
-		app.device,
-		"assets/fonts/press-start-2p.json",
-		"assets/fonts/press-start-2p.png",
-	)
-	if font_error != .None {
-		log.errorf("Load overlay font: %v", font_error)
-		return false
-	}
-
-	game.interface.style = {
-		font_size    = 12,
-		padding      = {8, 4},
-		border_width = 2,
-		thumb_width  = 12,
-		font         = &game.font,
-		text         = {0.88, 0.85, 0.77, 1},
-		background   = {0.14, 0.13, 0.17, 1},
-		hover        = {0.24, 0.22, 0.28, 1},
-		active       = {0.32, 0.28, 0.36, 1},
-		border       = {0.68, 0.64, 0.55, 1},
-		focus        = {0.94, 0.81, 0.49, 1},
-		disabled     = {0.5, 0.47, 0.48, 1},
-		thumb        = {0.88, 0.85, 0.77, 1},
 	}
 
 	game.preview, err = render.create_texture(
@@ -214,14 +178,17 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
+	if !check(err, "create pixel target") {
+		return false
+	}
+
 	game.bloom, err = render.create_bloom(&game.renderer, &game.shaders)
 	if !check(err, "create bloom") {
 		return false
 	}
 
 	game.presentation, err = render.create_presentation(&game.renderer, &game.shaders)
-	game.fps_tick = time.tick_now()
-	game.fps_frame = app.frame_count
 	return check(err, "create presentation")
 }
 
@@ -232,7 +199,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		return
 	}
 
-	game_input := ui.remaining_input(&game.interface)
+	game_input := ui.remaining_input(&game.overlay.interface)
 	if input.pressed(&game_input, .Escape) {
 		engine.request_quit(app)
 	}
@@ -273,40 +240,6 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	now := time.tick_now()
-	seconds := time.duration_seconds(time.tick_diff(game.fps_tick, now))
-	if seconds >= 0.5 {
-		game.fps = f64(app.frame_count - game.fps_frame) / seconds
-		game.fps_tick = now
-		game.fps_frame = app.frame_count
-	}
-
-	if game.target.width != app.width || game.target.height != app.height {
-		err: render.Error
-		game.next_target, err = render.create_render_target(
-			&game.renderer,
-			{
-				width = app.width,
-				height = app.height,
-				color_format = .RGBA16F,
-				color_filter = .Nearest,
-			},
-		)
-		if !check(err, "create target") {
-			return false
-		}
-
-		if !check(
-			render.destroy_render_target(&game.renderer, &game.target),
-			"destroy old target",
-		) {
-			return false
-		}
-
-		game.target = game.next_target
-		game.next_target = {}
-	}
-
 	render.clear_draw_list(&game.draws)
 	for z in 0 ..< 20 {
 		for x in 0 ..< 20 {
@@ -340,7 +273,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	if !check(
-		render.begin_pass(&game.renderer, {target = &game.target}, {0.02, 0.025, 0.04, 1}),
+		render.begin_pass(&game.renderer, {target = &game.target}, common.BACKGROUND),
 		"begin pass",
 	) {
 		return false
@@ -353,7 +286,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		&game.renderer,
 		&game.draws,
 		camera.from_orbit(game.orbit),
-		emath.perspective(math.PI / 3, f32(app.width) / f32(app.height), 0.1, 200),
+		emath.perspective(math.PI / 3, f32(game.target.width) / f32(game.target.height), 0.1, 200),
 		{ambient = {0.12, 0.14, 0.2}, point_lights = lights[:]},
 		batching = game.batching,
 	)
@@ -395,7 +328,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			&game.renderer,
 			&game.presentation,
 			game.target.color,
-			{width = app.width, height = app.height},
+			render.pixel_viewport(common.RESOLUTION, {app.width, app.height}),
 			{
 				exposure = game.exposure,
 				tone_mapping = render.Tone_Mapping(game.tone_mapping),
@@ -408,22 +341,17 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	return check(draw_overlay(app, game), "draw overlay")
+	return check(common.draw_overlay(&game.overlay, app), "draw overlay")
 }
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
-	check(draw2d.destroy_font(app.device, &game.font), "destroy font")
-	check(draw2d.destroy(&game.overlay), "destroy 2D renderer")
-	ui.destroy(&game.interface)
+	common.destroy_overlay(&game.overlay, app.device)
 	ui.destroy_text_edit(&game.note)
 	check(render.destroy_texture(&game.renderer, &game.preview), "destroy overlay image")
 	check(render.destroy_presentation(&game.renderer, &game.presentation), "destroy presentation")
 	check(render.destroy_bloom(&game.renderer, &game.bloom), "destroy bloom")
-	check(
-		render.destroy_render_target(&game.renderer, &game.next_target),
-		"destroy pending target",
-	)
+
 	check(render.destroy_render_target(&game.renderer, &game.target), "destroy target")
 	for &material in game.materials {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
@@ -445,25 +373,4 @@ check :: proc(err: render.Error, operation: string) -> bool {
 	}
 
 	return err == .None
-}
-
-draw_overlay :: proc(app: ^engine.Context, game: ^State) -> render.Error {
-	viewport := rhi.Viewport {
-		width  = app.width,
-		height = app.height,
-	}
-	if err := rhi.begin_pass(
-		app.device,
-		{viewport = viewport, color_load = .Load, depth_load = .Load},
-	); err != .None {
-		return err
-	}
-
-	draw_error := draw2d.draw(&game.overlay, &game.interface.draws)
-	end_error := rhi.end_pass(app.device)
-	if draw_error != .None {
-		return draw_error
-	}
-
-	return end_error
 }

@@ -16,16 +16,16 @@ PITCH_LIMIT :: f32(85 * math.PI / 180)
 MIN_DISTANCE :: f32(1.5)
 MAX_DISTANCE :: f32(30)
 
-update_camera :: proc(game: ^State, app: ^engine.Context) {
-	if input.pressed(app.input, .R) {
+update_camera :: proc(game: ^State, app: ^engine.Context, controls: ^input.State) {
+	if input.pressed(controls, .R) {
 		game.orbit = INITIAL_ORBIT
 	} else {
-		if input.mouse_down(app.input, .Left) {
+		if input.mouse_down(controls, .Left) {
 			if !camera.rotate_orbit(
 				&game.orbit,
 				{
-					f32(app.input.mouse_delta.x) * ORBIT_SENSITIVITY,
-					f32(app.input.mouse_delta.y) * ORBIT_SENSITIVITY,
+					f32(controls.mouse_delta.x) * ORBIT_SENSITIVITY,
+					f32(controls.mouse_delta.y) * ORBIT_SENSITIVITY,
 				},
 				PITCH_LIMIT,
 			) {
@@ -33,10 +33,10 @@ update_camera :: proc(game: ^State, app: ^engine.Context) {
 			}
 		}
 
-		if app.input.scroll_delta.y != 0 {
+		if controls.scroll_delta.y != 0 {
 			if !camera.zoom_orbit(
 				&game.orbit,
-				app.input.scroll_delta.y * ZOOM_SENSITIVITY,
+				controls.scroll_delta.y * ZOOM_SENSITIVITY,
 				MIN_DISTANCE,
 				MAX_DISTANCE,
 			) {

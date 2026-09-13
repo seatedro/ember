@@ -1,9 +1,13 @@
 package game
 
+import "../common"
+
 import "core:log"
 import "core:mem"
 import "ember:engine"
+import "ember:input"
 import "ember:rhi"
+import "ember:ui"
 
 @(private)
 TRIANGLE_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
@@ -18,6 +22,10 @@ TRIANGLE_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
 }
 
 State :: struct {
+	surface:  common.Surface,
+	overlay:  common.Overlay,
+	window:   ui.Window,
+	failed:   bool,
 	pipeline: rhi.Pipeline_Handle,
 	vertices: rhi.Buffer_Handle,
 	indices:  rhi.Buffer_Handle,
@@ -30,7 +38,14 @@ Vertex :: struct {
 
 init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
-	game^ = {}
+	game^ = {
+		window = common.info_window("triangle", 152),
+	}
+	if !common.init_surface(&game.surface, app.device) ||
+	   !common.init_overlay(&game.overlay, app) {
+		return false
+	}
+
 	device := app.device
 
 	vertices := [3]Vertex {
@@ -112,12 +127,39 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	return check(err, "create pipeline")
 }
 
+update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
+	game := cast(^State)userdata
+	game.failed = !common.info_panel(
+		&game.overlay,
+		app,
+		&game.window,
+		"TRIANGLE",
+		"Indexed triangle\n320 x 180\n\nF1  Toggle overlay\nEsc Close",
+	)
+	controls := ui.remaining_input(&game.overlay.interface)
+	if input.pressed(&controls, .Escape) {
+		engine.request_quit(app)
+	}
+}
+
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
+	if game.failed || !draw_triangle(app, game) {
+		return false
+	}
+
+	if !check(common.present_surface(&game.surface, app), "present") {
+		return false
+	}
+
+	return check(common.draw_overlay(&game.overlay, app), "draw overlay")
+}
+
+draw_triangle :: proc(app: ^engine.Context, game: ^State) -> bool {
 	device := app.device
 
 	if !check(
-		rhi.begin_pass(device, {viewport = {width = app.width, height = app.height}}),
+		rhi.begin_pass(device, {target = game.surface.target.handle}, common.BACKGROUND),
 		"begin pass",
 	) {
 		return false
@@ -153,6 +195,8 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	if game.vertices.generation != 0 {
 		check(rhi.destroy_buffer(app.device, game.vertices), "destroy vertices")
 	}
+	common.destroy_overlay(&game.overlay, app.device)
+	common.destroy_surface(&game.surface)
 	game^ = {}
 }
 

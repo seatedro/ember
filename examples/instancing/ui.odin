@@ -7,7 +7,7 @@ import "ember:input"
 import "ember:ui"
 
 build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	if input.pressed(app.input, .F1) {
 		game.render_window.open = !game.render_window.open
 	}
@@ -27,9 +27,9 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	}
 
 	buffer: [128]u8
-	title := fmt.bprintf(buffer[:], "FPS %3.0f", game.fps)
+	title := fmt.bprintf(buffer[:], "FPS %3.0f", game.overlay.fps)
 	if !game.render_window.collapsed {
-		title = fmt.bprintf(buffer[:], "RENDER  FPS %3.0f", game.fps)
+		title = fmt.bprintf(buffer[:], "RENDER  FPS %3.0f", game.overlay.fps)
 	}
 
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
@@ -46,7 +46,7 @@ build_window :: proc(
 	content_height: f32,
 	controls: proc(_: ^State, _: ^ui.Layout) -> bool,
 ) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	body, visible, window_error := ui.begin_window(ctx, window, title)
 	if !check_ui(window_error) {
 		return false
@@ -75,7 +75,7 @@ build_window :: proc(
 }
 
 render_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	rect, err := ui.next(column, 44)
 	if !check_ui(err) {
 		return false
@@ -190,7 +190,7 @@ render_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 }
 
 camera_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	rect, err := ui.next(column, 48)
 	if !check_ui(err) {
 		return false
@@ -255,7 +255,7 @@ check_ui :: proc(err: ui.Error) -> bool {
 }
 
 bloom_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
-	ctx := &game.interface
+	ctx := &game.overlay.interface
 	rect, err := ui.next(column, 24)
 	if !check_ui(err) {
 		return false

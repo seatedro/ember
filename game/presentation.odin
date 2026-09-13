@@ -1,12 +1,14 @@
 package game
 
+import "../examples/common"
+
 import "core:log"
 import "core:math"
 import "ember:engine"
 import "ember:input"
 import render "ember:renderer"
 
-init_presentation :: proc(game: ^State, width, height: i32) -> bool {
+init_presentation :: proc(game: ^State) -> bool {
 	game.presentation = {
 		exposure     = 1,
 		tone_mapping = .Reinhard,
@@ -18,20 +20,21 @@ init_presentation :: proc(game: ^State, width, height: i32) -> bool {
 		return false
 	}
 
-	return resize_target(game, width, height)
+	game.target, err = render.create_render_target(&game.renderer, common.TARGET_DESC)
+	return check(err, "create pixel target")
 }
 
-update_presentation :: proc(game: ^State, app: ^engine.Context) {
+update_presentation :: proc(game: ^State, controls: ^input.State) {
 	settings := game.presentation
-	if input.pressed(app.input, .O) {
+	if input.pressed(controls, .O) {
 		settings.tone_mapping = .ACES_Fitted if settings.tone_mapping == .Reinhard else .Reinhard
 	}
 
-	if input.pressed(app.input, .Minus) {
+	if input.pressed(controls, .Minus) {
 		settings.exposure /= math.sqrt(f32(2))
 	}
 
-	if input.pressed(app.input, .Equal) {
+	if input.pressed(controls, .Equal) {
 		settings.exposure *= math.sqrt(f32(2))
 	}
 
@@ -44,45 +47,13 @@ update_presentation :: proc(game: ^State, app: ^engine.Context) {
 	log.infof("Tone mapping: %v, exposure: %.2f", settings.tone_mapping, settings.exposure)
 }
 
-resize_target :: proc(game: ^State, width, height: i32) -> bool {
-	if game.target.width == width && game.target.height == height {
-		return true
-	}
-
-	err: render.Error
-	game.next_target, err = render.create_render_target(
-		&game.renderer,
-		{
-			width = width,
-			height = height,
-			color_format = .RGBA16F,
-			color_filter = .Nearest,
-			label = "demo color",
-		},
-	)
-	if !check(err, "create resized render target") {
-		return false
-	}
-
-	if !check(
-		render.destroy_render_target(&game.renderer, &game.target),
-		"release old render target",
-	) {
-		return false
-	}
-
-	game.target = game.next_target
-	game.next_target = {}
-	return true
-}
-
 present :: proc(game: ^State, app: ^engine.Context) -> bool {
 	return check(
 		render.present(
 			&game.renderer,
 			&game.presenter,
 			game.target.color,
-			{width = app.width, height = app.height},
+			render.pixel_viewport(common.RESOLUTION, {app.width, app.height}),
 			game.presentation,
 		),
 		"present",
@@ -91,9 +62,5 @@ present :: proc(game: ^State, app: ^engine.Context) -> bool {
 
 destroy_presentation :: proc(game: ^State) {
 	check(render.destroy_presentation(&game.renderer, &game.presenter), "destroy presentation")
-	check(
-		render.destroy_render_target(&game.renderer, &game.next_target),
-		"destroy replacement target",
-	)
 	check(render.destroy_render_target(&game.renderer, &game.target), "destroy target")
 }
