@@ -21,6 +21,7 @@ Texture :: struct {
 }
 
 Render_Target :: struct {
+	srgb:               bool,
 	framebuffer, depth: u32,
 }
 
@@ -284,7 +285,9 @@ create_render_target :: proc(
 		gl.impl_BindRenderbuffer(gl.RENDERBUFFER, u32(previous_depth))
 	}
 
-	native: Render_Target
+	native := Render_Target {
+		srgb = desc.color_format == .RGBA8_SRGB,
+	}
 	succeeded := false
 	defer if !succeeded {
 		if native.framebuffer != 0 {
@@ -369,6 +372,12 @@ begin_pass :: proc(
 	}
 
 	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
+	if target.srgb {
+		gl.impl_Enable(gl.FRAMEBUFFER_SRGB)
+	} else {
+		gl.impl_Disable(gl.FRAMEBUFFER_SRGB)
+	}
+
 	gl.impl_Viewport(viewport.x, viewport.y, viewport.width, viewport.height)
 	gl.impl_Disable(gl.SCISSOR_TEST)
 	mask: u32
@@ -948,13 +957,14 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 		return {}, err
 	}
 
-	previous, unpack_buffer, alignment, row_length, skip_rows, skip_pixels, maximum: i32
+	previous, unpack_buffer, alignment, row_length, skip_rows, skip_pixels, swap_bytes, maximum: i32
 	gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous)
 	gl.impl_GetIntegerv(gl.PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer)
 	gl.impl_GetIntegerv(gl.UNPACK_ALIGNMENT, &alignment)
 	gl.impl_GetIntegerv(gl.UNPACK_ROW_LENGTH, &row_length)
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_ROWS, &skip_rows)
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_PIXELS, &skip_pixels)
+	gl.impl_GetIntegerv(gl.UNPACK_SWAP_BYTES, &swap_bytes)
 	gl.impl_GetIntegerv(gl.MAX_TEXTURE_SIZE, &maximum)
 	if err := check_errors("query texture upload state"); err != .None {
 		return {}, err
@@ -971,6 +981,7 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 		gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, row_length)
 		gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, skip_rows)
 		gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, skip_pixels)
+		gl.impl_PixelStorei(gl.UNPACK_SWAP_BYTES, swap_bytes)
 	}
 
 	native: Texture
@@ -1001,16 +1012,29 @@ create_texture :: proc(desc: types.Texture_Desc, pixels: []u8) -> (Texture, type
 	gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, 0)
 	gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
+	gl.impl_PixelStorei(gl.UNPACK_SWAP_BYTES, 0)
 	gl.impl_TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 0)
+
+	internal_format := i32(gl.RGBA8)
+	pixel_type := u32(gl.UNSIGNED_BYTE)
+	switch desc.format {
+	case .RGBA8:
+	case .RGBA8_SRGB:
+		internal_format = gl.SRGB8_ALPHA8
+	case .RGBA16F:
+		internal_format = gl.RGBA16F
+		pixel_type = gl.HALF_FLOAT
+	}
+
 	gl.impl_TexImage2D(
 		gl.TEXTURE_2D,
 		0,
-		i32(gl.SRGB8_ALPHA8 if desc.format == .RGBA8_SRGB else gl.RGBA8),
+		internal_format,
 		desc.width,
 		desc.height,
 		0,
 		gl.RGBA,
-		gl.UNSIGNED_BYTE,
+		pixel_type,
 		raw_data(pixels),
 	)
 

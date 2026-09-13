@@ -32,6 +32,10 @@ create_render_target :: proc(
 		return {}, .Invalid_Size
 	}
 
+	if desc.color_format < .RGBA8 || desc.color_format > .RGBA16F {
+		return {}, .Invalid_Texture
+	}
+
 	handle, slot := pool.alloc(&device.render_targets)
 	if slot == nil {
 		return {}, .Pool_Exhausted
@@ -47,7 +51,7 @@ create_render_target :: proc(
 		{
 			width = desc.width,
 			height = desc.height,
-			format = .RGBA8,
+			format = desc.color_format,
 			filter = .Nearest,
 			wrap_u = .Clamp,
 			wrap_v = .Clamp,

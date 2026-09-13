@@ -1,11 +1,24 @@
 package game
 
 import "core:log"
+import "core:math"
 import emath "ember:core/math"
 import "ember:engine"
 import "ember:geometry"
+import "ember:input"
 import render "ember:renderer"
 import shader "ember:shaders"
+
+Tone_Mapping :: enum u32 {
+	Reinhard,
+	ACES_Fitted,
+}
+
+Presentation_Parameters :: struct {
+	exposure:     f32,
+	tone_mapping: Tone_Mapping,
+	padding:      [2]u32,
+}
 
 init_presentation :: proc(game: ^State, width, height: i32) -> bool {
 	program, shader_error := shader.load(&game.shaders, "game/assets/shaders/present")
@@ -14,10 +27,15 @@ init_presentation :: proc(game: ^State, width, height: i32) -> bool {
 		return false
 	}
 
+	game.presentation = {
+		exposure     = 1,
+		tone_mapping = .Reinhard,
+	}
+
 	err: render.Error
 	game.target, err = render.create_render_target(
 		&game.renderer,
-		{width = width, height = height, label = "demo color"},
+		{width = width, height = height, color_format = .RGBA16F, label = "demo color"},
 	)
 	if !check(err, "create render target") {
 		return false
@@ -36,7 +54,7 @@ init_presentation :: proc(game: ^State, width, height: i32) -> bool {
 	game.present_material, err = render.create_material(
 		&game.renderer,
 		program,
-		Unlit_Parameters{tint = {1, 1, 1, 1}},
+		game.presentation,
 		{{binding = 0, texture = game.target.color}},
 	)
 	if !check(err, "create presentation material") {
@@ -60,6 +78,37 @@ init_presentation :: proc(game: ^State, width, height: i32) -> bool {
 	return check(err, "create presentation mesh")
 }
 
+update_presentation :: proc(game: ^State, app: ^engine.Context) -> bool {
+	settings := game.presentation
+	if input.pressed(app.input, .O) {
+		settings.tone_mapping = .ACES_Fitted if settings.tone_mapping == .Reinhard else .Reinhard
+	}
+
+	if input.pressed(app.input, .Minus) {
+		settings.exposure /= math.sqrt(f32(2))
+	}
+
+	if input.pressed(app.input, .Equal) {
+		settings.exposure *= math.sqrt(f32(2))
+	}
+
+	settings.exposure = clamp(settings.exposure, 1.0 / 256.0, 256.0)
+	if settings == game.presentation {
+		return true
+	}
+
+	if !check(
+		render.update_material(&game.renderer, &game.present_material, settings),
+		"update presentation",
+	) {
+		return false
+	}
+
+	game.presentation = settings
+	log.infof("Tone mapping: %v, exposure: %.2f", settings.tone_mapping, settings.exposure)
+	return true
+}
+
 resize_target :: proc(game: ^State, width, height: i32) -> bool {
 	if game.target.width == width && game.target.height == height {
 		return true
@@ -68,7 +117,7 @@ resize_target :: proc(game: ^State, width, height: i32) -> bool {
 	err: render.Error
 	game.next_target, err = render.create_render_target(
 		&game.renderer,
-		{width = width, height = height, label = "demo color"},
+		{width = width, height = height, color_format = .RGBA16F, label = "demo color"},
 	)
 	if !check(err, "create resized render target") {
 		return false

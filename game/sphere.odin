@@ -16,6 +16,7 @@ Object :: struct {
 }
 
 State :: struct {
+	presentation:        Presentation_Parameters,
 	shaders:             shader.Library,
 	renderer:            render.Renderer,
 	target, next_target: render.Render_Target,
@@ -174,6 +175,11 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	}
 
 	if input.pressed(app.input, .T) && !toggle_material_texture(game) {
+		engine.request_quit(app)
+		return
+	}
+
+	if !update_presentation(game, app) {
 		engine.request_quit(app)
 		return
 	}

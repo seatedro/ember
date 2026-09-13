@@ -24,12 +24,8 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 		return .Invalid_Size
 	}
 
-	if u64(desc.width) * u64(desc.height) * 4 != u64(byte_count) {
-		return .Invalid_Size
-	}
-
 	if desc.format < .RGBA8 ||
-	   desc.format > .RGBA8_SRGB ||
+	   desc.format > .RGBA16F ||
 	   desc.filter < .Linear ||
 	   desc.filter > .Nearest ||
 	   desc.wrap_u < .Repeat ||
@@ -37,6 +33,12 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 	   desc.wrap_v < .Repeat ||
 	   desc.wrap_v > .Clamp {
 		return .Invalid_Texture
+	}
+
+	pixel_size := u64(8 if desc.format == .RGBA16F else 4)
+	pixel_count := u64(desc.width) * u64(desc.height)
+	if pixel_count > u64(max(int)) / pixel_size || pixel_count * pixel_size != u64(byte_count) {
+		return .Invalid_Size
 	}
 
 	return .None

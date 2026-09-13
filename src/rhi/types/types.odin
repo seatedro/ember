@@ -35,6 +35,7 @@ Error :: enum {
 Texture_Format :: enum {
 	RGBA8,
 	RGBA8_SRGB,
+	RGBA16F,
 }
 
 Texture_Filter :: enum {
@@ -230,6 +231,7 @@ Draw_Indexed_Desc :: struct {
 }
 
 Render_Target_Desc :: struct {
+	color_format:  Texture_Format,
 	width, height: i32,
 	label:         string,
 }
