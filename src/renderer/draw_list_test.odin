@@ -10,8 +10,8 @@ test_draw_order_and_camera_changes :: proc(t: ^testing.T) {
 	defer destroy_draw_list(&list)
 	for z, i in ([5]f32{-1, -10, -3, -3, 0}) {
 		item := Draw_Item {
-			transform = {position = {0, 0, z}},
-			order = .Transparent,
+			transform = emath.translation({0, 0, z}),
+			order     = .Transparent,
 		}
 		if i == 1 || i == 4 {
 			item.order = .Opaque
@@ -40,7 +40,7 @@ test_draw_order_and_camera_changes :: proc(t: ^testing.T) {
 	capacity := cap(list.items)
 	clear_draw_list(&list)
 	testing.expect(t, len(list.items) == 0 && cap(list.items) == capacity)
-	testing.expect(t, add_draw(&list, {transform = {position = {0, 0, 1}}}) == .None)
+	testing.expect(t, add_draw(&list, {transform = emath.translation({0, 0, 1})}) == .None)
 	testing.expect(t, list.items[0].sequence == 0)
 }
 
@@ -51,7 +51,10 @@ test_draw_list_rejects_invalid_sort_values :: proc(t: ^testing.T) {
 	testing.expect(t, add_draw(&list, {order = cast(Draw_Order)99}) == .Invalid_Draw)
 	testing.expect(
 		t,
-		add_draw(&list, {transform = {position = {(transmute(f32)u32(0x7f800000)), 0, 0}}}) ==
+		add_draw(
+			&list,
+			{transform = emath.translation({(transmute(f32)u32(0x7f800000)), 0, 0})},
+		) ==
 		.Invalid_Draw,
 	)
 	testing.expect(t, len(list.items) == 0)
@@ -63,8 +66,8 @@ test_batches_preserve_materials_and_transparency :: proc(t: ^testing.T) {
 	defer destroy_draw_list(&list)
 	for i in 0 ..< 5 {
 		item := Draw_Item {
-			transform = {position = {f32(i), 0, -f32(i)}, orientation = 1, scale = {1, 1, 1}},
-			order = .Transparent if i >= 3 else .Opaque,
+			transform = emath.translation({f32(i), 0, -f32(i)}),
+			order     = .Transparent if i >= 3 else .Opaque,
 		}
 		if i == 1 {
 			item.material.textures[0] = {

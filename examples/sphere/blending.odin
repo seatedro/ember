@@ -81,7 +81,7 @@ add_blending :: proc(game: ^State) -> bool {
 					pipeline = pipeline,
 					mesh = game.blend_mesh,
 					material = game.blend_materials[i],
-					transform = transform,
+					transform = emath.transform_matrix(transform),
 					order = .Transparent,
 				},
 			),

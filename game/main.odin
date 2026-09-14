@@ -9,10 +9,14 @@ import "ember:engine"
 import "ember:geometry"
 import "ember:input"
 import render "ember:renderer"
+import "ember:scene"
 import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	world:                                                        scene.Scene,
+	grid:                                                         scene.Object,
+	spheres:                                                      [20][20]scene.Object,
 	simulation:                                                   ^engine.Clock,
 	previous_angle:                                               f32,
 	ui_layout_path:                                               string,
@@ -141,6 +145,9 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		bloom_settings = {threshold = 1, softness = 0.5},
 		bloom_strength = 0.5,
 		exposure = 1,
+	}
+	if !init_objects(game) {
+		return false
 	}
 	err: render.Error
 	game.renderer, err = render.create(app.device)
@@ -356,20 +363,23 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	angle := math.lerp(game.previous_angle, game.angle, game.simulation.interpolation)
+	if !check_scene(
+		scene.set_local_transform(&game.world, game.grid, emath.rotation_y(angle * 0.25)),
+	) {
+		return false
+	}
 	render.clear_draw_list(&game.draws)
 	for z in 0 ..< 20 {
 		for x in 0 ..< 20 {
-			transform := emath.Transform {
-				position    = {
-					(f32(x) - 9.5) * 2.5,
-					math.sin(f32(x + z) * 0.4),
-					(f32(z) - 9.5) * 2.5,
-				},
-				orientation = emath.quaternion_angle_axis(
-					angle + f32(x) * 0.2,
-					emath.normalize({1, 1, 0}),
-				),
-				scale       = {0.7, 1.0, 0.7},
+			object := game.spheres[z][x]
+			if !check_scene(
+				scene.set_local_transform(&game.world, object, sphere_transform(x, z, angle)),
+			) {
+				return false
+			}
+			transform, ok := scene.world_transform(&game.world, object)
+			if !ok {
+				return false
 			}
 			if !check(
 				render.add_draw(
@@ -409,11 +419,13 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 				pipeline = game.pipeline,
 				mesh = game.ground_mesh,
 				material = game.ground_material,
-				transform = {
-					position = {0, -2.5, 0},
-					orientation = emath.quaternion_angle_axis(-math.PI / 2, {1, 0, 0}),
-					scale = {34, 34, 1},
-				},
+				transform = emath.transform_matrix(
+					{
+						position = {0, -2.5, 0},
+						orientation = emath.quaternion_angle_axis(-math.PI / 2, {1, 0, 0}),
+						scale = {34, 34, 1},
+					},
+				),
 			},
 		),
 		"submit ground",
@@ -546,6 +558,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	scene.destroy(&game.world)
 	save_ui_layout(game)
 	delete(game.ui_layout_path)
 	delete(game.saved_ui_layout)

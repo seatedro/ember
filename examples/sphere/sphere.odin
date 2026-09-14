@@ -257,7 +257,9 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 				pipeline = game.grid.pipeline,
 				mesh = game.grid.mesh,
 				material = game.grid.material,
-				transform = {position = {0, -1.05, 0}, orientation = 1, scale = {1, 1, 1}},
+				transform = emath.transform_matrix(
+					{position = {0, -1.05, 0}, orientation = 1, scale = {1, 1, 1}},
+				),
 			},
 		),
 		"submit grid",
@@ -273,7 +275,7 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 					pipeline = game.pipeline,
 					mesh = game.mesh,
 					material = game.materials[object.material],
-					transform = object.transform,
+					transform = emath.transform_matrix(object.transform),
 				},
 			),
 			"submit sphere",
@@ -289,11 +291,13 @@ draw_world :: proc(game: ^State, app: ^engine.Context) -> bool {
 				pipeline = game.light_pipeline,
 				mesh = game.mesh,
 				material = game.light_material,
-				transform = {
-					position = game.lights[0].position,
-					orientation = 1,
-					scale = {0.12, 0.12, 0.12},
-				},
+				transform = emath.transform_matrix(
+					{
+						position = game.lights[0].position,
+						orientation = 1,
+						scale = {0.12, 0.12, 0.12},
+					},
+				),
 			},
 		),
 		"submit light marker",

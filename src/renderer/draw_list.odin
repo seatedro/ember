@@ -15,7 +15,7 @@ Draw_Item :: struct {
 	pipeline:  Pipeline,
 	mesh:      Mesh,
 	material:  Material,
-	transform: emath.Transform,
+	transform: emath.Mat4,
 	order:     Draw_Order,
 }
 
@@ -88,10 +88,8 @@ add_draw :: proc(list: ^Draw_List, item: Draw_Item) -> Error {
 		return .Invalid_Draw
 	}
 
-	for value in item.transform.position {
-		if math.is_nan(value) || math.is_inf(value) {
-			return .Invalid_Draw
-		}
+	if !emath.valid_affine(item.transform) {
+		return .Invalid_Draw
 	}
 
 	if _, err := append(&list.items, Draw_Entry{item = item, sequence = len(list.items)});
@@ -105,7 +103,8 @@ add_draw :: proc(list: ^Draw_List, item: Draw_Item) -> Error {
 sort_draw_list :: proc(list: ^Draw_List, view: camera.Camera) -> Error {
 	view_matrix := camera.view_matrix(view)
 	for &entry in list.items {
-		p := entry.item.transform.position
+		model := entry.item.transform
+		p := emath.Vec3{model[0, 3], model[1, 3], model[2, 3]}
 		entry.depth = (view_matrix * emath.Vec4{p.x, p.y, p.z, 1}).z
 		if math.is_nan(entry.depth) || math.is_inf(entry.depth) {
 			return .Invalid_Draw
@@ -153,7 +152,7 @@ draw_list :: proc(
 	frustum := emath.frustum_from_matrix(projection * camera.view_matrix(view))
 	for &entry in list.items {
 		item := &entry.item
-		bounds := emath.transform_sphere(item.mesh.bounds, item.transform)
+		bounds := emath.transform_sphere_matrix(item.mesh.bounds, item.transform)
 		if !emath.sphere_in_frustum(frustum, bounds) {
 			continue
 		}

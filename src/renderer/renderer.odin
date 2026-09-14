@@ -188,12 +188,26 @@ draw_mesh :: proc(
 	material: ^Material,
 	transform: emath.Transform,
 ) -> Error {
+	return draw_mesh_matrix(renderer, pipeline, mesh, material, emath.transform_matrix(transform))
+}
+
+draw_mesh_matrix :: proc(
+	renderer: ^Renderer,
+	pipeline: ^Pipeline,
+	mesh: ^Mesh,
+	material: ^Material,
+	transform: emath.Mat4,
+) -> Error {
 	if err := rhi.validate_device(renderer.device); err != .None {
 		return err
 	}
 
 	if !renderer.device.pass_active {
 		return .Invalid_Pass
+	}
+
+	if !emath.valid_affine(transform) {
+		return .Invalid_Draw
 	}
 
 	data := [1]Instance_Data{pack_instance(transform)}

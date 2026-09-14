@@ -18,8 +18,7 @@ INSTANCE_LAYOUT :: Vertex_Layout {
 	},
 }
 
-pack_instance :: proc(transform: emath.Transform) -> Instance_Data {
-	model := emath.transform_matrix(transform)
+pack_instance :: proc(model: emath.Mat4) -> Instance_Data {
 	data: Instance_Data
 	for row in 0 ..< 3 {
 		for column in 0 ..< 4 {
