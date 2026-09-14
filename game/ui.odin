@@ -45,11 +45,29 @@ build_physics_window :: proc(game: ^State, title: string) -> bool {
 		return true
 	}
 
+	tab_rect := ui.Rect{body.position, {body.size.x, 28}}
+	changed, tab_error := ui.tabs(
+		ctx,
+		ui.id("physics-tabs"),
+		tab_rect,
+		{"MOTION", "QUERIES"},
+		&game.physics_tab,
+	)
+	if !check_ui(tab_error) {
+		check_ui(ui.end_window(ctx))
+		return false
+	}
+	if changed {
+		game.ui_scroll = {}
+	}
+	body.position.y += 36
+	body.size.y = max(body.size.y - 36, 0)
+
 	content, scroll_error := ui.begin_scroll(
 		ctx,
 		ui.id("physics-content"),
 		body,
-		{max(body.size.x - 12, 0), 280},
+		{max(body.size.x - 12, 0), 360 if game.physics_tab == 1 else 280},
 		&game.ui_scroll,
 	)
 	if !check_ui(scroll_error) {
@@ -58,7 +76,8 @@ build_physics_window :: proc(game: ^State, title: string) -> bool {
 	}
 
 	column, layout_error := ui.layout(content, .Column, spacing = 8)
-	ok := check_ui(layout_error) && physics_controls(game, &column)
+	controls := query_controls if game.physics_tab == 1 else physics_controls
+	ok := check_ui(layout_error) && controls(game, &column)
 	ok = check_ui(ui.end_scroll(ctx)) && ok
 	return check_ui(ui.end_window(ctx)) && ok
 }

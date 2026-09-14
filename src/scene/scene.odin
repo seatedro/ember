@@ -42,7 +42,14 @@ Error :: enum {
 	Physics_Controlled,
 }
 
-create :: proc(capacity: int, allocator := context.allocator) -> (Scene, Error) {
+create :: proc(
+	capacity: int,
+	allocator := context.allocator,
+	collider_capacity: int = 0,
+) -> (
+	Scene,
+	Error,
+) {
 	objects, err := pool.create(Node, Object, capacity, allocator)
 	switch err {
 	case .Invalid_Capacity:
@@ -50,10 +57,11 @@ create :: proc(capacity: int, allocator := context.allocator) -> (Scene, Error) 
 	case .Allocation_Failed:
 		return {}, .Allocation_Failed
 	case .None:
-		world, physics_error := physics.create(capacity, allocator)
+		world, physics_error := physics.create(capacity, allocator, collider_capacity)
 		if physics_error != .None {
 			pool.destroy(&objects)
-			return {}, .Allocation_Failed
+			return {},
+				.Invalid_Capacity if physics_error == .Invalid_Capacity else .Allocation_Failed
 		}
 		return {objects = objects, physics = world}, .None
 	}

@@ -15,6 +15,13 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	debug_lines:                                             render.Debug_Lines,
+	debug_error:                                             render.Error,
+	physics_tab, query_mode, query_shape, query_total:       int,
+	query_x, query_y, query_z:                               f32,
+	query_probe, query_found:                                bool,
+	query_hit:                                               physics.Query_Hit,
+	query_overlaps:                                          [8]physics.Overlap_Hit,
 	probe, probe_marker:                                     scene.Object,
 	probe_body:                                              physics.Body_Handle,
 	probe_thrust, probe_impulse, probe_spin, physics_failed: bool,
@@ -41,7 +48,7 @@ State :: struct {
 
 INITIAL_ORBIT :: camera.Orbit {
 	pitch    = 0.3,
-	distance = 12,
+	distance = 16,
 }
 state: State
 
@@ -65,11 +72,14 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {
 		orbit = INITIAL_ORBIT,
+		physics_tab = 1,
+		query_x = -5,
+		query_probe = true,
 		simulation = &app.simulation,
 		physics_window = {
 			id = ui.id("physics-window"),
-			bounds = {{24, 24}, {336, 320}},
-			minimum_size = {304, 160},
+			bounds = {{24, 24}, {384, 464}},
+			minimum_size = {336, 160},
 			open = true,
 		},
 	}
@@ -90,6 +100,15 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 	game.draws = render.create_draw_list()
 	game.shaders = shaders.create(app.device)
+	game.debug_lines, err = render.create_debug_lines(
+		&game.renderer,
+		&game.shaders,
+		1024,
+		depth_test = false,
+	)
+	if !check(err, "create debug lines") {
+		return false
+	}
 	shader, shader_error := render.load_builtin_shader(&game.shaders, .Lit)
 	if shader_error != .None {
 		log.errorf("Load lit shader: %v", shader_error)
@@ -242,6 +261,13 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		projection,
 		{ambient = {0.15, 0.15, 0.18}, directional_lights = lights[:]},
 	)
+	if draw_error == .None && game.physics_tab == 1 {
+		if !update_queries(game) || !query_lines(game) {
+			render.end_pass(&game.renderer)
+			return false
+		}
+		draw_error = render.draw_debug_lines(&game.renderer, &game.debug_lines)
+	}
 	end_error := render.end_pass(&game.renderer)
 	if !check(draw_error, "draw bodies") || !check(end_error, "end pass") {
 		return false
@@ -268,6 +294,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
 	scene.destroy(&game.world)
+	check(render.destroy_debug_lines(&game.renderer, &game.debug_lines), "destroy debug lines")
 	save_ui_layout(game)
 	delete(game.ui_layout_path)
 	delete(game.saved_ui_layout)

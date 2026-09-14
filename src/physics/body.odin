@@ -28,11 +28,14 @@ Body_Desc :: struct {
 }
 
 World :: struct {
-	bodies: pool.Pool(Body, Body_Handle),
+	bodies:    pool.Pool(Body, Body_Handle),
+	colliders: pool.Pool(Collider, Collider_Handle),
+	tree:      Tree,
 }
 
 @(private)
 Body :: struct {
+	first_collider:                  Collider_Handle,
 	state:                           Body_State,
 	previous:                        emath.Pose,
 	next:                            Body_State,
@@ -56,9 +59,19 @@ Error :: enum {
 	Invalid_Mass,
 	Invalid_Value,
 	Invalid_Time,
+	Invalid_Shape,
+	Invalid_Collider,
+	Query_Did_Not_Converge,
 }
 
-create :: proc(capacity: int, allocator := context.allocator) -> (World, Error) {
+create :: proc(
+	capacity: int,
+	allocator := context.allocator,
+	collider_capacity: int = 0,
+) -> (
+	World,
+	Error,
+) {
 	bodies, err := pool.create(Body, Body_Handle, capacity, allocator)
 	switch err {
 	case .Invalid_Capacity:
@@ -66,7 +79,20 @@ create :: proc(capacity: int, allocator := context.allocator) -> (World, Error) 
 	case .Allocation_Failed:
 		return {}, .Allocation_Failed
 	case .None:
-		return {bodies = bodies}, .None
+		count := capacity if collider_capacity == 0 else collider_capacity
+		colliders, collider_error := pool.create(Collider, Collider_Handle, count, allocator)
+		if collider_error != .None {
+			pool.destroy(&bodies)
+			return {},
+				.Invalid_Capacity if collider_error == .Invalid_Capacity else .Allocation_Failed
+		}
+		tree, tree_error := create_tree(count, allocator)
+		if tree_error != .None {
+			pool.destroy(&colliders)
+			pool.destroy(&bodies)
+			return {}, tree_error
+		}
+		return {bodies = bodies, colliders = colliders, tree = tree}, .None
 	}
 
 	unreachable()
@@ -75,10 +101,12 @@ create :: proc(capacity: int, allocator := context.allocator) -> (World, Error) 
 destroy :: proc(world: ^World) {
 	for slot, index in world.bodies.slots {
 		if slot.used {
-			pool.free(&world.bodies, Body_Handle{index = u32(index), generation = slot.generation})
+			destroy_body(world, Body_Handle{index = u32(index), generation = slot.generation})
 		}
 	}
 	pool.destroy(&world.bodies)
+	pool.destroy(&world.colliders)
+	delete(world.tree.nodes, world.tree.allocator)
 	world^ = {}
 }
 
@@ -145,6 +173,13 @@ create_body :: proc(world: ^World, desc: Body_Desc) -> (Body_Handle, Error) {
 }
 
 destroy_body :: proc(world: ^World, handle: Body_Handle) -> bool {
+	body := pool.get(&world.bodies, handle)
+	if body == nil {
+		return false
+	}
+	for body.first_collider.generation != 0 {
+		destroy_collider(world, body.first_collider)
+	}
 	return pool.free(&world.bodies, handle)
 }
 
@@ -189,7 +224,7 @@ teleport :: proc(
 		state.velocity, state.angular_velocity = {}, {}
 	}
 	momentum := tensor_vector(body.inertia, state.pose.orientation, state.angular_velocity)
-	if !finite_vector(momentum) {
+	if !finite_vector(momentum) || !valid_body_bounds(world, body, state.pose) {
 		return .Invalid_Value
 	}
 
@@ -198,6 +233,7 @@ teleport :: proc(
 	body.angular_momentum = momentum
 	body.force, body.torque = {}, {}
 	body.has_target = false
+	sync_colliders(world, body)
 	return .None
 }
 
@@ -334,6 +370,7 @@ step :: proc(world: ^World, dt: f32) -> Error {
 			momentum = new_momentum
 		}
 		if !valid_pose(state.pose) ||
+		   !valid_body_bounds(world, body, state.pose) ||
 		   !finite_vector(state.velocity) ||
 		   !finite_vector(state.angular_velocity) {
 			return .Invalid_Value
@@ -353,6 +390,7 @@ step :: proc(world: ^World, dt: f32) -> Error {
 		body.angular_momentum = body.next_momentum
 		body.force, body.torque = {}, {}
 		body.has_target = false
+		sync_colliders(world, body)
 	}
 	return .None
 }

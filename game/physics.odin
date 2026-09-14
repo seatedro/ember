@@ -15,7 +15,7 @@ PROBE_POSE :: emath.Pose {
 
 init_physics :: proc(game: ^State) -> bool {
 	scene_error: scene.Error
-	game.world, scene_error = scene.create(2)
+	game.world, scene_error = scene.create(4)
 	if !check_scene(scene_error) {
 		return false
 	}
@@ -41,7 +41,10 @@ init_physics :: proc(game: ^State) -> bool {
 	if !check_physics(err) {
 		return false
 	}
-	return check_scene(scene.bind_body(&game.world, game.probe, game.probe_body))
+	return(
+		check_scene(scene.bind_body(&game.world, game.probe, game.probe_body)) &&
+		init_queries(game) \
+	)
 }
 
 update_physics :: proc(game: ^State, dt: f32) {
