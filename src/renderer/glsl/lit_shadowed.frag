@@ -28,5 +28,6 @@ void main() {
     float rough = texture(roughness_texture, texture_uv).g * roughness;
     float visibility = directional_visibility(world_position, world_normal);
     vec3 illumination = pbr_lighting(world_position, normal, view_direction, albedo.rgb, metal, rough, visibility);
+    illumination += environment_lighting(normal, view_direction, albedo.rgb, metal, rough, environment);
     color = vec4(illumination + albedo.rgb * emission, albedo.a);
 }

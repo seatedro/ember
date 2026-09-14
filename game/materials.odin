@@ -18,6 +18,9 @@ shading_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 	if game.lighting_tab == 0 {
 		return lighting_controls(game, column)
 	}
+	if game.lighting_tab == 2 {
+		return environment_controls(game, column)
+	}
 	return material_controls(game, column)
 }
 

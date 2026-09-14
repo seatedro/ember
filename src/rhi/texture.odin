@@ -10,12 +10,14 @@ Texture_Handle :: struct {
 }
 
 Texture_Desc :: types.Texture_Desc
+Texture_Kind :: types.Texture_Kind
 Texture_Format :: types.Texture_Format
 Texture_Filter :: types.Texture_Filter
 Texture_Wrap :: types.Texture_Wrap
 
 Texture_Resource :: struct {
 	native: backend.Texture,
+	desc:   Texture_Desc,
 	owner:  Render_Target_Handle,
 }
 
@@ -35,15 +37,31 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 		return .Invalid_Texture
 	}
 
+	if desc.kind < .Image_2D ||
+	   desc.kind > .Cube ||
+	   (desc.kind == .Cube && desc.width != desc.height) {
+		return .Invalid_Texture
+	}
+	levels := texture_mip_count(desc.width, desc.height)
+	if desc.mip_levels > levels {
+		return .Invalid_Size
+	}
+
 	pixel_size := u64(8 if desc.format == .RGBA16F else 4)
-	pixel_count := u64(desc.width) * u64(desc.height)
-	if pixel_count > u64(max(int)) / pixel_size || pixel_count * pixel_size != u64(byte_count) {
+	pixel_count: u64
+	for level in 0 ..< max(desc.mip_levels, 1) {
+		pixel_count += u64(max(desc.width >> level, 1)) * u64(max(desc.height >> level, 1))
+	}
+	face_count := u64(6 if desc.kind == .Cube else 1)
+	if pixel_count > u64(max(int)) / pixel_size / face_count ||
+	   pixel_count * pixel_size * face_count != u64(byte_count) {
 		return .Invalid_Size
 	}
 
 	return .None
 }
 
+// Pixels contain complete mip levels, with cube faces ordered +X, -X, +Y, -Y, +Z, -Z within each level.
 create_texture :: proc(
 	device: ^Device,
 	desc: Texture_Desc,
@@ -72,6 +90,7 @@ create_texture :: proc(
 	}
 
 	slot.native = native
+	slot.desc = desc
 
 	return handle, .None
 }
@@ -115,4 +134,12 @@ release_texture :: proc(device: ^Device, handle: Texture_Handle) -> Error {
 	pool.free(&device.textures, handle)
 
 	return .None
+}
+
+texture_mip_count :: proc(width, height: i32) -> u32 {
+	levels: u32
+	for size := max(width, height); size > 0; size >>= 1 {
+		levels += 1
+	}
+	return levels
 }

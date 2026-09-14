@@ -24,6 +24,7 @@ Device :: struct {
 	encoder:          ^MTL.RenderCommandEncoder,
 	pass_size:        [2]i32,
 	pass_format:      int,
+	pass_cube:        bool,
 	submitted:        [3]^MTL.CommandBuffer,
 	submission_index: int,
 }
@@ -521,7 +522,7 @@ reflect_bindings :: proc(
 		case .Texture:
 			texture := cast(^MTL.TextureBinding)argument
 			if index >= 128 ||
-			   texture->textureType() != .Type2D ||
+			   (texture->textureType() != .Type2D && texture->textureType() != .TypeCube) ||
 			   texture->arrayLength() > 1 ||
 			   texture->textureDataType() != .Float ||
 			   argument->access() != .ReadOnly {
@@ -530,8 +531,15 @@ reflect_bindings :: proc(
 
 			for binding in textures {
 				if binding.name == name {
+					kind :=
+						types.Texture_Kind.Cube if texture->textureType() == .TypeCube else types.Texture_Kind.Image_2D
+					if requirements.texture_bindings[binding.binding] &&
+					   requirements.texture_kinds[binding.binding] != kind {
+						return .Invalid_Texture_Binding
+					}
 					stage.textures[binding.binding] = u8(index + 1)
 					requirements.texture_bindings[binding.binding] = true
+					requirements.texture_kinds[binding.binding] = kind
 					found = true
 					break
 				}
@@ -588,6 +596,7 @@ begin_pass :: proc(
 	color_load, depth_load: types.Load_Op,
 	color: [4]f32,
 	depth: f64,
+	face, mip_level: u32,
 ) -> types.Error {
 	desc := MTL.RenderPassDescriptor.renderPassDescriptor()
 	attachment := desc->colorAttachments()->object(0)
@@ -595,18 +604,24 @@ begin_pass :: proc(
 	depth_texture := device.depth
 	device.pass_size = device.size
 	device.pass_format = 0
+	device.pass_cube =
+		target.color.object != nil && target.color.object->textureType() == .TypeCube
 	if target.depth != nil {
 		color_texture = target.color.object
 		depth_texture = target.depth
-		device.pass_size = target.size
+		device.pass_size = {max(target.size.x >> mip_level, 1), max(target.size.y >> mip_level, 1)}
 		device.pass_format = int(target.color.format) + 1 if target.color.object != nil else 4
 	}
 	attachment->setTexture(color_texture)
+	attachment->setSlice(NS.UInteger(face))
+	attachment->setLevel(NS.UInteger(mip_level))
 	attachment->setLoadAction(.Clear if color_load == .Clear else .Load)
 	attachment->setStoreAction(.Store)
 	attachment->setClearColor({f64(color.r), f64(color.g), f64(color.b), f64(color.a)})
 	depth_attachment := desc->depthAttachment()
 	depth_attachment->setTexture(depth_texture)
+	depth_attachment->setLevel(NS.UInteger(mip_level))
+	depth_attachment->setSlice(NS.UInteger(face))
 	depth_attachment->setLoadAction(.Clear if depth_load == .Clear else .Load)
 	depth_attachment->setStoreAction(.Store)
 	depth_attachment->setClearDepth(depth)
@@ -618,7 +633,9 @@ begin_pass :: proc(
 	device.encoder->setViewport(
 		{
 			f64(viewport.x),
-			f64(device.pass_size.y - viewport.y - viewport.height),
+			f64(
+				viewport.y if device.pass_cube else device.pass_size.y - viewport.y - viewport.height,
+			),
 			f64(viewport.width),
 			f64(viewport.height),
 			0,
@@ -665,7 +682,7 @@ draw_indexed :: proc(
 	encoder->setScissorRect(
 		{
 			NS.Integer(x),
-			NS.Integer(i64(device.pass_size.y) - y - height),
+			NS.Integer(y if device.pass_cube else i64(device.pass_size.y) - y - height),
 			NS.Integer(width),
 			NS.Integer(height),
 		},
@@ -674,7 +691,7 @@ draw_indexed :: proc(
 	encoder->setDepthStencilState(pipeline.depth)
 	encoder->setCullMode(CULL_MODES[pipeline.settings.raster.cull])
 	encoder->setFrontFacingWinding(
-		.CounterClockwise if pipeline.settings.raster.winding == .CCW else .Clockwise,
+		.CounterClockwise if (pipeline.settings.raster.winding == .CCW) != device.pass_cube else .Clockwise,
 	)
 	encoder->setTriangleFillMode(.Lines if pipeline.settings.raster.wireframe else .Fill)
 	encoder->setVertexBuffer(vertex.object, NS.UInteger(vertex_offset), 0)
@@ -748,7 +765,8 @@ create_texture :: proc(
 	defer pool->drain()
 	descriptor := MTL.TextureDescriptor.alloc()->init()
 	defer descriptor->release()
-	descriptor->setTextureType(.Type2D)
+	descriptor->setTextureType(.TypeCube if desc.kind == .Cube else .Type2D)
+	descriptor->setMipmapLevelCount(NS.UInteger(max(desc.mip_levels, 1)))
 	descriptor->setWidth(NS.UInteger(desc.width))
 	descriptor->setHeight(NS.UInteger(desc.height))
 	descriptor->setPixelFormat(
@@ -769,26 +787,37 @@ create_texture :: proc(
 		}
 	}
 	if len(pixels) != 0 {
-		// Keep uploaded images and render targets in the same orientation. MSL
-		// samples with (u, 1-v) to preserve the RHI's bottom-left texture origin.
+		// 2D images use the RHI bottom-left origin; cube faces already use
+		// the native direction convention shared by both backends.
 		flipped, error := make([]u8, len(pixels))
 		if error != .None {
 			return {}, .Allocation_Failed
 		}
 		defer delete(flipped)
-		stride := int(desc.width) * (8 if desc.format == .RGBA16F else 4)
-		for y in 0 ..< int(desc.height) {
-			copy(
-				flipped[y * stride:(y + 1) * stride],
-				pixels[(int(desc.height) - 1 - y) * stride:(int(desc.height) - y) * stride],
-			)
+		offset := 0
+		for level in 0 ..< max(desc.mip_levels, 1) {
+			width, height := max(desc.width >> level, 1), max(desc.height >> level, 1)
+			stride := int(width) * (8 if desc.format == .RGBA16F else 4)
+			bytes := stride * int(height)
+			for face in 0 ..< (6 if desc.kind == .Cube else 1) {
+				for y in 0 ..< int(height) {
+					source_y := y if desc.kind == .Cube else int(height) - 1 - y
+					copy(
+						flipped[y * stride:(y + 1) * stride],
+						pixels[offset + source_y * stride:offset + (source_y + 1) * stride],
+					)
+				}
+				object->replaceRegionWithLevel(
+					{size = {NS.Integer(width), NS.Integer(height), 1}},
+					NS.UInteger(level),
+					NS.UInteger(face),
+					raw_data(flipped),
+					NS.UInteger(stride),
+					NS.UInteger(bytes),
+				)
+				offset += bytes
+			}
 		}
-		object->replaceRegion(
-			{size = {NS.Integer(desc.width), NS.Integer(desc.height), 1}},
-			0,
-			raw_data(flipped),
-			NS.UInteger(stride),
-		)
 	}
 	sampler_desc := MTL.SamplerDescriptor.alloc()->init()
 	defer sampler_desc->release()
@@ -797,7 +826,9 @@ create_texture :: proc(
 	sampler_desc->setSAddressMode(.Repeat if desc.wrap_u == .Repeat else .ClampToEdge)
 	sampler_desc->setTAddressMode(.Repeat if desc.wrap_v == .Repeat else .ClampToEdge)
 	sampler_desc->setNormalizedCoordinates(true)
-	sampler_desc->setLodMaxClamp(0)
+	sampler_desc->setRAddressMode(.ClampToEdge)
+	sampler_desc->setMipFilter(.Linear if desc.filter == .Linear else .Nearest)
+	sampler_desc->setLodMaxClamp(f32(max(desc.mip_levels, 1) - 1))
 	sampler := device.gpu->newSamplerState(sampler_desc)
 	if sampler == nil {
 		return {}, .Allocation_Failed

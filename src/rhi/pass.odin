@@ -8,6 +8,7 @@ Load_Op :: types.Load_Op
 Viewport :: types.Viewport
 
 Pass_Desc :: struct {
+	face, mip_level:        u32,
 	target:                 Render_Target_Handle,
 	viewport:               Viewport,
 	color_load, depth_load: Load_Op,
@@ -36,6 +37,10 @@ begin_pass :: proc(
 		return .Invalid_Pass
 	}
 
+	if desc.target == (Render_Target_Handle{}) && (desc.face != 0 || desc.mip_level != 0) {
+		return .Invalid_Size
+	}
+
 	viewport := desc.viewport
 	target_size := device.frame_size
 	native: backend.Render_Target
@@ -45,7 +50,10 @@ begin_pass :: proc(
 			return .Invalid_Handle
 		}
 
-		target_size = {slot.width, slot.height}
+		if desc.mip_level >= slot.mip_levels || desc.face >= (6 if slot.kind == .Cube else 1) {
+			return .Invalid_Size
+		}
+		target_size = {max(slot.width >> desc.mip_level, 1), max(slot.height >> desc.mip_level, 1)}
 		native = slot.native
 	}
 
@@ -73,6 +81,8 @@ begin_pass :: proc(
 		desc.depth_load,
 		clear_color,
 		clear_depth,
+		desc.face,
+		desc.mip_level,
 	); err != .None {
 		backend.end_pass(&device.native)
 		return err

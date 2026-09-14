@@ -2,12 +2,16 @@ package renderer
 
 import "../camera"
 import emath "../core/math"
+import "../core/pool"
+import "../platform/graphics"
 import "../rhi"
 import "core:mem"
 
 Error :: rhi.Error
 
 Renderer :: struct {
+	black_cube:              Texture,
+	environment_textures:    [3]rhi.Texture_Handle,
 	white_texture:           Texture,
 	flat_normal:             Texture,
 	shadow_texture:          rhi.Texture_Handle,
@@ -86,6 +90,17 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 		destroy(&renderer)
 	}
 
+	if err == .None {
+		black_pixels: [48]u8
+		renderer.black_cube, err = create_texture(
+			&renderer,
+			{kind = .Cube, width = 1, height = 1, format = .RGBA16F},
+			black_pixels[:],
+		)
+		if err != .None {
+			destroy(&renderer)
+		}
+	}
 	return
 }
 
@@ -123,9 +138,34 @@ set_view :: proc(
 		return err
 	}
 
+	view_projection := projection * camera.view_matrix(view)
+	// Cube face storage follows the sampler direction convention on both APIs.
+	// Metal needs a vertical projection flip; its backend also reverses winding.
+	when graphics.METAL {
+		target := pool.get(&renderer.device.render_targets, renderer.device.pass_target)
+		if target != nil && target.kind == .Cube {
+			for column in 0 ..< 4 {
+				view_projection[1, column] = -view_projection[1, column]
+			}
+		}
+	}
+	renderer.environment_textures = {
+		renderer.black_cube.handle,
+		renderer.black_cube.handle,
+		renderer.white_texture.handle,
+	}
+	if lighting.environment != nil {
+		env := lighting.environment
+		renderer.environment_textures = {
+			env.irradiance.color.handle,
+			env.radiance.color.handle,
+			env.brdf.color.handle,
+		}
+	}
+
 	data := [1]Per_View {
 		{
-			view_projection = projection * camera.view_matrix(view),
+			view_projection = view_projection,
 			camera_position = {view.position.x, view.position.y, view.position.z, 1},
 		},
 	}
@@ -222,6 +262,14 @@ draw_mesh_instances :: proc(
 		}
 	}
 
+	if pipeline.environment {
+		for texture, i in renderer.environment_textures {
+			if err := rhi.bind_texture(device, u32(4 + i), texture); err != .None {
+				return err
+			}
+		}
+	}
+
 	if pipeline.shadows {
 		if err := rhi.bind_texture(device, SHADOW_TEXTURE_BINDING, renderer.shadow_texture);
 		   err != .None {
@@ -236,6 +284,10 @@ draw_mesh_instances :: proc(
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
+	if err := destroy_texture(renderer, &renderer.black_cube); err != .None {
+		result = err
+	}
+
 	if err := destroy_texture(renderer, &renderer.white_texture); err != .None {
 		result = err
 	}

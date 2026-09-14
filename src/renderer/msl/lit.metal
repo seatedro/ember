@@ -3,6 +3,9 @@ struct Lit_Uniforms { float4 tint; float emission; uint use_normal_map; float me
 fragment float4 lit_fragment(Mesh_Varyings input [[stage_in]],
     constant Lit_Uniforms &Material [[buffer(4)]],
     constant Lighting_Data &Lighting_Uniforms [[buffer(5)]],
+    texturecube<float> environment_diffuse [[texture(4)]], sampler environment_diffuse_sampler [[sampler(4)]],
+    texturecube<float> environment_specular [[texture(5)]], sampler environment_specular_sampler [[sampler(5)]],
+    texture2d<float> environment_brdf [[texture(6)]], sampler environment_brdf_sampler [[sampler(6)]],
     texture2d<float> albedo_texture [[texture(0)]], sampler albedo_texture_sampler [[sampler(0)]],
     texture2d<float> normal_texture [[texture(1)]], sampler normal_texture_sampler [[sampler(1)]],
     texture2d<float> metallic_texture [[texture(2)]], sampler metallic_texture_sampler [[sampler(2)]],
@@ -16,5 +19,6 @@ fragment float4 lit_fragment(Mesh_Varyings input [[stage_in]],
     float roughness = sample_texture(roughness_texture, roughness_texture_sampler, input.texture_uv).g * Material.roughness;
     float visibility = 1.0;
     float3 illumination = pbr_lighting(input.world_position, normal, input.view_direction, albedo.rgb, metallic, roughness, Lighting_Uniforms, visibility);
+    illumination += environment_lighting(normal, input.view_direction, albedo.rgb, metallic, roughness, Lighting_Uniforms.environment, environment_diffuse, environment_diffuse_sampler, environment_specular, environment_specular_sampler, environment_brdf, environment_brdf_sampler);
     return float4(illumination + albedo.rgb * Material.emission, albedo.a);
 }

@@ -7,6 +7,7 @@ Texture :: struct {
 }
 
 Texture_Desc :: rhi.Texture_Desc
+Texture_Kind :: rhi.Texture_Kind
 Texture_Format :: rhi.Texture_Format
 Texture_Filter :: rhi.Texture_Filter
 Texture_Wrap :: rhi.Texture_Wrap

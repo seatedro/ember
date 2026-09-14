@@ -53,7 +53,14 @@ Texture_Wrap :: enum {
 	Clamp,
 }
 
+Texture_Kind :: enum {
+	Image_2D,
+	Cube,
+}
+
 Texture_Desc :: struct {
+	kind:           Texture_Kind,
+	mip_levels:     u32,
 	width, height:  i32,
 	format:         Texture_Format,
 	filter:         Texture_Filter,
@@ -248,6 +255,7 @@ Uniform_Block_Desc :: struct {
 Pipeline_Requirements :: struct {
 	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
 	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,
+	texture_kinds:    [MAX_TEXTURE_BINDINGS]Texture_Kind,
 }
 
 Draw_Indexed_Desc :: struct {
@@ -263,6 +271,8 @@ Scissor :: struct {
 }
 
 Render_Target_Desc :: struct {
+	kind:          Texture_Kind,
+	mip_levels:    u32,
 	depth_only:    bool,
 	color_format:  Texture_Format,
 	color_filter:  Texture_Filter,

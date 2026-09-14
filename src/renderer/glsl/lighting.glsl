@@ -18,6 +18,7 @@ layout(std140) uniform Lighting_Uniforms {
     vec4 shadow_bias;
     uint shadow_light_index;
     uint shadow_enabled;
+    vec4 environment;
 };
 
 vec3 diffuse_lighting(vec3 position, vec3 normal, float shadow_visibility) {

@@ -13,47 +13,53 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
-	metallic, roughness:                                       [2]f32,
-	material_map:                                              render.Texture,
-	property_maps:                                             bool,
-	lighting_tab:                                              int,
-	normal_map:                                                render.Texture,
-	normal_mapping:                                            bool,
-	shadow:                                                    render.Shadow_Map,
-	shadow_settings:                                           render.Shadow_Settings,
-	ground_mesh:                                               render.Mesh,
-	ground_material:                                           render.Material,
-	renderer:                                                  render.Renderer,
-	overlay:                                                   common.Overlay,
-	ui_failed:                                                 bool,
-	render_window:                                             ui.Window,
-	camera_window:                                             ui.Window,
-	bloom_window:                                              ui.Window,
-	lighting_window:                                           ui.Window,
-	point_enabled, directional_enabled:                        bool,
-	light_azimuth, light_elevation, light_intensity, emission: f32,
-	ui_scroll:                                                 [4][2]f32,
-	tone_mapping:                                              int,
-	note:                                                      ui.Text_Edit,
-	preview:                                                   render.Texture,
-	shaders:                                                   shaders.Library,
-	draws:                                                     render.Draw_List,
-	mesh:                                                      render.Mesh,
-	pipeline:                                                  render.Pipeline,
-	materials:                                                 [2]render.Material,
-	texture:                                                   render.Texture,
-	presentation:                                              render.Presentation,
-	bloom:                                                     render.Bloom,
-	bloom_settings:                                            render.Bloom_Settings,
-	bloom_enabled:                                             bool,
-	bloom_strength:                                            f32,
-	target:                                                    common.Pixel_Target,
-	orbit:                                                     camera.Orbit,
-	angle:                                                     f32,
-	batching, paused:                                          bool,
-	last_stats:                                                render.Draw_Stats,
-	next_report:                                               f64,
-	exposure:                                                  f32,
+	environment:                                                  render.Environment,
+	environment_capture:                                          render.Render_Target,
+	environment_pipeline:                                         render.Pipeline,
+	environment_material:                                         render.Material,
+	environment_enabled, environment_dirty:                       bool,
+	environment_intensity, environment_rotation, environment_sun: f32,
+	metallic, roughness:                                          [2]f32,
+	material_map:                                                 render.Texture,
+	property_maps:                                                bool,
+	lighting_tab:                                                 int,
+	normal_map:                                                   render.Texture,
+	normal_mapping:                                               bool,
+	shadow:                                                       render.Shadow_Map,
+	shadow_settings:                                              render.Shadow_Settings,
+	ground_mesh:                                                  render.Mesh,
+	ground_material:                                              render.Material,
+	renderer:                                                     render.Renderer,
+	overlay:                                                      common.Overlay,
+	ui_failed:                                                    bool,
+	render_window:                                                ui.Window,
+	camera_window:                                                ui.Window,
+	bloom_window:                                                 ui.Window,
+	lighting_window:                                              ui.Window,
+	point_enabled, directional_enabled:                           bool,
+	light_azimuth, light_elevation, light_intensity, emission:    f32,
+	ui_scroll:                                                    [4][2]f32,
+	tone_mapping:                                                 int,
+	note:                                                         ui.Text_Edit,
+	preview:                                                      render.Texture,
+	shaders:                                                      shaders.Library,
+	draws:                                                        render.Draw_List,
+	mesh:                                                         render.Mesh,
+	pipeline:                                                     render.Pipeline,
+	materials:                                                    [2]render.Material,
+	texture:                                                      render.Texture,
+	presentation:                                                 render.Presentation,
+	bloom:                                                        render.Bloom,
+	bloom_settings:                                               render.Bloom_Settings,
+	bloom_enabled:                                                bool,
+	bloom_strength:                                               f32,
+	target:                                                       common.Pixel_Target,
+	orbit:                                                        camera.Orbit,
+	angle:                                                        f32,
+	batching, paused:                                             bool,
+	last_stats:                                                   render.Draw_Stats,
+	next_report:                                                  f64,
+	exposure:                                                     f32,
 }
 
 MATERIAL_COLORS :: [2][4]f32{{0.12, 0.4, 0.75, 1}, {0.85, 0.3, 0.08, 1}}
@@ -85,7 +91,11 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		batching = true,
 		metallic = {0, 1},
 		roughness = {0.65, 0.3},
-		lighting_tab = 1,
+		lighting_tab = 2,
+		environment_enabled = true,
+		environment_dirty = true,
+		environment_intensity = 1,
+		environment_sun = 2,
 		normal_mapping = true,
 		render_window = {
 			id = ui.id("render-window"),
@@ -107,7 +117,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		},
 		lighting_window = {
 			id = ui.id("lighting-window"),
-			bounds = {{736, 24}, {312, 352}},
+			bounds = {{736, 24}, {384, 352}},
 			minimum_size = {264, 160},
 			open = true,
 		},
@@ -171,6 +181,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		},
 		lighting = true,
 		shadows = true,
+		environment = true,
 	)
 	if !check(err, "create pipeline") {
 		return false
@@ -266,7 +277,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	}
 
 	game.presentation, err = render.create_presentation(&game.renderer, &game.shaders)
-	return check(err, "create presentation")
+	return check(err, "create presentation") && init_environment(game)
 }
 
 update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
@@ -313,6 +324,10 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
+	if !refresh_environment(game) {
+		return false
+	}
+
 	if game.ui_failed {
 		return false
 	}
@@ -402,20 +417,42 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	view := camera.from_orbit(game.orbit)
+	projection := emath.perspective(
+		math.PI / 3,
+		f32(game.target.world.width) / f32(game.target.world.height),
+		0.1,
+		200,
+	)
+	if game.environment_enabled {
+		if !check(
+			render.draw_environment(
+				&game.renderer,
+				&game.environment,
+				view,
+				projection,
+				game.environment_intensity,
+				game.environment_rotation,
+			),
+			"draw environment",
+		) {
+			render.end_pass(&game.renderer)
+			return false
+		}
+	}
+
 	shadow_settings := game.shadow_settings
 	shadow_settings.enabled = shadow_settings.enabled && game.directional_enabled
 	draw_error := render.draw_list(
 		&game.renderer,
 		&game.draws,
-		camera.from_orbit(game.orbit),
-		emath.perspective(
-			math.PI / 3,
-			f32(game.target.world.width) / f32(game.target.world.height),
-			0.1,
-			200,
-		),
+		view,
+		projection,
 		{
 			shadow = &game.shadow,
+			environment = &game.environment,
+			environment_intensity = game.environment_intensity if game.environment_enabled else 0,
+			environment_rotation = game.environment_rotation,
 			shadow_settings = shadow_settings,
 			point_lights = lights[:1 if game.point_enabled else 0],
 			directional_lights = directional_lights[:1 if game.directional_enabled else 0],
@@ -485,6 +522,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	quit_environment(game)
 	check(render.destroy_shadow_map(&game.renderer, &game.shadow), "destroy shadow map")
 	check(
 		render.destroy_material(&game.renderer, &game.ground_material),

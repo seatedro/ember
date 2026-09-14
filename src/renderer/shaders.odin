@@ -11,6 +11,9 @@ Builtin_Shader :: enum {
 	Presentation,
 	Bloom,
 	Downsample,
+	Environment_Filter,
+	Environment_BRDF,
+	Sky,
 }
 
 Tint_Parameters :: struct {
@@ -41,6 +44,99 @@ load_builtin_shader :: proc(
 	shaders.Error,
 ) {
 	switch kind {
+	case .Sky:
+		return shaders.load_source(
+			library,
+			"ember/sky",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "screen_vertex",
+						code = MSL_COMMON_SOURCE + string(#load("msl/sky.metal")),
+					},
+					fragment = {
+						entry_point = "sky_fragment",
+						code = MSL_COMMON_SOURCE + string(#load("msl/sky.metal")),
+					},
+				},
+				.GLSL = {
+					vertex = {
+						entry_point = "main",
+						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
+					},
+					fragment = {entry_point = "main", code = string(#load("glsl/sky.frag"))},
+				},
+			},
+		)
+
+	case .Environment_BRDF:
+		return shaders.load_source(
+			library,
+			"ember/environment_brdf",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "screen_vertex",
+						code = MSL_COMMON_SOURCE +
+						string(#load("msl/environment_sampling.metal")) +
+						string(#load("msl/environment_brdf.metal")),
+					},
+					fragment = {
+						entry_point = "environment_fragment",
+						code = MSL_COMMON_SOURCE +
+						string(#load("msl/environment_sampling.metal")) +
+						string(#load("msl/environment_brdf.metal")),
+					},
+				},
+				.GLSL = {
+					vertex = {
+						entry_point = "main",
+						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
+					},
+					fragment = {
+						entry_point = "main",
+						code = "#version 410 core\n" +
+						string(#load("glsl/environment_sampling.glsl")) +
+						string(#load("glsl/environment_brdf.frag")),
+					},
+				},
+			},
+		)
+
+	case .Environment_Filter:
+		return shaders.load_source(
+			library,
+			"ember/environment_filter",
+			#partial shaders.Sources {
+				.MSL = {
+					vertex = {
+						entry_point = "screen_vertex",
+						code = MSL_COMMON_SOURCE +
+						string(#load("msl/environment_sampling.metal")) +
+						string(#load("msl/environment_filter.metal")),
+					},
+					fragment = {
+						entry_point = "environment_fragment",
+						code = MSL_COMMON_SOURCE +
+						string(#load("msl/environment_sampling.metal")) +
+						string(#load("msl/environment_filter.metal")),
+					},
+				},
+				.GLSL = {
+					vertex = {
+						entry_point = "main",
+						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
+					},
+					fragment = {
+						entry_point = "main",
+						code = "#version 410 core\n" +
+						string(#load("glsl/environment_sampling.glsl")) +
+						string(#load("glsl/environment_filter.frag")),
+					},
+				},
+			},
+		)
+
 	case .Unlit:
 		return shaders.load_source(
 			library,
@@ -69,12 +165,14 @@ load_builtin_shader :: proc(
 						entry_point = "mesh_vertex",
 						code = MSL_COMMON_SOURCE +
 						#load("msl/pbr.metal", string) +
+						#load("msl/environment.metal", string) +
 						#load("msl/lit.metal", string),
 					},
 					fragment = {
 						entry_point = "lit_fragment",
 						code = MSL_COMMON_SOURCE +
 						#load("msl/pbr.metal", string) +
+						#load("msl/environment.metal", string) +
 						#load("msl/lit.metal", string),
 					},
 				},
@@ -84,6 +182,7 @@ load_builtin_shader :: proc(
 						entry_point = "main",
 						code = GLSL_LIGHTING_SOURCE +
 						string(#load("glsl/pbr.glsl")) +
+						string(#load("glsl/environment.glsl")) +
 						string(#load("glsl/normal.glsl")) +
 						string(#load("glsl/lit.frag")),
 					},
@@ -100,6 +199,7 @@ load_builtin_shader :: proc(
 						entry_point = "mesh_vertex",
 						code = MSL_COMMON_SOURCE +
 						#load("msl/pbr.metal", string) +
+						#load("msl/environment.metal", string) +
 						#load("msl/shadow.metal", string) +
 						#load("msl/lit_shadowed.metal", string),
 					},
@@ -107,6 +207,7 @@ load_builtin_shader :: proc(
 						entry_point = "lit_fragment",
 						code = MSL_COMMON_SOURCE +
 						#load("msl/pbr.metal", string) +
+						#load("msl/environment.metal", string) +
 						#load("msl/shadow.metal", string) +
 						#load("msl/lit_shadowed.metal", string),
 					},
@@ -118,6 +219,7 @@ load_builtin_shader :: proc(
 						code = GLSL_LIGHTING_SOURCE +
 						string(#load("glsl/shadow.glsl")) +
 						string(#load("glsl/pbr.glsl")) +
+						string(#load("glsl/environment.glsl")) +
 						string(#load("glsl/normal.glsl")) +
 						string(#load("glsl/lit_shadowed.frag")),
 					},

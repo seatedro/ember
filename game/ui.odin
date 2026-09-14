@@ -53,7 +53,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 			3,
 			376,
 			shading_controls,
-			{"LIGHTS", "MATERIALS"},
+			{"LIGHTS", "MATERIALS", "ENV"},
 			&game.lighting_tab,
 		) &&
 		ok

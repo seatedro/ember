@@ -272,6 +272,10 @@ draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 			return .Invalid_Handle
 		}
 
+		if texture.desc.kind != pipeline.requirements.texture_kinds[binding] {
+			return .Invalid_Texture_Binding
+		}
+
 		if device.pass_target.generation != 0 && texture.owner == device.pass_target {
 			return .Feedback_Loop
 		}

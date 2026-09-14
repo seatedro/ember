@@ -21,6 +21,7 @@ struct Lighting_Data {
     float4 shadow_bias;
     uint shadow_light_index;
     uint shadow_enabled;
+    float4 environment;
 
 };
 

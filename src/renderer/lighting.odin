@@ -22,11 +22,13 @@ Directional_Light :: struct {
 }
 
 Lighting :: struct {
-	shadow:             ^Shadow_Map,
-	shadow_settings:    Shadow_Settings,
-	ambient:            emath.Vec3,
-	point_lights:       []Point_Light,
-	directional_lights: []Directional_Light,
+	environment:                                 ^Environment,
+	environment_intensity, environment_rotation: f32,
+	shadow:                                      ^Shadow_Map,
+	shadow_settings:                             Shadow_Settings,
+	ambient:                                     emath.Vec3,
+	point_lights:                                []Point_Light,
+	directional_lights:                          []Directional_Light,
 }
 
 @(private)
@@ -53,6 +55,7 @@ Lighting_Uniforms :: struct {
 	shadow_bias:                        [4]f32,
 	shadow_light_index, shadow_enabled: u32,
 	_shadow_padding:                    [2]u32,
+	environment:                        [4]f32,
 }
 
 #assert(size_of(Point_Light_Uniform) == 32)
@@ -63,7 +66,9 @@ Lighting_Uniforms :: struct {
 	offset_of(Lighting_Uniforms, shadow_matrix) ==
 	32 + (MAX_POINT_LIGHTS + MAX_DIRECTIONAL_LIGHTS) * 32,
 )
-#assert(size_of(Lighting_Uniforms) == offset_of(Lighting_Uniforms, shadow_matrix) + 96)
+#assert(
+	offset_of(Lighting_Uniforms, environment) == offset_of(Lighting_Uniforms, shadow_matrix) + 96,
+)
 
 @(private)
 pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Error) {
@@ -75,6 +80,22 @@ pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Erro
 	for value in lighting.ambient {
 		if !(value >= 0) || math.is_inf(value) {
 			return {}, .Invalid_Usage
+		}
+	}
+
+	if lighting.environment != nil {
+		if !lighting.environment.ready ||
+		   !(lighting.environment_intensity >= 0) ||
+		   math.is_inf(lighting.environment_intensity) ||
+		   math.is_nan(lighting.environment_rotation) ||
+		   math.is_inf(lighting.environment_rotation) {
+			return {}, .Invalid_Usage
+		}
+		data.environment = {
+			lighting.environment_intensity,
+			lighting.environment_rotation,
+			f32(lighting.environment.levels - 1),
+			0,
 		}
 	}
 

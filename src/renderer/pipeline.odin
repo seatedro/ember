@@ -5,9 +5,10 @@ import "../rhi"
 import "../shaders"
 
 Pipeline :: struct {
-	shadows: bool,
-	shader:  shaders.Shader,
-	handle:  rhi.Pipeline_Handle,
+	shadows:     bool,
+	environment: bool,
+	shader:      shaders.Shader,
+	handle:      rhi.Pipeline_Handle,
 }
 
 Pipeline_Settings :: rhi.Pipeline_Settings
@@ -21,6 +22,7 @@ create_pipeline :: proc(
 	lighting: bool = false,
 	shadows: bool = false,
 	material_uniforms := true,
+	environment := false,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
@@ -50,19 +52,34 @@ create_pipeline :: proc(
 		block_count = 1
 	}
 
-	bindings := textures
 	texture_bindings: [rhi.MAX_TEXTURE_BINDINGS]Texture_Binding_Desc
-	if shadows {
-		if !lighting || len(textures) >= len(texture_bindings) {
-			return {}, .Invalid_Usage
+	count := len(textures)
+	if count + (1 if shadows else 0) + (3 if environment else 0) > len(texture_bindings) ||
+	   ((shadows || environment) && !lighting) {
+		return {}, .Invalid_Usage
+	}
+	copy(texture_bindings[:], textures)
+	if environment {
+		for name, i in ([3]string {
+				"environment_diffuse",
+				"environment_specular",
+				"environment_brdf",
+			}) {
+			texture_bindings[count] = {
+				name    = name,
+				binding = u32(4 + i),
+			}
+			count += 1
 		}
-		copy(texture_bindings[:], textures)
-		texture_bindings[len(textures)] = {
+	}
+	if shadows {
+		texture_bindings[count] = {
 			name    = "shadow_texture",
 			binding = SHADOW_TEXTURE_BINDING,
 		}
-		bindings = texture_bindings[:len(textures) + 1]
+		count += 1
 	}
+	bindings := texture_bindings[:count]
 
 	pipeline.handle, err = rhi.create_pipeline(
 		renderer.device,
@@ -88,6 +105,7 @@ create_pipeline :: proc(
 
 	pipeline.shader = shader
 	pipeline.shadows = shadows
+	pipeline.environment = environment
 
 	return
 }
@@ -138,7 +156,9 @@ validate_draw :: proc(
 	}
 
 	for required, binding in slot.requirements.texture_bindings {
-		if !required || (pipeline.shadows && binding == SHADOW_TEXTURE_BINDING) {
+		if !required ||
+		   (pipeline.shadows && binding == SHADOW_TEXTURE_BINDING) ||
+		   (pipeline.environment && binding >= 4 && binding <= 6) {
 			continue
 		}
 

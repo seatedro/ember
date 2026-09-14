@@ -13,6 +13,7 @@ Viewport :: rhi.Viewport
 Load_Op :: rhi.Load_Op
 
 Pass_Desc :: struct {
+	face, mip_level:        u32,
 	target:                 ^Render_Target,
 	viewport:               Viewport,
 	color_load, depth_load: Load_Op,
@@ -54,6 +55,8 @@ begin_pass :: proc(
 ) -> Error {
 	pass := rhi.Pass_Desc {
 		viewport   = desc.viewport,
+		face       = desc.face,
+		mip_level  = desc.mip_level,
 		color_load = desc.color_load,
 		depth_load = desc.depth_load,
 	}

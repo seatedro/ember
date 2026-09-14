@@ -13,6 +13,8 @@ Render_Target_Desc :: types.Render_Target_Desc
 
 Render_Target_Resource :: struct {
 	ready:         bool,
+	kind:          Texture_Kind,
+	mip_levels:    u32,
 	native:        backend.Render_Target,
 	color, depth:  Texture_Handle,
 	width, height: i32,
@@ -40,12 +42,22 @@ create_render_target :: proc(
 		return {}, .Invalid_Texture
 	}
 
+	if desc.kind < .Image_2D ||
+	   desc.kind > .Cube ||
+	   (desc.kind == .Cube && (desc.width != desc.height || desc.depth_only)) {
+		return {}, .Invalid_Texture
+	}
+	if desc.mip_levels > texture_mip_count(desc.width, desc.height) {
+		return {}, .Invalid_Size
+	}
+
 	handle, slot := pool.alloc(&device.render_targets)
 	if slot == nil {
 		return {}, .Pool_Exhausted
 	}
 
 	slot.width, slot.height = desc.width, desc.height
+	slot.kind, slot.mip_levels = desc.kind, max(desc.mip_levels, 1)
 	for attachment in 0 ..< 2 {
 		if attachment == 0 && desc.depth_only {
 			continue
@@ -66,19 +78,18 @@ create_render_target :: proc(
 			slot.depth = texture_handle
 		}
 
-		texture, err := backend.create_texture(
-			&device.native,
-			{
-				width = desc.width,
-				height = desc.height,
-				format = desc.color_format if attachment == 0 else .Depth32F,
-				filter = desc.color_filter if attachment == 0 else .Nearest,
-				wrap_u = .Clamp,
-				wrap_v = .Clamp,
-				label = desc.label,
-			},
-			nil,
-		)
+		texture_slot.desc = {
+			kind       = desc.kind,
+			mip_levels = desc.mip_levels,
+			width      = desc.width,
+			height     = desc.height,
+			format     = desc.color_format if attachment == 0 else .Depth32F,
+			filter     = desc.color_filter if attachment == 0 else .Nearest,
+			wrap_u     = .Clamp,
+			wrap_v     = .Clamp,
+			label      = desc.label,
+		}
+		texture, err := backend.create_texture(&device.native, texture_slot.desc, nil)
 		if err != .None {
 			if destroy_render_target(device, handle) == .None {
 				return {}, err

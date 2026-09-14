@@ -19,11 +19,13 @@ Buffer :: struct {
 
 Texture :: struct {
 	id, sampler: u32,
+	kind:        types.Texture_Kind,
 }
 
 Render_Target :: struct {
-	srgb:        bool,
-	framebuffer: u32,
+	srgb:         bool,
+	color, depth: Texture,
+	framebuffer:  u32,
 }
 
 Shader :: struct {
@@ -313,7 +315,9 @@ create_render_target :: proc(
 	}
 
 	native := Render_Target {
-		srgb = !desc.depth_only && desc.color_format == .RGBA8_SRGB,
+		srgb  = !desc.depth_only && desc.color_format == .RGBA8_SRGB,
+		color = color,
+		depth = depth,
 	}
 	succeeded := false
 	defer {
@@ -331,12 +335,18 @@ create_render_target :: proc(
 	}
 
 	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, native.framebuffer)
-	gl.impl_FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth.id, 0)
+	gl.impl_FramebufferTexture2D(
+		gl.FRAMEBUFFER,
+		gl.DEPTH_ATTACHMENT,
+		gl.TEXTURE_CUBE_MAP_POSITIVE_X if desc.kind == .Cube else gl.TEXTURE_2D,
+		depth.id,
+		0,
+	)
 	if !desc.depth_only {
 		gl.impl_FramebufferTexture2D(
 			gl.FRAMEBUFFER,
 			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
+			gl.TEXTURE_CUBE_MAP_POSITIVE_X if desc.kind == .Cube else gl.TEXTURE_2D,
 			color.id,
 			0,
 		)
@@ -376,12 +386,31 @@ begin_pass :: proc(
 	color_load, depth_load: types.Load_Op,
 	color: [4]f32,
 	depth: f64,
+	face, mip_level: u32,
 ) -> types.Error {
 	if err := check_errors("before render pass"); err != .None {
 		return err
 	}
 
 	gl.impl_BindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
+	if target.framebuffer != 0 {
+		gl.impl_FramebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.DEPTH_ATTACHMENT,
+			gl.TEXTURE_CUBE_MAP_POSITIVE_X + face if target.depth.kind == .Cube else gl.TEXTURE_2D,
+			target.depth.id,
+			i32(mip_level),
+		)
+		if target.color.id != 0 {
+			gl.impl_FramebufferTexture2D(
+				gl.FRAMEBUFFER,
+				gl.COLOR_ATTACHMENT0,
+				gl.TEXTURE_CUBE_MAP_POSITIVE_X + face if target.color.kind == .Cube else gl.TEXTURE_2D,
+				target.color.id,
+				i32(mip_level),
+			)
+		}
+	}
 	if target.srgb {
 		gl.impl_Enable(gl.FRAMEBUFFER_SRGB)
 	} else {
@@ -713,6 +742,14 @@ draw_indexed :: proc(
 		return err
 	}
 
+	seamless := gl.impl_IsEnabled(gl.TEXTURE_CUBE_MAP_SEAMLESS)
+	gl.impl_Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
+	defer {
+		if !seamless {
+			gl.impl_Disable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
+		}
+	}
+
 	previous_active: i32
 	previous_textures, previous_samplers: [types.MAX_TEXTURE_BINDINGS]i32
 	gl.impl_GetIntegerv(gl.ACTIVE_TEXTURE, &previous_active)
@@ -728,7 +765,10 @@ draw_indexed :: proc(
 		}
 
 		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
-		gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous_textures[binding])
+		gl.impl_GetIntegerv(
+			gl.TEXTURE_BINDING_CUBE_MAP if textures[binding].kind == .Cube else gl.TEXTURE_BINDING_2D,
+			&previous_textures[binding],
+		)
 		gl.impl_GetIntegerv(gl.SAMPLER_BINDING, &previous_samplers[binding])
 	}
 
@@ -743,7 +783,10 @@ draw_indexed :: proc(
 			}
 
 			gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
-			gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous_textures[binding]))
+			gl.impl_BindTexture(
+				gl.TEXTURE_CUBE_MAP if textures[binding].kind == .Cube else gl.TEXTURE_2D,
+				u32(previous_textures[binding]),
+			)
 			gl.impl_BindSampler(u32(binding), u32(previous_samplers[binding]))
 		}
 
@@ -809,7 +852,10 @@ draw_indexed :: proc(
 		}
 
 		gl.impl_ActiveTexture(gl.TEXTURE0 + u32(binding))
-		gl.impl_BindTexture(gl.TEXTURE_2D, textures[binding].id)
+		gl.impl_BindTexture(
+			gl.TEXTURE_CUBE_MAP if textures[binding].kind == .Cube else gl.TEXTURE_2D,
+			textures[binding].id,
+		)
 		gl.impl_BindSampler(u32(binding), textures[binding].sampler)
 	}
 
@@ -1014,14 +1060,21 @@ create_texture :: proc(
 	}
 
 	previous, unpack_buffer, alignment, row_length, skip_rows, skip_pixels, swap_bytes, maximum: i32
-	gl.impl_GetIntegerv(gl.TEXTURE_BINDING_2D, &previous)
+	target := u32(gl.TEXTURE_CUBE_MAP if desc.kind == .Cube else gl.TEXTURE_2D)
+	gl.impl_GetIntegerv(
+		gl.TEXTURE_BINDING_CUBE_MAP if desc.kind == .Cube else gl.TEXTURE_BINDING_2D,
+		&previous,
+	)
 	gl.impl_GetIntegerv(gl.PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer)
 	gl.impl_GetIntegerv(gl.UNPACK_ALIGNMENT, &alignment)
 	gl.impl_GetIntegerv(gl.UNPACK_ROW_LENGTH, &row_length)
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_ROWS, &skip_rows)
 	gl.impl_GetIntegerv(gl.UNPACK_SKIP_PIXELS, &skip_pixels)
 	gl.impl_GetIntegerv(gl.UNPACK_SWAP_BYTES, &swap_bytes)
-	gl.impl_GetIntegerv(gl.MAX_TEXTURE_SIZE, &maximum)
+	gl.impl_GetIntegerv(
+		gl.MAX_CUBE_MAP_TEXTURE_SIZE if desc.kind == .Cube else gl.MAX_TEXTURE_SIZE,
+		&maximum,
+	)
 	if err := check_errors("query texture upload state"); err != .None {
 		return {}, err
 	}
@@ -1031,7 +1084,7 @@ create_texture :: proc(
 	}
 
 	defer {
-		gl.impl_BindTexture(gl.TEXTURE_2D, u32(previous))
+		gl.impl_BindTexture(target, u32(previous))
 		gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, u32(unpack_buffer))
 		gl.impl_PixelStorei(gl.UNPACK_ALIGNMENT, alignment)
 		gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, row_length)
@@ -1040,7 +1093,9 @@ create_texture :: proc(
 		gl.impl_PixelStorei(gl.UNPACK_SWAP_BYTES, swap_bytes)
 	}
 
-	native: Texture
+	native := Texture {
+		kind = desc.kind,
+	}
 	succeeded := false
 	defer if !succeeded {
 		if native.id != 0 {
@@ -1062,14 +1117,14 @@ create_texture :: proc(
 		return {}, .Backend_Failed
 	}
 
-	gl.impl_BindTexture(gl.TEXTURE_2D, native.id)
+	gl.impl_BindTexture(target, native.id)
 	gl.impl_BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
 	gl.impl_PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	gl.impl_PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 	gl.impl_PixelStorei(gl.UNPACK_SKIP_ROWS, 0)
 	gl.impl_PixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
 	gl.impl_PixelStorei(gl.UNPACK_SWAP_BYTES, 0)
-	gl.impl_TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 0)
+	gl.impl_TexParameteri(target, gl.TEXTURE_MAX_LEVEL, i32(max(desc.mip_levels, 1) - 1))
 
 	internal_format := i32(gl.RGBA8)
 	format := u32(gl.RGBA)
@@ -1087,20 +1142,38 @@ create_texture :: proc(
 		pixel_type = gl.HALF_FLOAT
 	}
 
-	gl.impl_TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		internal_format,
-		desc.width,
-		desc.height,
-		0,
-		format,
-		pixel_type,
-		raw_data(pixels),
-	)
+	offset := 0
+	for level in 0 ..< max(desc.mip_levels, 1) {
+		width, height := max(desc.width >> level, 1), max(desc.height >> level, 1)
+		bytes := int(width) * int(height) * (8 if desc.format == .RGBA16F else 4)
+		for face in 0 ..< (6 if desc.kind == .Cube else 1) {
+			data: rawptr
+			if len(pixels) != 0 {
+				data = raw_data(pixels[offset:offset + bytes])
+			}
+			gl.impl_TexImage2D(
+				gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(face) if desc.kind == .Cube else target,
+				i32(level),
+				internal_format,
+				width,
+				height,
+				0,
+				format,
+				pixel_type,
+				data,
+			)
+			offset += bytes
+		}
+	}
 
 	filter := i32(gl.LINEAR if desc.filter == .Linear else gl.NEAREST)
-	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MIN_FILTER, filter)
+	min_filter := filter
+	if desc.mip_levels > 1 {
+		min_filter =
+			gl.LINEAR_MIPMAP_LINEAR if desc.filter == .Linear else gl.NEAREST_MIPMAP_NEAREST
+	}
+	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MIN_FILTER, min_filter)
+	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 	gl.impl_SamplerParameteri(native.sampler, gl.TEXTURE_MAG_FILTER, filter)
 	gl.impl_SamplerParameteri(
 		native.sampler,
@@ -1192,8 +1265,10 @@ configure_textures :: proc(
 		}
 
 		uniform_name := string(name[:length])
-		if kind != gl.SAMPLER_2D || size != 1 || strings.contains(uniform_name, "[") {
-			log.errorf("Only scalar sampler2D is supported: %s", uniform_name)
+		if (kind != gl.SAMPLER_2D && kind != gl.SAMPLER_CUBE) ||
+		   size != 1 ||
+		   strings.contains(uniform_name, "[") {
+			log.errorf("Unsupported texture sampler: %s", uniform_name)
 			return .Invalid_Texture_Binding
 		}
 
@@ -1211,6 +1286,8 @@ configure_textures :: proc(
 
 			gl.impl_Uniform1i(location, i32(binding.binding))
 			pipeline.requirements.texture_bindings[binding.binding] = true
+			pipeline.requirements.texture_kinds[binding.binding] =
+				.Cube if kind == gl.SAMPLER_CUBE else .Image_2D
 			found = true
 			break
 		}
