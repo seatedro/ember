@@ -23,10 +23,20 @@ Pixel_Target :: struct {
 create_pixel_target :: proc(
 	renderer: ^render.Renderer,
 	library: ^shaders.Library,
+	resolution: [2]i32 = RESOLUTION,
+	sample_scale: i32 = SAMPLE_SCALE,
 ) -> (
 	target: Pixel_Target,
 	err: render.Error,
 ) {
+	if resolution.x <= 0 ||
+	   resolution.y <= 0 ||
+	   sample_scale <= 0 ||
+	   i64(resolution.x) * i64(sample_scale) > 0x7fff_ffff ||
+	   i64(resolution.y) * i64(sample_scale) > 0x7fff_ffff {
+		return {}, .Invalid_Size
+	}
+
 	defer {
 		if err != .None {
 			destroy_pixel_target(renderer, &target)
@@ -36,8 +46,8 @@ create_pixel_target :: proc(
 	target.world, err = render.create_render_target(
 		renderer,
 		{
-			width = RESOLUTION.x * SAMPLE_SCALE,
-			height = RESOLUTION.y * SAMPLE_SCALE,
+			width = resolution.x * sample_scale,
+			height = resolution.y * sample_scale,
 			color_format = .RGBA16F,
 			color_filter = .Nearest,
 		},
@@ -49,8 +59,8 @@ create_pixel_target :: proc(
 	target.pixels, err = render.create_render_target(
 		renderer,
 		{
-			width = RESOLUTION.x,
-			height = RESOLUTION.y,
+			width = resolution.x,
+			height = resolution.y,
 			color_format = .RGBA16F,
 			color_filter = .Nearest,
 		},

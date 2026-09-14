@@ -3,7 +3,7 @@ using namespace metal;
 
 // MSL buffer slots 0 and 1 are vertex and instance streams. Uniform argument
 // names are reflected into RHI bindings; samplers use <texture-name>_sampler.
-struct View_Uniforms { float4x4 view_projection; };
+struct View_Uniforms { float4x4 view_projection; float4 camera_position; };
 
 struct Tint_Uniforms { float4 tint; };
 
@@ -95,6 +95,7 @@ struct Mesh_Vertex {
 struct Mesh_Varyings {
     float4 position [[position]];
     float3 world_position;
+    float3 view_direction;
     float3 world_normal;
     float3 world_tangent;
     float3 world_bitangent;
@@ -109,6 +110,7 @@ vertex Mesh_Varyings mesh_vertex(Mesh_Vertex input [[stage_in]], constant View_U
     Mesh_Varyings output;
     output.position = clip_position(Per_View.view_projection * world);
     output.world_position = world.xyz;
+    output.view_direction = Per_View.camera_position.xyz - world.xyz;
     output.world_normal = transform_normal(model, input.normal);
     output.world_tangent = (model * float4(input.tangent, 0)).xyz;
     output.world_bitangent = (model * float4(input.bitangent, 0)).xyz;

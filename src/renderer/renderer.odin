@@ -8,6 +8,7 @@ import "core:mem"
 Error :: rhi.Error
 
 Renderer :: struct {
+	white_texture:           Texture,
 	flat_normal:             Texture,
 	shadow_texture:          rhi.Texture_Handle,
 	device:                  ^rhi.Device,
@@ -33,6 +34,7 @@ LIGHTING_BINDING :: 3
 @(private)
 Per_View :: struct {
 	view_projection: emath.Mat4,
+	camera_position: [4]f32,
 }
 
 create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
@@ -69,6 +71,16 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 		&renderer,
 		{width = 1, height = 1, format = .RGBA16F, label = "flat normal"},
 		mem.slice_to_bytes(flat_normal[:]),
+	)
+	if err != .None {
+		destroy(&renderer)
+		return
+	}
+
+	renderer.white_texture, err = create_texture(
+		&renderer,
+		{width = 1, height = 1, format = .RGBA8, label = "white"},
+		{255, 255, 255, 255},
 	)
 	if err != .None {
 		destroy(&renderer)
@@ -111,7 +123,12 @@ set_view :: proc(
 		return err
 	}
 
-	data := [1]Per_View{{view_projection = projection * camera.view_matrix(view)}}
+	data := [1]Per_View {
+		{
+			view_projection = projection * camera.view_matrix(view),
+			camera_position = {view.position.x, view.position.y, view.position.z, 1},
+		},
+	}
 	if err := rhi.update_buffer(
 		renderer.device,
 		renderer.view_uniforms,
@@ -219,6 +236,10 @@ draw_mesh_instances :: proc(
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
+	if err := destroy_texture(renderer, &renderer.white_texture); err != .None {
+		result = err
+	}
+
 	if err := destroy_texture(renderer, &renderer.flat_normal); err != .None {
 		result = err
 	}

@@ -6,9 +6,11 @@ layout(location = 7) in vec3 bitangent;
 
 layout(std140) uniform Per_View {
     mat4 view_projection;
+    vec4 camera_position;
 };
 
 out vec3 world_position;
+out vec3 view_direction;
 out vec3 world_normal;
 out vec3 world_tangent;
 out vec3 world_bitangent;
@@ -19,6 +21,7 @@ void main() {
     mat4 model = instance_model();
     vec4 world = model * vec4(position, 1.0);
     world_position = world.xyz;
+    view_direction = camera_position.xyz - world.xyz;
     gl_Position = view_projection * world;
     world_normal = transpose(inverse(mat3(model))) * normal;
     world_tangent = mat3(model) * tangent;

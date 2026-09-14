@@ -21,7 +21,8 @@ Lit_Parameters :: struct {
 	tint:           [4]f32,
 	emission:       f32,
 	use_normal_map: b32,
-	_padding:       [2]u32,
+	metallic:       f32,
+	roughness:      f32,
 }
 
 #assert(size_of(Lit_Parameters) == 32)
@@ -66,11 +67,15 @@ load_builtin_shader :: proc(
 				.MSL = {
 					vertex = {
 						entry_point = "mesh_vertex",
-						code = MSL_COMMON_SOURCE + #load("msl/lit.metal", string),
+						code = MSL_COMMON_SOURCE +
+						#load("msl/pbr.metal", string) +
+						#load("msl/lit.metal", string),
 					},
 					fragment = {
 						entry_point = "lit_fragment",
-						code = MSL_COMMON_SOURCE + #load("msl/lit.metal", string),
+						code = MSL_COMMON_SOURCE +
+						#load("msl/pbr.metal", string) +
+						#load("msl/lit.metal", string),
 					},
 				},
 				.GLSL = {
@@ -78,6 +83,7 @@ load_builtin_shader :: proc(
 					fragment = {
 						entry_point = "main",
 						code = GLSL_LIGHTING_SOURCE +
+						string(#load("glsl/pbr.glsl")) +
 						string(#load("glsl/normal.glsl")) +
 						string(#load("glsl/lit.frag")),
 					},
@@ -93,12 +99,14 @@ load_builtin_shader :: proc(
 					vertex = {
 						entry_point = "mesh_vertex",
 						code = MSL_COMMON_SOURCE +
+						#load("msl/pbr.metal", string) +
 						#load("msl/shadow.metal", string) +
 						#load("msl/lit_shadowed.metal", string),
 					},
 					fragment = {
 						entry_point = "lit_fragment",
 						code = MSL_COMMON_SOURCE +
+						#load("msl/pbr.metal", string) +
 						#load("msl/shadow.metal", string) +
 						#load("msl/lit_shadowed.metal", string),
 					},
@@ -109,6 +117,7 @@ load_builtin_shader :: proc(
 						entry_point = "main",
 						code = GLSL_LIGHTING_SOURCE +
 						string(#load("glsl/shadow.glsl")) +
+						string(#load("glsl/pbr.glsl")) +
 						string(#load("glsl/normal.glsl")) +
 						string(#load("glsl/lit_shadowed.frag")),
 					},

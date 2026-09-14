@@ -45,7 +45,18 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
-	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 464, lighting_controls) && ok
+	ok =
+		build_window(
+			game,
+			&game.lighting_window,
+			"LIGHTING",
+			3,
+			376,
+			shading_controls,
+			{"LIGHTS", "MATERIALS"},
+			&game.lighting_tab,
+		) &&
+		ok
 	return check_ui(ui.end(ctx)) && ok
 }
 
@@ -56,6 +67,8 @@ build_window :: proc(
 	scroll_index: int,
 	content_height: f32,
 	controls: proc(_: ^State, _: ^ui.Layout) -> bool,
+	tabs: []string = nil,
+	selected_tab: ^int = nil,
 ) -> bool {
 	ctx := &game.overlay.interface
 	body, visible, window_error := ui.begin_window(ctx, window, title)
@@ -65,6 +78,20 @@ build_window :: proc(
 
 	if !visible {
 		return true
+	}
+
+	if len(tabs) != 0 {
+		rect := ui.Rect{body.position, {body.size.x, 28}}
+		changed, err := ui.tabs(ctx, ui.id("tabs", window.id), rect, tabs, selected_tab)
+		if !check_ui(err) {
+			check_ui(ui.end_window(ctx))
+			return false
+		}
+		if changed {
+			game.ui_scroll[scroll_index] = {}
+		}
+		body.position.y += 36
+		body.size.y = max(body.size.y - 36, 0)
 	}
 
 	content, scroll_error := ui.begin_scroll(
@@ -317,14 +344,12 @@ bloom_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 
 lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 	ctx := &game.overlay.interface
-	previous_normal_mapping := game.normal_mapping
-	for control in ([3]struct {
+	for control in ([2]struct {
 			name, label: string,
 			value:       ^bool,
 		} {
 			{"directional-enabled", "DIRECTIONAL", &game.directional_enabled},
 			{"point-enabled", "POINT", &game.point_enabled},
-			{"normal-mapping", "NORMAL MAP", &game.normal_mapping},
 		}) {
 		rect, err := ui.next(column, 24)
 		if !check_ui(err) {
@@ -343,8 +368,7 @@ lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		}
 	}
 
-	previous_emission := game.emission
-	for control in ([4]struct {
+	for control in ([3]struct {
 			name, label: string,
 			value:       ^f32,
 			low, high:   f32,
@@ -352,7 +376,6 @@ lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 			{"light-intensity", "INTENSITY", &game.light_intensity, 0, 8},
 			{"light-azimuth", "AZIMUTH", &game.light_azimuth, -3.14, 3.14},
 			{"light-elevation", "ELEVATION", &game.light_elevation, -1.57, 1.57},
-			{"emission", "ORANGE EMISSION", &game.emission, 0, 8},
 		}) {
 		rect, err := ui.next(column, 48)
 		if !check_ui(err) {
@@ -412,25 +435,6 @@ lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		)
 		if !check_ui(control_error) {
 			return false
-		}
-	}
-
-	if game.emission != previous_emission || game.normal_mapping != previous_normal_mapping {
-		for color, i in MATERIAL_COLORS {
-			if !check(
-				render.update_material(
-					&game.renderer,
-					&game.materials[i],
-					render.Lit_Parameters {
-						tint = color,
-						emission = game.emission if i == 1 else 0,
-						use_normal_map = b32(game.normal_mapping),
-					},
-				),
-				"update materials",
-			) {
-				return false
-			}
 		}
 	}
 

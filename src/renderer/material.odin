@@ -153,6 +153,8 @@ create_lit_material :: proc(
 	parameters: Lit_Parameters,
 	albedo: Texture,
 	normal_map: Texture = {},
+	metallic_map: Texture = {},
+	roughness_map: Texture = {},
 ) -> (
 	Material,
 	Error,
@@ -162,10 +164,24 @@ create_lit_material :: proc(
 		normal = renderer.flat_normal
 	}
 
+	metal := metallic_map
+	if metal.handle.generation == 0 {
+		metal = renderer.white_texture
+	}
+	rough := roughness_map
+	if rough.handle.generation == 0 {
+		rough = renderer.white_texture
+	}
+
 	return create_material(
 		renderer,
 		shader,
 		parameters,
-		{{binding = 0, texture = albedo}, {binding = 1, texture = normal}},
+		{
+			{binding = 0, texture = albedo},
+			{binding = 1, texture = normal},
+			{binding = 2, texture = metal},
+			{binding = 3, texture = rough},
+		},
 	)
 }

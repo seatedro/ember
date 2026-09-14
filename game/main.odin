@@ -13,6 +13,10 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	metallic, roughness:                                       [2]f32,
+	material_map:                                              render.Texture,
+	property_maps:                                             bool,
+	lighting_tab:                                              int,
 	normal_map:                                                render.Texture,
 	normal_mapping:                                            bool,
 	shadow:                                                    render.Shadow_Map,
@@ -79,6 +83,9 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game^ = {
 		orbit = INITIAL_ORBIT,
 		batching = true,
+		metallic = {0, 1},
+		roughness = {0.65, 0.3},
+		lighting_tab = 1,
 		normal_mapping = true,
 		render_window = {
 			id = ui.id("render-window"),
@@ -109,7 +116,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		light_azimuth = 2.1,
 		light_elevation = 0.9,
 		light_intensity = 2.5,
-		emission = 2,
+		emission = 0,
 		bloom_enabled = true,
 		bloom_settings = {threshold = 1, softness = 0.5},
 		bloom_strength = 0.5,
@@ -156,7 +163,12 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			depth = {test_enabled = true, write_enabled = true, compare = .Less},
 			raster = {cull = .Back, winding = .CCW},
 		},
-		{{name = "albedo_texture", binding = 0}, {name = "normal_texture", binding = 1}},
+		{
+			{name = "albedo_texture", binding = 0},
+			{name = "normal_texture", binding = 1},
+			{name = "metallic_texture", binding = 2},
+			{name = "roughness_texture", binding = 3},
+		},
 		lighting = true,
 		shadows = true,
 	)
@@ -178,15 +190,20 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	for color, i in MATERIAL_COLORS {
+	game.material_map, err = render.create_texture(
+		&game.renderer,
+		{width = 2, height = 2, format = .RGBA8, filter = .Nearest, label = "material properties"},
+		{0, 255, 255, 255, 0, 64, 0, 255, 0, 64, 0, 255, 0, 255, 255, 255},
+	)
+	if !check(err, "create material map") {
+		return false
+	}
+
+	for i in 0 ..< len(game.materials) {
 		game.materials[i], err = render.create_lit_material(
 			&game.renderer,
 			shader,
-			render.Lit_Parameters {
-				tint = color,
-				emission = game.emission if i == 1 else 0,
-				use_normal_map = b32(game.normal_mapping),
-			},
+			material_parameters(game, i),
 			game.texture,
 			game.normal_map,
 		)
@@ -213,7 +230,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game.ground_material, err = render.create_lit_material(
 		&game.renderer,
 		shader,
-		render.Lit_Parameters{tint = {0.25, 0.28, 0.32, 1}},
+		render.Lit_Parameters{tint = {0.25, 0.28, 0.32, 1}, roughness = 0.9},
 		game.texture,
 	)
 	if !check(err, "create ground material") {
@@ -238,7 +255,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
-	game.target, err = common.create_pixel_target(&game.renderer, &game.shaders)
+	game.target, err = common.create_pixel_target(&game.renderer, &game.shaders, {1280, 720}, 1)
 	if !check(err, "create pixel target") {
 		return false
 	}
@@ -447,7 +464,10 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			&game.renderer,
 			&game.presentation,
 			game.target.pixels.color,
-			render.pixel_viewport(common.RESOLUTION, {app.width, app.height}),
+			render.pixel_viewport(
+				{game.target.pixels.width, game.target.pixels.height},
+				{app.width, app.height},
+			),
 			{
 				exposure = game.exposure,
 				tone_mapping = render.Tone_Mapping(game.tone_mapping),
@@ -482,6 +502,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
 	}
 
+	check(render.destroy_texture(&game.renderer, &game.material_map), "destroy material map")
 	check(render.destroy_texture(&game.renderer, &game.normal_map), "destroy normal map")
 	check(render.destroy_texture(&game.renderer, &game.texture), "destroy texture")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
