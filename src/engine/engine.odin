@@ -21,6 +21,7 @@ Config :: struct {
 }
 
 Context :: struct {
+	cursor:        input.Cursor,
 	device:        ^rhi.Device,
 	width, height: i32,
 	window_size:   [2]i32,
@@ -140,6 +141,7 @@ run :: proc(config: Config) -> (result: Error) {
 		last_time = now
 		app.delta_time = f32(dt)
 		app.elapsed_time += dt
+		app.cursor = .Arrow
 		run_updates(config, &app, dt, &accumulator)
 		if !app.running {
 			break
@@ -164,6 +166,7 @@ run :: proc(config: Config) -> (result: Error) {
 			return .Draw_Failed
 		}
 
+		win.set_cursor(&window, app.cursor)
 		app.frame_count += 1
 	}
 	return .None

@@ -16,6 +16,8 @@ Config :: struct {
 }
 
 Window :: struct {
+	cursor:              input.Cursor,
+	cursors:             [input.Cursor]glfw.CursorHandle,
 	handle:              glfw.WindowHandle,
 	vsync:               bool,
 	width:               i32,
@@ -88,6 +90,12 @@ create :: proc(window: ^Window, config: Config) -> bool {
 }
 
 destroy :: proc(window: ^Window) {
+	for cursor in window.cursors {
+		if cursor != nil {
+			glfw.DestroyCursor(cursor)
+		}
+	}
+
 	input.destroy(&window.input)
 	if window.handle != nil {
 		glfw.DestroyWindow(window.handle)

@@ -13,6 +13,11 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	ui_layout_path:                                               string,
+	saved_ui_layout:                                              []u8,
+	next_ui_save:                                                 f64,
+	reset_ui_layout:                                              bool,
+	default_windows:                                              [4]ui.Window,
 	environment:                                                  render.Environment,
 	environment_capture:                                          render.Render_Target,
 	environment_pipeline:                                         render.Pipeline,
@@ -141,6 +146,8 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	if !common.init_overlay(&game.overlay, app) {
 		return false
 	}
+	game.overlay.interface.docking_enabled = true
+	init_ui_layout(game)
 
 	note_error: ui.Error
 	game.note, note_error = ui.create_text_edit("Hello, world!")
@@ -522,6 +529,9 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 
 quit :: proc(app: ^engine.Context, userdata: rawptr) {
 	game := cast(^State)userdata
+	save_ui_layout(game)
+	delete(game.ui_layout_path)
+	delete(game.saved_ui_layout)
 	quit_environment(game)
 	check(render.destroy_shadow_map(&game.renderer, &game.shadow), "destroy shadow map")
 	check(

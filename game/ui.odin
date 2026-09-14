@@ -9,6 +9,9 @@ import "ember:ui"
 
 build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ctx := &game.overlay.interface
+	if input.pressed(app.input, .F5) || game.reset_ui_layout {
+		reset_ui_layout(game)
+	}
 	if input.pressed(app.input, .F1) {
 		game.render_window.open = !game.render_window.open
 	}
@@ -26,12 +29,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		game.lighting_window.open = !game.lighting_window.open
 	}
 
-	windows := [4]^ui.Window {
-		&game.render_window,
-		&game.camera_window,
-		&game.bloom_window,
-		&game.lighting_window,
-	}
+	windows := ui_windows(game)
 	if !check_ui(ui.begin(ctx, app.input^, size, size, windows[:])) {
 		return false
 	}
@@ -42,7 +40,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		title = fmt.bprintf(buffer[:], "RENDER  FPS %3.0f", game.overlay.fps)
 	}
 
-	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
+	ok := build_window(game, &game.render_window, title, 0, 376, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
 	ok =
@@ -57,7 +55,12 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 			&game.lighting_tab,
 		) &&
 		ok
-	return check_ui(ui.end(ctx)) && ok
+	ok = check_ui(ui.end(ctx)) && ok
+	if app.elapsed_time >= game.next_ui_save {
+		save_ui_layout(game)
+		game.next_ui_save = app.elapsed_time + 1
+	}
+	return ok
 }
 
 build_window :: proc(
@@ -209,6 +212,20 @@ render_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 	}
 
 	_, control_error = ui.text_field(ctx, ui.id("note"), rect, &game.note)
+	if !check_ui(control_error) {
+		return false
+	}
+
+	rect, err = ui.next(column, 28)
+	if !check_ui(err) {
+		return false
+	}
+	game.reset_ui_layout, control_error = ui.button(
+		ctx,
+		ui.id("reset-layout"),
+		rect,
+		"RESET LAYOUT (F5)",
+	)
 	if !check_ui(control_error) {
 		return false
 	}

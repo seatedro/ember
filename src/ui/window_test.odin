@@ -198,3 +198,72 @@ test_window_collapse_reopen_and_removal :: proc(t: ^testing.T) {
 	testing.expect(t, len(ctx.windows) == 0 && len(ctx.window_order) == 0)
 	testing.expect_value(t, ctx.focus_window, ID(0))
 }
+
+@(test)
+test_control_drag_owns_controls_and_moves_tab_groups :: proc(t: ^testing.T) {
+	font := control_test_font()
+	defer delete(font.glyphs)
+	ctx := create()
+	defer destroy(&ctx)
+	toolkit_style(&ctx, &font)
+	ctx.docking_enabled = true
+	a := Window {
+		id     = id("a"),
+		bounds = {{100, 100}, {240, 200}},
+		open   = true,
+	}
+	b := Window {
+		id     = id("b"),
+		bounds = {{500, 300}, {240, 200}},
+		open   = true,
+	}
+	windows := [2]^Window{&a, &b}
+	state: input.State
+	input.init(&state, true, {130, 145})
+	input.record_key(&state, .Left_Control, true)
+	input.record_mouse_button(&state, .Left, true)
+	clicked := window_frame(t, &ctx, state, windows[:])
+	testing.expect(t, !clicked[0] && ctx.active == 0 && ctx.capture.mouse)
+	input.clear(&state)
+	input.record_key(&state, .Left_Control, false)
+	input.record_cursor(&state, {230, 245})
+	input.record_mouse_button(&state, .Left, false)
+	clicked = window_frame(t, &ctx, state, windows[:])
+	testing.expect(t, !clicked[0] && ctx.capture.mouse)
+	testing.expect_value(t, a.bounds, Rect{{200, 200}, {240, 200}})
+
+	input.clear(&state)
+	input.record_key(&state, .Right_Control, true)
+	input.record_mouse_button(&state, .Left, true)
+	input.record_mouse_button(&state, .Left, false)
+	clicked = window_frame(t, &ctx, state, windows[:])
+	testing.expect(t, !clicked[0] && ctx.active == 0)
+	testing.expect(t, dock_window(&ctx, &b, a.id) == .None)
+	input.clear(&state)
+	input.record_cursor(&state, {200, 300})
+	input.record_mouse_button(&state, .Left, true)
+	window_frame(t, &ctx, state, windows[:])
+	input.clear(&state)
+	input.record_cursor(&state, {240, 340})
+	input.record_mouse_button(&state, .Left, false)
+	window_frame(t, &ctx, state, windows[:])
+	testing.expect_value(t, a.bounds, Rect{{240, 240}, {240, 200}})
+	testing.expect_value(t, a.bounds, b.bounds)
+	testing.expect(t, a.dock_node == b.dock_node && dock_node(&ctx, a.dock_node).active == b.id)
+
+	testing.expect(t, dock_window(&ctx, &a, side = .Left) == .None)
+	testing.expect(t, dock_window(&ctx, &b, a.id) == .None)
+	b.open = false
+	input.clear(&state)
+	input.record_cursor(&state, {40, 45})
+	input.record_mouse_button(&state, .Left, true)
+	window_frame(t, &ctx, state, windows[:])
+	input.clear(&state)
+	input.record_cursor(&state, {500, 200})
+	input.record_mouse_button(&state, .Left, false)
+	clicked = window_frame(t, &ctx, state, windows[:])
+	testing.expect(t, !clicked[0] && ctx.capture.mouse && !layout_busy(&ctx))
+	testing.expect(t, a.dock_node == b.dock_node && dock_root(&ctx, a.dock_node) != ctx.dock_root)
+	testing.expect_value(t, a.bounds.position, [2]f32{460, 155})
+	testing.expect(t, !b.open && dock_node(&ctx, a.dock_node).active == a.id)
+}

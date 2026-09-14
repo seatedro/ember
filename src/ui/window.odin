@@ -2,8 +2,11 @@ package ui
 
 import "../draw2d"
 import "../input"
+import "core:strings"
 
 Window :: struct {
+	dock_node:       u32,
+	floating_bounds: Rect,
 	id:              ID,
 	bounds:          Rect,
 	minimum_size:    [2]f32,
@@ -12,6 +15,7 @@ Window :: struct {
 
 @(private)
 Window_Record :: struct {
+	title:     string,
 	state:     ^Window,
 	draws:     draw2d.List,
 	submitted: bool,
@@ -30,10 +34,14 @@ Window_Edges :: bit_set[Window_Edge;u8]
 
 @(private)
 Window_Drag :: struct {
-	window:  ID,
-	bounds:  Rect,
-	pointer: [2]f64,
-	edges:   Window_Edges,
+	pending_undock: bool,
+	grab_offset:    [2]f32,
+	moved:          bool,
+	group:          u32,
+	window:         ID,
+	bounds:         Rect,
+	pointer:        [2]f64,
+	edges:          Window_Edges,
 }
 
 begin_window :: proc(ctx: ^Context, window: ^Window, title: string) -> (Rect, bool, Error) {
@@ -54,6 +62,14 @@ begin_window :: proc(ctx: ^Context, window: ^Window, title: string) -> (Rect, bo
 		return {}, false, .Invalid_Frame
 	}
 
+	if record.title != title {
+		delete(record.title, ctx.window_order.allocator)
+		record.title = strings.clone(title, ctx.window_order.allocator)
+		ctx.windows[window.id] = record
+	}
+	if window_docked(ctx, window) && dock_node(ctx, window.dock_node).active != window.id {
+		return {}, false, .None
+	}
 	if !window.open {
 		return {}, false, .None
 	}
@@ -73,99 +89,119 @@ begin_window :: proc(ctx: ^Context, window: ^Window, title: string) -> (Rect, bo
 	}
 
 	header_height := window_header_height(ctx)
-	button_width := ctx.style.font_size + ctx.style.padding.x * 2 + ctx.style.border_width * 2
-	header := Rect{window.bounds.position, {window.bounds.size.x, header_height}}
-	collapse_rect := Rect{header.position, {button_width, header_height}}
-	close_rect := Rect {
-		header.position + [2]f32{header.size.x - button_width, 0},
-		{button_width, header_height},
-	}
-	collapse, err := interact(ctx, id("collapse", window.id), collapse_rect)
-	if err != .None {
-		return {}, false, err
-	}
-
-	close, close_error := interact(ctx, id("close", window.id), close_rect)
-	if close_error != .None {
-		return {}, false, close_error
-	}
-
-	if close.clicked {
-		window.open = false
-		return {}, false, .None
-	}
-
-	if collapse.clicked {
-		window.collapsed = !window.collapsed
-	}
-
 	bounds := window_visible_bounds(ctx, window)
-	if err = region(ctx, bounds); err != .None {
-		return {}, false, err
-	}
-
-	focused := ctx.focus_window == window.id
-	if err = control_frame(ctx, bounds, {focused = focused}, true); err != .None {
-		return {}, false, err
-	}
-
-	if focused {
-		if err = draw_error(
-			draw2d.rectangle(
-				&ctx.draws,
-				inset_rect(header, {ctx.style.border_width, ctx.style.border_width}),
-				ctx.style.hover,
-			),
-		); err != .None {
+	err: Error
+	if window_docked(ctx, window) {
+		if err = region(ctx, bounds); err != .None {
 			return {}, false, err
 		}
-	}
+		if err = control_frame(ctx, bounds, {focused = ctx.focus_window == window.id}, true);
+		   err != .None {
+			return {}, false, err
+		}
+		if err = draw_dock_header(ctx, window); err != .None {
+			return {}, false, err
+		}
+		if !window.open {
+			return {}, false, .None
+		}
+	} else {
+		button_width := ctx.style.font_size + ctx.style.padding.x * 2 + ctx.style.border_width * 2
+		header := Rect{window.bounds.position, {window.bounds.size.x, header_height}}
+		collapse_rect := Rect{header.position, {button_width, header_height}}
+		close_rect := Rect {
+			header.position + [2]f32{header.size.x - button_width, 0},
+			{button_width, header_height},
+		}
+		collapse, err := interact(ctx, id("collapse", window.id), collapse_rect)
+		if err != .None {
+			return {}, false, err
+		}
 
-	if err = control_text(ctx, collapse_rect, "+" if window.collapsed else "-", true);
-	   err != .None {
-		return {}, false, err
-	}
+		close, close_error := interact(ctx, id("close", window.id), close_rect)
+		if close_error != .None {
+			return {}, false, close_error
+		}
 
-	if err = control_text(ctx, close_rect, "x", true); err != .None {
-		return {}, false, err
-	}
+		if close.clicked {
+			window.open = false
+			return {}, false, .None
+		}
 
-	for interaction, i in ([2]Interaction{collapse, close}) {
-		if interaction.hovered || interaction.focused {
-			rect := collapse_rect if i == 0 else close_rect
-			line := Rect {
-				rect.position +
-				[2]f32{ctx.style.padding.x, rect.size.y - ctx.style.border_width * 3},
-				{max(rect.size.x - ctx.style.padding.x * 2, 0), ctx.style.border_width},
+		if collapse.clicked {
+			window.collapsed = !window.collapsed
+		}
+
+		bounds = window_visible_bounds(ctx, window)
+		if err = region(ctx, bounds); err != .None {
+			return {}, false, err
+		}
+
+		focused := ctx.focus_window == window.id
+		if err = control_frame(ctx, bounds, {focused = focused}, true); err != .None {
+			return {}, false, err
+		}
+
+		if focused {
+			if err = draw_error(
+				draw2d.rectangle(
+					&ctx.draws,
+					inset_rect(header, {ctx.style.border_width, ctx.style.border_width}),
+					ctx.style.hover,
+				),
+			); err != .None {
+				return {}, false, err
 			}
-			if err = draw_error(draw2d.rectangle(&ctx.draws, line, ctx.style.focus));
+		}
+
+		if err = control_text(ctx, collapse_rect, "+" if window.collapsed else "-", true);
+		   err != .None {
+			return {}, false, err
+		}
+
+		if err = control_text(ctx, close_rect, "x", true); err != .None {
+			return {}, false, err
+		}
+
+		for interaction, i in ([2]Interaction{collapse, close}) {
+			if interaction.hovered || interaction.focused {
+				rect := collapse_rect if i == 0 else close_rect
+				line := Rect {
+					rect.position +
+					[2]f32{ctx.style.padding.x, rect.size.y - ctx.style.border_width * 3},
+					{max(rect.size.x - ctx.style.padding.x * 2, 0), ctx.style.border_width},
+				}
+				if err = draw_error(draw2d.rectangle(&ctx.draws, line, ctx.style.focus));
+				   err != .None {
+					return {}, false, err
+				}
+			}
+		}
+
+		title_rect := Rect {
+			header.position + [2]f32{button_width, 0},
+			{header.size.x - button_width * 2, header_height},
+		}
+		if err = control_text(ctx, title_rect, title, true); err != .None {
+			return {}, false, err
+		}
+
+		if window.collapsed {
+			return {}, false, .None
+		}
+
+		for i in 0 ..< 2 {
+			length := f32(4 + i * 4)
+			grip := Rect {
+				bounds.position + bounds.size - [2]f32{length + 3, 5 + f32(i * 4)},
+				{length, 2},
+			}
+			if err = draw_error(draw2d.rectangle(&ctx.draws, grip, ctx.style.border));
 			   err != .None {
 				return {}, false, err
 			}
 		}
-	}
 
-	title_rect := Rect {
-		header.position + [2]f32{button_width, 0},
-		{header.size.x - button_width * 2, header_height},
-	}
-	if err = control_text(ctx, title_rect, title, true); err != .None {
-		return {}, false, err
-	}
-
-	if window.collapsed {
-		return {}, false, .None
-	}
-
-	for i in 0 ..< 2 {
-		length := f32(4 + i * 4)
-		grip := Rect {
-			bounds.position + bounds.size - [2]f32{length + 3, 5 + f32(i * 4)},
-			{length, 2},
-		}
-		if err = draw_error(draw2d.rectangle(&ctx.draws, grip, ctx.style.border)); err != .None {
-			return {}, false, err
-		}
 	}
 
 	body := Rect {
@@ -248,6 +284,7 @@ prepare_windows :: proc(ctx: ^Context, windows: []^Window) -> Error {
 			new_window = window.id if window.open else new_window
 			record.draws = draw2d.create_list(ctx.window_order.allocator)
 			if _, err := append(&ctx.window_order, window.id); err != nil {
+				delete(record.title, ctx.window_order.allocator)
 				draw2d.destroy_list(&record.draws)
 				return .Allocation_Failed
 			}
@@ -271,12 +308,35 @@ prepare_windows :: proc(ctx: ^Context, windows: []^Window) -> Error {
 		id := ctx.window_order[i]
 		record := ctx.windows[id]
 		if record.state == nil {
+			delete(record.title, ctx.window_order.allocator)
 			draw2d.destroy_list(&record.draws)
 			delete_key(&ctx.windows, id)
 			copy(ctx.window_order[i:], ctx.window_order[i + 1:])
 			pop(&ctx.window_order)
 		}
 	}
+
+	for &node, i in ctx.dock_nodes {
+		if !node.alive || node.children[0] != 0 {
+			continue
+		}
+		for j := len(node.windows) - 1; j >= 0; j -= 1 {
+			if !(node.windows[j] in ctx.windows) {
+				copy(node.windows[j:], node.windows[j + 1:])
+				pop(&node.windows)
+			}
+		}
+		if len(node.windows) == 0 && !node.central {
+			remove_dock_branch(ctx, u32(i + 1))
+			node.alive = false
+		}
+	}
+
+	for id in ctx.restored_order {
+		raise_window(ctx, id)
+	}
+	clear(&ctx.restored_order)
+	layout_docks(ctx)
 
 	previous_focus := ctx.focus_window
 	if ctx.focus_window != 0 && !window_open(ctx, ctx.focus_window) {
@@ -293,6 +353,12 @@ prepare_windows :: proc(ctx: ^Context, windows: []^Window) -> Error {
 		ctx.focus_window = new_window
 	}
 
+	if window_open(ctx, ctx.focus_window) {
+		window := ctx.windows[ctx.focus_window].state
+		if window_docked(ctx, window) {
+			ctx.focus_window = dock_node(ctx, window.dock_node).active
+		}
+	}
 	if ctx.focus_window != previous_focus {
 		ctx.focus = 0
 		clear(&ctx.previous_order)
@@ -314,7 +380,47 @@ update_window_input :: proc(ctx: ^Context) {
 		return
 	}
 
-	if input.mouse_pressed(&ctx.raw_input, .Left) && !ctx.mouse_blocked && ctx.popup == 0 {
+	control :=
+		input.down(&ctx.raw_input, .Left_Control) || input.down(&ctx.raw_input, .Right_Control)
+	move_anywhere := false
+	if control &&
+	   input.mouse_pressed(&ctx.raw_input, .Left) &&
+	   ctx.window_drag.window == 0 &&
+	   ctx.dock_drag.node == 0 {
+		pressed := window_at(ctx, ctx.press_pointer)
+		if pressed != 0 {
+			window := ctx.windows[pressed].state
+			ctx.window_drag = {
+				window      = pressed,
+				bounds      = window.bounds,
+				pointer     = ctx.press_pointer,
+				grab_offset = {
+					f32(ctx.press_pointer.x) - window.bounds.position.x,
+					f32(ctx.press_pointer.y) - window.bounds.position.y,
+				},
+			}
+			if window_docked(ctx, window) {
+				node := dock_node(ctx, window.dock_node)
+				ctx.window_drag.group = window.dock_node
+				ctx.window_drag.pending_undock = node.parent != 0 || node.central
+			}
+			ctx.focus_window, ctx.focus, ctx.active = pressed, 0, 0
+			ctx.popup, ctx.popup_window = 0, 0
+			clear(&ctx.previous_order)
+			ctx.mouse_owned[.Left] = true
+			raise_window(ctx, pressed)
+			move_anywhere = true
+		}
+	}
+	dock_input := move_anywhere || update_dock_input(ctx)
+	if dock_input && ctx.window_drag.window == 0 {
+		ctx.hover_window = window_at(ctx, ctx.pointer)
+		return
+	}
+	if !dock_input &&
+	   input.mouse_pressed(&ctx.raw_input, .Left) &&
+	   !ctx.mouse_blocked &&
+	   ctx.popup == 0 {
 		pressed_window := window_at(ctx, ctx.press_pointer)
 		if ctx.focus_window != pressed_window {
 			ctx.focus_window = pressed_window
@@ -335,8 +441,17 @@ update_window_input :: proc(ctx: ^Context) {
 				header.position + [2]f32{button_width, 0},
 				{header.size.x - button_width * 2, header.size.y},
 			}
-			if edges != {} || contains(title, ctx.press_pointer) {
-				ctx.window_drag = {window.id, window.bounds, ctx.press_pointer, edges}
+			if edges != {} || (!window_docked(ctx, window) && contains(title, ctx.press_pointer)) {
+				ctx.window_drag = {
+					window  = window.id,
+					bounds  = window.bounds,
+					pointer = ctx.press_pointer,
+					edges   = edges,
+				}
+				if window_docked(ctx, window) {
+					ctx.window_drag.group = dock_root(ctx, window.dock_node)
+					ctx.window_drag.bounds = dock_node(ctx, ctx.window_drag.group).bounds
+				}
 				ctx.active = 0
 				ctx.mouse_owned[.Left] = true
 			}
@@ -352,9 +467,53 @@ update_window_input :: proc(ctx: ^Context) {
 				f32(ctx.pointer.x - ctx.window_drag.pointer.x),
 				f32(ctx.pointer.y - ctx.window_drag.pointer.y),
 			}
+			ctx.window_drag.moved = ctx.window_drag.moved || abs(delta.x) + abs(delta.y) >= 6
+			if ctx.window_drag.pending_undock {
+				node := dock_node(ctx, window.dock_node)
+				header := Rect {
+					node.bounds.position,
+					{node.bounds.size.x, window_header_height(ctx)},
+				}
+				if ctx.window_drag.group == 0 && contains(header, ctx.pointer) {
+					reorder_dock_tab(ctx, node, window.id)
+				} else if abs(delta.x) + abs(delta.y) >= 6 {
+					if ctx.window_drag.group != 0 {
+						detach_dock_group(ctx, ctx.window_drag.group)
+						group := dock_node(ctx, ctx.window_drag.group)
+						offset := ctx.window_drag.grab_offset
+						for axis in 0 ..< 2 {
+							offset[axis] = clamp(
+								offset[axis],
+								0,
+								max(group.bounds.size[axis] - window_resize_margin(ctx), 0),
+							)
+						}
+						group.bounds.position = {
+							f32(ctx.pointer.x) - offset.x,
+							f32(ctx.pointer.y) - offset.y,
+						}
+						layout_docks(ctx)
+					} else {
+						undock_window(ctx, window)
+						window.bounds.position = {
+							f32(ctx.pointer.x) - window.bounds.size.x * 0.5,
+							f32(ctx.pointer.y) - window_header_height(ctx) * 0.5,
+						}
+					}
+					ctx.window_drag.bounds = window.bounds
+					ctx.window_drag.pointer = ctx.pointer
+					ctx.window_drag.pending_undock = false
+					ctx.focus_window = window.id
+					raise_window(ctx, window.id)
+				}
+				delta = {}
+			}
 			bounds := ctx.window_drag.bounds
 			edges := ctx.window_drag.edges
 			minimum := window_minimum_size(ctx, window)
+			if ctx.window_drag.group != 0 {
+				minimum = dock_minimum(ctx, ctx.window_drag.group)
+			}
 			if edges == {} {
 				bounds.position += delta
 			} else {
@@ -373,8 +532,21 @@ update_window_input :: proc(ctx: ^Context) {
 					}
 				}
 			}
-			window.bounds = bounds
-			keep_window_reachable(ctx, window)
+			if !ctx.window_drag.pending_undock {
+				if ctx.window_drag.group != 0 {
+					dock_node(ctx, ctx.window_drag.group).bounds = bounds
+					layout_docks(ctx)
+				} else {
+					window.bounds = bounds
+				}
+			}
+			if !window_docked(ctx, window) {
+				keep_window_reachable(ctx, window)
+			}
+			ctx.dock_target = {}
+			if edges == {} && !ctx.window_drag.pending_undock && ctx.window_drag.moved {
+				ctx.dock_target = find_dock_target(ctx, window.id)
+			}
 			ctx.pointer_over = true
 			ctx.mouse_owned[.Left] = true
 		} else {
@@ -383,8 +555,33 @@ update_window_input :: proc(ctx: ^Context) {
 	}
 
 	ctx.hover_window = window_at(ctx, ctx.pointer)
+	if ctx.window_drag.window != 0 {
+		ctx.cursor = resize_cursor(ctx.window_drag.edges)
+	} else if ctx.hover_window != 0 && ctx.popup == 0 && ctx.active == 0 {
+		ctx.cursor = resize_cursor(
+			window_edges(ctx, ctx.windows[ctx.hover_window].state, ctx.pointer),
+		)
+		if control {
+			ctx.cursor = .Move
+		} else if ctx.cursor == .Move {
+			ctx.cursor = .Arrow
+		}
+	}
 
 	if input.mouse_released(&ctx.raw_input, .Left) && ctx.window_drag.window != 0 {
+		if ctx.dock_target.node != 0 || ctx.dock_target.window != 0 {
+			if ctx.window_drag.group != 0 {
+				dock_group(ctx, ctx.window_drag.group, ctx.dock_target)
+			} else {
+				dock_window(
+					ctx,
+					ctx.windows[ctx.window_drag.window].state,
+					ctx.dock_target.window,
+					ctx.dock_target.side,
+				)
+			}
+		}
+		ctx.dock_target = {}
 		ctx.window_drag = {}
 		ctx.mouse_blocked = true
 	}
@@ -392,23 +589,51 @@ update_window_input :: proc(ctx: ^Context) {
 
 @(private)
 window_at :: proc(ctx: ^Context, pointer: [2]f64) -> ID {
-	for i := len(ctx.window_order) - 1; i >= 0; i -= 1 {
-		id := ctx.window_order[i]
-		if window_open(ctx, id) {
-			bounds := window_visible_bounds(ctx, ctx.windows[id].state)
-			margin := window_resize_margin(ctx)
-			if contains(
-				{
-					bounds.position - [2]f32{margin, margin},
-					bounds.size + [2]f32{margin * 2, margin * 2},
-				},
-				pointer,
-			) {
-				return id
+	for layer := 1; layer >= 0; layer -= 1 {
+		for i := len(ctx.window_order) - 1; i >= 0; i -= 1 {
+			id := ctx.window_order[i]
+			if window_layer(ctx, ctx.windows[id].state) != layer {
+				continue
+			}
+			if window_open(ctx, id) {
+				window := ctx.windows[id].state
+				if window_docked(ctx, window) && dock_node(ctx, window.dock_node).active != id {
+					continue
+				}
+				if layer == 1 && window_docked(ctx, window) {
+					root := dock_root(ctx, window.dock_node)
+					if window_edges(ctx, window, pointer) != {} {
+						return id
+					}
+					if contains(dock_node(ctx, root).bounds, pointer) {
+						for node, i in ctx.dock_nodes {
+							if node.alive &&
+							   node.children[0] == 0 &&
+							   dock_root(ctx, u32(i + 1)) == root &&
+							   window_open(ctx, node.active) &&
+							   contains(node.bounds, pointer) {
+								return node.active
+							}
+						}
+						return 0
+					}
+				}
+				bounds := window_visible_bounds(ctx, ctx.windows[id].state)
+				margin := 0 if window_docked(ctx, window) else window_resize_margin(ctx)
+				if window_edges(ctx, window, pointer) != {} ||
+				   contains(
+					   {
+						   bounds.position - [2]f32{margin, margin},
+						   bounds.size + [2]f32{margin * 2, margin * 2},
+					   },
+					   pointer,
+				   ) {
+					return id
+				}
 			}
 		}
-	}
 
+	}
 	return 0
 }
 
@@ -419,7 +644,20 @@ window_edges :: proc(ctx: ^Context, window: ^Window, pointer: [2]f64) -> Window_
 	}
 
 	bounds := window.bounds
+	if window_docked(ctx, window) {
+		root := dock_root(ctx, window.dock_node)
+		if root == ctx.dock_root {
+			return {}
+		}
+		bounds = dock_node(ctx, root).bounds
+	}
 	margin := window_resize_margin(ctx)
+	if !contains(
+		{bounds.position - [2]f32{margin, margin}, bounds.size + [2]f32{margin * 2, margin * 2}},
+		pointer,
+	) {
+		return {}
+	}
 	edges: Window_Edges
 	if abs(pointer.x - f64(bounds.position.x)) <= f64(margin) {
 		edges += {.Left}
@@ -438,6 +676,27 @@ window_edges :: proc(ctx: ^Context, window: ^Window, pointer: [2]f64) -> Window_
 
 @(private)
 raise_window :: proc(ctx: ^Context, id: ID) {
+	record, exists := ctx.windows[id]
+	if !exists {
+		return
+	}
+	if window_docked(ctx, record.state) {
+		root := dock_root(ctx, record.state.dock_node)
+		if root != ctx.dock_root {
+			for node, i in ctx.dock_nodes {
+				if node.alive && dock_root(ctx, u32(i + 1)) == root {
+					for member in node.windows {
+						raise_window_id(ctx, member)
+					}
+				}
+			}
+		}
+	}
+	raise_window_id(ctx, id)
+}
+
+@(private)
+raise_window_id :: proc(ctx: ^Context, id: ID) {
 	for value, i in ctx.window_order {
 		if value == id {
 			copy(ctx.window_order[i:], ctx.window_order[i + 1:])
@@ -456,7 +715,7 @@ window_open :: proc(ctx: ^Context, id: ID) -> bool {
 @(private)
 window_visible_bounds :: proc(ctx: ^Context, window: ^Window) -> Rect {
 	bounds := window.bounds
-	if window.collapsed {
+	if window.collapsed && !window_docked(ctx, window) {
 		bounds.size.y = window_header_height(ctx)
 	}
 
@@ -470,7 +729,7 @@ window_header_height :: proc(ctx: ^Context) -> f32 {
 
 @(private)
 window_resize_margin :: proc(ctx: ^Context) -> f32 {
-	return max(ctx.style.border_width, 4)
+	return max(ctx.style.border_width * 2, 6)
 }
 
 @(private)
@@ -499,14 +758,68 @@ keep_window_reachable :: proc(ctx: ^Context, window: ^Window) {
 
 @(private)
 compose_windows :: proc(ctx: ^Context) -> Error {
-	for id in ctx.window_order {
-		record := ctx.windows[id]
-		if record.submitted && record.state.open {
-			if err := draw_error(draw2d.append_list(&ctx.draws, &record.draws)); err != .None {
+	for layer in 0 ..< 2 {
+		for id, i in ctx.window_order {
+			record := ctx.windows[id]
+			if window_layer(ctx, record.state) != layer {
+				continue
+			}
+			if layer == 1 && window_docked(ctx, record.state) {
+				root := dock_root(ctx, record.state.dock_node)
+				later := false
+				for next in ctx.window_order[i + 1:] {
+					later = later || dock_root(ctx, ctx.windows[next].state.dock_node) == root
+				}
+				if later {
+					continue
+				}
+				if err := compose_docks(ctx, root); err != .None {
+					return err
+				}
+				for member in ctx.window_order {
+					if dock_root(ctx, ctx.windows[member].state.dock_node) == root {
+						if err := compose_window(ctx, member); err != .None {
+							return err
+						}
+					}
+				}
+			} else if err := compose_window(ctx, id); err != .None {
 				return err
 			}
 		}
 	}
-
 	return .None
+}
+
+@(private)
+compose_window :: proc(ctx: ^Context, id: ID) -> Error {
+	record := ctx.windows[id]
+	if record.submitted && record.state.open {
+		return draw_error(draw2d.append_list(&ctx.draws, &record.draws))
+	}
+	return .None
+}
+
+@(private)
+resize_cursor :: proc(edges: Window_Edges) -> input.Cursor {
+	if (.Left in edges && .Top in edges) || (.Right in edges && .Bottom in edges) {
+		return .Resize_NW_SE
+	}
+	if (.Left in edges && .Bottom in edges) || (.Right in edges && .Top in edges) {
+		return .Resize_NE_SW
+	}
+	if .Left in edges || .Right in edges {
+		return .Resize_Horizontal
+	}
+	if .Top in edges || .Bottom in edges {
+		return .Resize_Vertical
+	}
+	return .Move
+}
+
+@(private)
+window_layer :: proc(ctx: ^Context, window: ^Window) -> int {
+	return(
+		0 if window_docked(ctx, window) && dock_root(ctx, window.dock_node) == ctx.dock_root else 1 \
+	)
 }

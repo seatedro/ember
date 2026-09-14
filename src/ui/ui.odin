@@ -28,6 +28,13 @@ Capture :: struct {
 }
 
 Context :: struct {
+	docking_enabled:                                          bool,
+	restored_order:                                           [dynamic]ID,
+	dock_nodes:                                               [dynamic]Dock_Node,
+	dock_root:                                                u32,
+	dock_drag:                                                Dock_Drag,
+	dock_target:                                              Dock_Target,
+	cursor:                                                   input.Cursor,
 	windows:                                                  map[ID]Window_Record,
 	window_order:                                             [dynamic]ID,
 	current_window, hover_window, focus_window, popup_window: ID,
@@ -63,6 +70,8 @@ Context :: struct {
 create :: proc(allocator := context.allocator) -> Context {
 	return {
 		windows = make(map[ID]Window_Record, allocator),
+		dock_nodes = make([dynamic]Dock_Node, allocator),
+		restored_order = make([dynamic]ID, allocator),
 		window_order = make([dynamic]ID, allocator),
 		draws = draw2d.create_list(allocator),
 		overlays = draw2d.create_list(allocator),
@@ -118,6 +127,7 @@ begin :: proc(
 	ctx.press_pointer =
 		state.mouse_press_position[.Left] *
 		[2]f64{f64(size.x) / f64(input_size.x), f64(size.y) / f64(input_size.y)}
+	ctx.cursor = .Arrow
 	ctx.hot = 0
 	ctx.pointer_over = false
 	ctx.navigation_used = false
@@ -133,6 +143,8 @@ begin :: proc(
 	if !state.focused {
 		ctx.active, ctx.focus = 0, 0
 		ctx.window_drag = {}
+		ctx.dock_drag = {}
+		ctx.dock_target = {}
 		ctx.hover_window = 0
 		ctx.mouse_owned = {}
 		ctx.key_owned = {}
@@ -340,10 +352,16 @@ end :: proc(ctx: ^Context) -> Error {
 		return .Invalid_Frame
 	}
 
+	if err := compose_docks(ctx, ctx.dock_root); err != .None {
+		return err
+	}
 	if err := compose_windows(ctx); err != .None {
 		return err
 	}
 
+	if err := draw_dock_preview(ctx); err != .None {
+		return err
+	}
 	return draw_error(draw2d.append_list(&ctx.draws, &ctx.overlays))
 }
 
@@ -378,9 +396,15 @@ remaining_input :: proc(ctx: ^Context) -> input.State {
 
 destroy :: proc(ctx: ^Context) {
 	for _, record in ctx.windows {
+		delete(record.title, ctx.window_order.allocator)
 		list := record.draws
 		draw2d.destroy_list(&list)
 	}
+	for node in ctx.dock_nodes {
+		delete(node.windows)
+	}
+	delete(ctx.dock_nodes)
+	delete(ctx.restored_order)
 	delete(ctx.windows)
 	delete(ctx.window_order)
 	draw2d.destroy_list(&ctx.draws)

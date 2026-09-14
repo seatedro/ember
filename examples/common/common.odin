@@ -132,6 +132,7 @@ init_overlay :: proc(overlay: ^Overlay, app: ^engine.Context) -> bool {
 }
 
 draw_overlay :: proc(overlay: ^Overlay, app: ^engine.Context) -> rhi.Error {
+	app.cursor = overlay.interface.cursor
 	now := time.tick_now()
 	seconds := time.duration_seconds(time.tick_diff(overlay.tick, now))
 	if seconds >= 0.5 {
