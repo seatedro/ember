@@ -8,19 +8,22 @@ import "core:math"
 import "core:time"
 
 Config :: struct {
-	title:          string,
-	width, height:  i32,
-	vsync:          bool,
-	hidden:         bool,
-	fixed_timestep: f64,
-	userdata:       rawptr,
-	init:           proc(app: ^Context, userdata: rawptr) -> bool,
-	update:         proc(app: ^Context, userdata: rawptr, dt: f32),
-	draw:           proc(app: ^Context, userdata: rawptr) -> bool,
-	quit:           proc(app: ^Context, userdata: rawptr),
+	title:                string,
+	width, height:        i32,
+	vsync:                bool,
+	hidden:               bool,
+	fixed_timestep:       f64,
+	max_simulation_steps: u32,
+	fixed_update:         proc(app: ^Context, userdata: rawptr, dt: f32),
+	userdata:             rawptr,
+	init:                 proc(app: ^Context, userdata: rawptr) -> bool,
+	update:               proc(app: ^Context, userdata: rawptr, dt: f32),
+	draw:                 proc(app: ^Context, userdata: rawptr) -> bool,
+	quit:                 proc(app: ^Context, userdata: rawptr),
 }
 
 Context :: struct {
+	simulation:    Clock,
 	cursor:        input.Cursor,
 	device:        ^rhi.Device,
 	width, height: i32,
@@ -36,6 +39,7 @@ Context :: struct {
 Error :: enum {
 	None,
 	Invalid_Config,
+	Invalid_Time,
 	Window_Failed,
 	Device_Failed,
 	Init_Failed,
@@ -90,6 +94,10 @@ run :: proc(config: Config) -> (result: Error) {
 	}
 
 	app := Context {
+		simulation  = create_clock(
+			config.fixed_timestep if config.fixed_timestep > 0 else 1.0 / 60.0,
+			config.max_simulation_steps if config.max_simulation_steps > 0 else 8,
+		),
 		device      = &device,
 		width       = window.width,
 		height      = window.height,
@@ -117,8 +125,8 @@ run :: proc(config: Config) -> (result: Error) {
 		return .Init_Failed
 	}
 
-	last_time := time.tick_now()
-	accumulator: f64
+	start_time := time.tick_now()
+	last_time := start_time
 	for app.running && !win.should_close(&window) {
 		win.poll_events()
 		if win.should_close(&window) {
@@ -129,7 +137,6 @@ run :: proc(config: Config) -> (result: Error) {
 		if window.minimized {
 			win.wait_events(0.05)
 			last_time = time.tick_now()
-			accumulator = 0
 			continue
 		}
 		if window.framebuffer_resized {
@@ -137,12 +144,15 @@ run :: proc(config: Config) -> (result: Error) {
 		}
 
 		now := time.tick_now()
-		dt := min(time.duration_seconds(time.tick_diff(last_time, now)), 1.0 / 15.0)
+		dt := time.duration_seconds(time.tick_diff(last_time, now))
 		last_time = now
 		app.delta_time = f32(dt)
-		app.elapsed_time += dt
+		app.elapsed_time = time.duration_seconds(time.tick_diff(start_time, now))
 		app.cursor = .Arrow
-		run_updates(config, &app, dt, &accumulator)
+		if !run_updates(config, &app, dt) {
+			log.error("Invalid simulation clock settings or elapsed time")
+			return .Invalid_Time
+		}
 		if !app.running {
 			break
 		}
@@ -173,19 +183,21 @@ run :: proc(config: Config) -> (result: Error) {
 }
 
 @(private)
-run_updates :: proc(config: Config, app: ^Context, dt: f64, accumulator: ^f64) {
-	if config.update == nil {
-		return
-	}
-	if config.fixed_timestep > 0 {
-		accumulator^ += dt
-		for accumulator^ >= config.fixed_timestep && app.running {
-			config.update(app, config.userdata, f32(config.fixed_timestep))
-			input.clear(app.input)
-			accumulator^ -= config.fixed_timestep
-		}
-	} else {
+run_updates :: proc(config: Config, app: ^Context, dt: f64) -> bool {
+	if config.update != nil {
 		config.update(app, config.userdata, f32(dt))
-		input.clear(app.input)
 	}
+	input.clear(app.input)
+	if !app.running {
+		return true
+	}
+	if !advance_clock(&app.simulation, dt) {
+		return false
+	}
+	for app.running && tick_clock(&app.simulation) {
+		if config.fixed_update != nil {
+			config.fixed_update(app, config.userdata, f32(app.simulation.timestep))
+		}
+	}
+	return true
 }

@@ -40,7 +40,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 		title = fmt.bprintf(buffer[:], "RENDER  FPS %3.0f", game.overlay.fps)
 	}
 
-	ok := build_window(game, &game.render_window, title, 0, 376, render_controls)
+	ok := build_window(game, &game.render_window, title, 0, 544, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
 	ok =
@@ -155,8 +155,61 @@ render_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		return false
 	}
 
-	_, control_error = ui.checkbox(ctx, ui.id("pause"), rect, "PAUSED", &game.paused)
+	_, control_error = ui.checkbox(ctx, ui.id("pause"), rect, "PAUSED", &game.simulation.paused)
 	if !check_ui(control_error) {
+		return false
+	}
+
+	rect, err = ui.next(column, 48)
+	if !check_ui(err) {
+		return false
+	}
+	_, control_error = ui.slider(
+		ctx,
+		ui.id("time-scale"),
+		rect,
+		"TIME SCALE",
+		&game.simulation.scale,
+		0,
+		10,
+		step = 0.1,
+	)
+	if !check_ui(control_error) {
+		return false
+	}
+	rect, err = ui.next(column, 28)
+	if !check_ui(err) {
+		return false
+	}
+	stepped, step_error := ui.button(ctx, ui.id("step-time"), rect, "STEP (.)")
+	if !check_ui(step_error) {
+		return false
+	}
+	if stepped {
+		engine.step_clock(game.simulation)
+	}
+	rect, err = ui.next(column, 28)
+	if !check_ui(err) {
+		return false
+	}
+	reset, reset_error := ui.button(ctx, ui.id("reset-time"), rect, "RESET SIMULATION")
+	if !check_ui(reset_error) {
+		return false
+	}
+	if reset {
+		reset_simulation(game)
+	}
+	rect, err = ui.next(column, 32)
+	if !check_ui(err) {
+		return false
+	}
+	timing := fmt.bprintf(
+		buffer[:],
+		"TIME %.2f\nDROPPED %.3f",
+		game.simulation.elapsed,
+		game.simulation.discarded_time,
+	)
+	if !check_ui(ui.label(ctx, rect, timing)) {
 		return false
 	}
 

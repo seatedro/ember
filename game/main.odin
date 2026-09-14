@@ -13,6 +13,8 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	simulation:                                                   ^engine.Clock,
+	previous_angle:                                               f32,
 	ui_layout_path:                                               string,
 	saved_ui_layout:                                              []u8,
 	next_ui_save:                                                 f64,
@@ -61,7 +63,7 @@ State :: struct {
 	target:                                                       common.Pixel_Target,
 	orbit:                                                        camera.Orbit,
 	angle:                                                        f32,
-	batching, paused:                                             bool,
+	batching:                                                     bool,
 	last_stats:                                                   render.Draw_Stats,
 	next_report:                                                  f64,
 	exposure:                                                     f32,
@@ -84,6 +86,8 @@ configure :: proc() -> engine.Config {
 		userdata = &state,
 		init = init,
 		update = update,
+		fixed_update = fixed_update,
+		fixed_timestep = 1.0 / 60.0,
 		draw = draw,
 		quit = quit,
 	}
@@ -93,6 +97,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {
 		orbit = INITIAL_ORBIT,
+		simulation = &app.simulation,
 		batching = true,
 		metallic = {0, 1},
 		roughness = {0.65, 0.3},
@@ -305,7 +310,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	}
 
 	if input.pressed(&game_input, .Space) {
-		game.paused = !game.paused
+		game.simulation.paused = !game.simulation.paused
 	}
 
 	if input.pressed(&game_input, .R) {
@@ -324,9 +329,20 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		camera.zoom_orbit(&game.orbit, game_input.scroll_delta.y * 0.1, 3, 100)
 	}
 
-	if !game.paused {
-		game.angle += dt * 0.3
+	if input.pressed(&game_input, .Period) {
+		engine.step_clock(game.simulation)
 	}
+}
+
+fixed_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
+	game := cast(^State)userdata
+	game.previous_angle = game.angle
+	game.angle += dt * 0.3
+}
+
+reset_simulation :: proc(game: ^State) {
+	engine.reset_clock(game.simulation)
+	game.previous_angle, game.angle = 0, 0
 }
 
 draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
@@ -339,6 +355,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	angle := math.lerp(game.previous_angle, game.angle, game.simulation.interpolation)
 	render.clear_draw_list(&game.draws)
 	for z in 0 ..< 20 {
 		for x in 0 ..< 20 {
@@ -349,7 +366,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 					(f32(z) - 9.5) * 2.5,
 				},
 				orientation = emath.quaternion_angle_axis(
-					game.angle + f32(x) * 0.2,
+					angle + f32(x) * 0.2,
 					emath.normalize({1, 1, 0}),
 				),
 				scale       = {0.7, 1.0, 0.7},
