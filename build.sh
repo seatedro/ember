@@ -62,7 +62,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 BUILD="${BUILD:-debug}"
-OUT_DIR="build/$BUILD"
+OUT_DIR="build/$BUILD/$BACKEND"
+LINK_DIR="build/$BUILD"
 case "$BACKEND" in
     opengl) ;;
     metal)
@@ -70,7 +71,6 @@ case "$BACKEND" in
             echo "error: Metal requires macOS" >&2
             exit 1
         fi
-        OUT_DIR="$OUT_DIR/metal"
         ;;
     *)
         echo "error: unknown backend '$BACKEND'" >&2
@@ -79,6 +79,7 @@ case "$BACKEND" in
 esac
 GAME_DIR="game"
 TARGET="game"
+LINK_TARGET="$BACKEND/$TARGET"
 if [ -n "$EXAMPLE" ]; then
     GAME_DIR="examples/$EXAMPLE"
     if [ ! -f "$GAME_DIR/main.odin" ]; then
@@ -87,6 +88,8 @@ if [ -n "$EXAMPLE" ]; then
     fi
     OUT_DIR="$OUT_DIR/examples"
     TARGET="$EXAMPLE"
+    LINK_DIR="$LINK_DIR/examples"
+    LINK_TARGET="../$BACKEND/examples/$TARGET"
 fi
 ODIN_FLAGS="-define:EMBER_BACKEND=$BACKEND -collection:ember=src -collection:game=$GAME_DIR -out:$OUT_DIR/$TARGET"
 
@@ -110,4 +113,6 @@ mkdir -p "$OUT_DIR"
 
 echo "Building ember $TARGET ($BUILD, $BACKEND)"
 odin build src/entrypoint $ODIN_FLAGS
-echo "done: $OUT_DIR/$TARGET"
+mkdir -p "$LINK_DIR"
+ln -sfn "$LINK_TARGET" "$LINK_DIR/$TARGET"
+echo "done: $LINK_DIR/$TARGET -> $LINK_TARGET"
