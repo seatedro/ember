@@ -2,7 +2,7 @@ package scene
 
 import emath "../core/math"
 import "../core/pool"
-import "core:math/linalg"
+import "../physics"
 
 Object :: struct {
 	index, generation: u32,
@@ -12,11 +12,14 @@ INVALID_OBJECT :: Object{}
 
 Scene :: struct {
 	objects: pool.Pool(Node, Object),
+	physics: physics.World,
 }
 
 @(private)
 Node :: struct {
 	local:                                               emath.Mat4,
+	body:                                                physics.Body_Handle,
+	body_offset:                                         emath.Mat4,
 	parent, first_child, previous_sibling, next_sibling: Object,
 }
 
@@ -34,6 +37,9 @@ Error :: enum {
 	Invalid_Transform,
 	Invalid_Mode,
 	Cycle,
+	Invalid_Body,
+	Already_Bound,
+	Physics_Controlled,
 }
 
 create :: proc(capacity: int, allocator := context.allocator) -> (Scene, Error) {
@@ -44,13 +50,19 @@ create :: proc(capacity: int, allocator := context.allocator) -> (Scene, Error) 
 	case .Allocation_Failed:
 		return {}, .Allocation_Failed
 	case .None:
-		return {objects = objects}, .None
+		world, physics_error := physics.create(capacity, allocator)
+		if physics_error != .None {
+			pool.destroy(&objects)
+			return {}, .Allocation_Failed
+		}
+		return {objects = objects, physics = world}, .None
 	}
 
 	unreachable()
 }
 
 destroy :: proc(scene: ^Scene) {
+	physics.destroy(&scene.physics)
 	for slot, index in scene.objects.slots {
 		if slot.used {
 			pool.free(&scene.objects, Object{index = u32(index), generation = slot.generation})
@@ -95,6 +107,14 @@ local_transform :: proc(scene: ^Scene, object: Object) -> (emath.Mat4, bool) {
 		return {}, false
 	}
 
+	if node.body.generation != 0 {
+		world, ok := world_transform(scene, object)
+		if !ok {
+			return {}, false
+		}
+		return relative_transform(scene, node.parent, world)
+	}
+
 	return node.local, true
 }
 
@@ -102,6 +122,9 @@ set_local_transform :: proc(scene: ^Scene, object: Object, local: emath.Mat4) ->
 	node := pool.get(&scene.objects, object)
 	if node == nil {
 		return .Invalid_Object
+	}
+	if node.body.generation != 0 {
+		return .Physics_Controlled
 	}
 	if !emath.valid_affine(local) {
 		return .Invalid_Transform
@@ -111,16 +134,27 @@ set_local_transform :: proc(scene: ^Scene, object: Object, local: emath.Mat4) ->
 	return .None
 }
 
-world_transform :: proc(scene: ^Scene, object: Object) -> (emath.Mat4, bool) {
+world_transform :: proc(scene: ^Scene, object: Object, alpha: f32 = 1) -> (emath.Mat4, bool) {
 	node := pool.get(&scene.objects, object)
 	if node == nil {
 		return {}, false
 	}
 
-	world := node.local
-	for node.parent != INVALID_OBJECT {
-		node = pool.get(&scene.objects, node.parent)
+	world := emath.identity()
+	for {
+		if node.body.generation != 0 {
+			pose, ok := physics.body_pose(&scene.physics, node.body, alpha)
+			if !ok {
+				return {}, false
+			}
+			world = emath.pose_matrix(pose) * node.body_offset * world
+			break
+		}
 		world = node.local * world
+		if node.parent == INVALID_OBJECT {
+			break
+		}
+		node = pool.get(&scene.objects, node.parent)
 	}
 
 	return world, emath.valid_affine(world)
@@ -175,24 +209,18 @@ reparent :: proc(
 		return .None
 	}
 
+	if node.body.generation != 0 && mode == .Keep_Local {
+		return .Physics_Controlled
+	}
+
 	local := node.local
 	if mode == .Keep_World {
 		world, ok := world_transform(scene, object)
 		if !ok {
 			return .Invalid_Transform
 		}
-		local = world
-		if new_parent != INVALID_OBJECT {
-			parent_world, parent_ok := world_transform(scene, new_parent)
-			if !parent_ok {
-				return .Invalid_Transform
-			}
-			inverse := linalg.inverse(parent_world)
-			// Preserve the exact affine row despite rounding in the general inverse.
-			inverse[3, 0], inverse[3, 1], inverse[3, 2], inverse[3, 3] = 0, 0, 0, 1
-			local = inverse * world
-		}
-		if !emath.valid_affine(local) {
+		local, ok = relative_transform(scene, new_parent, world)
+		if !ok {
 			return .Invalid_Transform
 		}
 	}
@@ -217,6 +245,9 @@ destroy_object :: proc(scene: ^Scene, object: Object) -> Error {
 		}
 
 		ancestor := node.parent
+		if node.body.generation != 0 {
+			physics.destroy_body(&scene.physics, node.body)
+		}
 		detach(scene, current)
 		pool.free(&scene.objects, current)
 		if current == object {

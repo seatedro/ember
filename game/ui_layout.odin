@@ -5,8 +5,8 @@ import "core:log"
 import "core:os"
 import "ember:ui"
 
-ui_windows :: proc(game: ^State) -> [4]^ui.Window {
-	return {&game.render_window, &game.camera_window, &game.bloom_window, &game.lighting_window}
+ui_windows :: proc(game: ^State) -> [1]^ui.Window {
+	return {&game.physics_window}
 }
 
 init_ui_layout :: proc(game: ^State) {
@@ -26,7 +26,7 @@ init_ui_layout :: proc(game: ^State) {
 		log.warnf("Create UI layout directory: %v", err)
 		return
 	}
-	game.ui_layout_path = fmt.aprintf("%s/ui-layout.json", directory)
+	game.ui_layout_path = fmt.aprintf("%s/physics-ui-layout.json", directory)
 	if !os.exists(game.ui_layout_path) {
 		return
 	}
@@ -79,6 +79,5 @@ reset_ui_layout :: proc(game: ^State) {
 	for window, i in windows {
 		window^ = game.default_windows[i]
 	}
-	game.reset_ui_layout = false
 	game.ui_scroll = {}
 }
