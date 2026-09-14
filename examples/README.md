@@ -5,8 +5,8 @@ Run from the repository root. Set `BUILD=release` for optimized builds.
 ## Sphere
 
 ```sh
-./build.sh
-./build/debug/game
+./build.sh --backend opengl --example sphere
+./build/debug/examples/sphere
 ```
 
 Drag to orbit, scroll to zoom, `R` to reset, `M` to swap colors, Escape to close.
@@ -14,7 +14,7 @@ Drag to orbit, scroll to zoom, `R` to reset, `M` to swap colors, Escape to close
 ## Input
 
 ```sh
-./build.sh --example input
+./build.sh --backend opengl --example input
 ./build/debug/examples/input
 ```
 
@@ -24,7 +24,7 @@ Escape closes.
 ## Indexed triangle
 
 ```sh
-./build.sh --example triangle
+./build.sh --backend opengl --example triangle
 ./build/debug/examples/triangle
 ```
 
@@ -35,6 +35,6 @@ Indexed drawing with depth testing and face culling.
 ```sh
 ./build.sh --backend metal
 ./build/debug/metal/game
-./build.sh --backend metal --example instancing
-./build/debug/metal/examples/instancing
+./build.sh --backend metal --example sphere
+./build/debug/metal/examples/sphere
 ```

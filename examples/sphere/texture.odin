@@ -17,7 +17,7 @@ toggle_material_texture :: proc(game: ^State) -> bool {
 }
 
 init_textures :: proc(game: ^State) -> bool {
-	PATH :: "game/assets/textures/earth_daymap.jpg"
+	PATH :: "examples/sphere/assets/textures/earth_daymap.jpg"
 	earth, image_error := image.load(PATH)
 	if image_error != .None {
 		log.errorf("Load image %s: %v", PATH, image_error)

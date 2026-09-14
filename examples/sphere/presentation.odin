@@ -1,6 +1,6 @@
 package game
 
-import "../examples/common"
+import "../common"
 
 import "core:log"
 import "core:math"
