@@ -13,6 +13,8 @@ import "ember:shaders"
 import "ember:ui"
 
 State :: struct {
+	normal_map:                                                render.Texture,
+	normal_mapping:                                            bool,
 	shadow:                                                    render.Shadow_Map,
 	shadow_settings:                                           render.Shadow_Settings,
 	ground_mesh:                                               render.Mesh,
@@ -77,6 +79,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game^ = {
 		orbit = INITIAL_ORBIT,
 		batching = true,
+		normal_mapping = true,
 		render_window = {
 			id = ui.id("render-window"),
 			bounds = {{24, 24}, {360, 400}},
@@ -153,7 +156,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			depth = {test_enabled = true, write_enabled = true, compare = .Less},
 			raster = {cull = .Back, winding = .CCW},
 		},
-		{{name = "albedo_texture", binding = 0}},
+		{{name = "albedo_texture", binding = 0}, {name = "normal_texture", binding = 1}},
 		lighting = true,
 		shadows = true,
 	)
@@ -170,12 +173,22 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		return false
 	}
 
+	game.normal_map, err = create_dimple_normal_map(&game.renderer)
+	if !check(err, "create normal map") {
+		return false
+	}
+
 	for color, i in MATERIAL_COLORS {
-		game.materials[i], err = render.create_material(
+		game.materials[i], err = render.create_lit_material(
 			&game.renderer,
 			shader,
-			render.Lit_Parameters{tint = color, emission = game.emission if i == 1 else 0},
-			{{binding = 0, texture = game.texture}},
+			render.Lit_Parameters {
+				tint = color,
+				emission = game.emission if i == 1 else 0,
+				use_normal_map = b32(game.normal_mapping),
+			},
+			game.texture,
+			game.normal_map,
 		)
 		if !check(err, "create material") {
 			return false
@@ -197,11 +210,11 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	if !check(err, "create ground") {
 		return false
 	}
-	game.ground_material, err = render.create_material(
+	game.ground_material, err = render.create_lit_material(
 		&game.renderer,
 		shader,
 		render.Lit_Parameters{tint = {0.25, 0.28, 0.32, 1}},
-		{{binding = 0, texture = game.texture}},
+		game.texture,
 	)
 	if !check(err, "create ground material") {
 		return false
@@ -469,6 +482,7 @@ quit :: proc(app: ^engine.Context, userdata: rawptr) {
 		check(render.destroy_material(&game.renderer, &material), "destroy material")
 	}
 
+	check(render.destroy_texture(&game.renderer, &game.normal_map), "destroy normal map")
 	check(render.destroy_texture(&game.renderer, &game.texture), "destroy texture")
 	check(render.destroy_mesh(&game.renderer, &game.mesh), "destroy mesh")
 	check(render.destroy_pipeline(&game.renderer, &game.pipeline), "destroy pipeline")

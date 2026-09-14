@@ -85,6 +85,8 @@ struct Mesh_Vertex {
     float3 position [[attribute(0)]];
     float3 normal [[attribute(1)]];
     float2 uv [[attribute(2)]];
+    float3 tangent [[attribute(6)]];
+    float3 bitangent [[attribute(7)]];
     float4 row0 [[attribute(3)]];
     float4 row1 [[attribute(4)]];
     float4 row2 [[attribute(5)]];
@@ -94,6 +96,8 @@ struct Mesh_Varyings {
     float4 position [[position]];
     float3 world_position;
     float3 world_normal;
+    float3 world_tangent;
+    float3 world_bitangent;
     float3 local_normal;
     float2 texture_uv;
     float point_size [[point_size]];
@@ -106,6 +110,8 @@ vertex Mesh_Varyings mesh_vertex(Mesh_Vertex input [[stage_in]], constant View_U
     output.position = clip_position(Per_View.view_projection * world);
     output.world_position = world.xyz;
     output.world_normal = transform_normal(model, input.normal);
+    output.world_tangent = (model * float4(input.tangent, 0)).xyz;
+    output.world_bitangent = (model * float4(input.bitangent, 0)).xyz;
     output.local_normal = input.normal;
     output.texture_uv = input.uv;
     output.point_size = 1;
@@ -162,4 +168,25 @@ struct Screen_Varyings { float4 position [[position]]; float2 texture_uv; float 
 vertex Screen_Varyings screen_vertex(Screen_Vertex input [[stage_in]], constant View_Uniforms &Per_View [[buffer(2)]]) {
     return {clip_position(Per_View.view_projection * (instance_model(input.row0,input.row1,input.row2) * float4(input.position,1))), input.uv, 1};
 
+}
+
+float3 mapped_normal(float3 normal, float3 tangent, float3 bitangent, float3 sample_value) {
+    float3 n = normalize(normal);
+    float tangent_scale = max(abs(tangent.x), max(abs(tangent.y), abs(tangent.z)));
+    if (tangent_scale == 0.0) {
+        return n;
+    }
+    // Rebuild an orthonormal frame after interpolation and nonuniform scaling.
+    float3 t = tangent / tangent_scale;
+    t -= n * dot(n, t);
+    float tangent_length = dot(t, t);
+    if (tangent_length < 0.000001) {
+        return n;
+    }
+    t *= rsqrt(tangent_length);
+    float3 b = cross(n, t);
+    b *= dot(b, bitangent) < 0.0 ? -1.0 : 1.0;
+    float3 mapped = sample_value * 2.0 - 1.0;
+    float3 world = t * mapped.x + b * mapped.y + n * mapped.z;
+    return dot(world, world) > 0.000001 ? normalize(world) : n;
 }

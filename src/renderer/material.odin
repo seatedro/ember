@@ -146,3 +146,26 @@ destroy_material :: proc(renderer: ^Renderer, material: ^Material) -> Error {
 
 	return .None
 }
+
+create_lit_material :: proc(
+	renderer: ^Renderer,
+	shader: shaders.Shader,
+	parameters: Lit_Parameters,
+	albedo: Texture,
+	normal_map: Texture = {},
+) -> (
+	Material,
+	Error,
+) {
+	normal := normal_map
+	if normal.handle.generation == 0 {
+		normal = renderer.flat_normal
+	}
+
+	return create_material(
+		renderer,
+		shader,
+		parameters,
+		{{binding = 0, texture = albedo}, {binding = 1, texture = normal}},
+	)
+}

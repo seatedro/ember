@@ -45,7 +45,7 @@ build_ui :: proc(app: ^engine.Context, game: ^State) -> bool {
 	ok := build_window(game, &game.render_window, title, 0, 336, render_controls)
 	ok = build_window(game, &game.camera_window, "CAMERA", 1, 160, camera_controls) && ok
 	ok = build_window(game, &game.bloom_window, "BLOOM", 2, 192, bloom_controls) && ok
-	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 432, lighting_controls) && ok
+	ok = build_window(game, &game.lighting_window, "LIGHTING", 3, 464, lighting_controls) && ok
 	return check_ui(ui.end(ctx)) && ok
 }
 
@@ -317,12 +317,14 @@ bloom_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 
 lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 	ctx := &game.overlay.interface
-	for control in ([2]struct {
+	previous_normal_mapping := game.normal_mapping
+	for control in ([3]struct {
 			name, label: string,
 			value:       ^bool,
 		} {
 			{"directional-enabled", "DIRECTIONAL", &game.directional_enabled},
 			{"point-enabled", "POINT", &game.point_enabled},
+			{"normal-mapping", "NORMAL MAP", &game.normal_mapping},
 		}) {
 		rect, err := ui.next(column, 24)
 		if !check_ui(err) {
@@ -413,15 +415,23 @@ lighting_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		}
 	}
 
-	if game.emission != previous_emission {
-		return check(
-			render.update_material(
-				&game.renderer,
-				&game.materials[1],
-				render.Lit_Parameters{tint = MATERIAL_COLORS[1], emission = game.emission},
-			),
-			"update emission",
-		)
+	if game.emission != previous_emission || game.normal_mapping != previous_normal_mapping {
+		for color, i in MATERIAL_COLORS {
+			if !check(
+				render.update_material(
+					&game.renderer,
+					&game.materials[i],
+					render.Lit_Parameters {
+						tint = color,
+						emission = game.emission if i == 1 else 0,
+						use_normal_map = b32(game.normal_mapping),
+					},
+				),
+				"update materials",
+			) {
+				return false
+			}
+		}
 	}
 
 	return true

@@ -1,9 +1,14 @@
-struct Lit_Uniforms { float4 tint; float emission; float padding[3]; };
+struct Lit_Uniforms { float4 tint; float emission; uint use_normal_map; float padding[2]; };
 
 fragment float4 lit_fragment(Mesh_Varyings input [[stage_in]],
     constant Lit_Uniforms &Material [[buffer(4)]],
     constant Lighting_Data &Lighting_Uniforms [[buffer(5)]],
-    texture2d<float> albedo_texture [[texture(0)]], sampler albedo_texture_sampler [[sampler(0)]]) {
+    texture2d<float> albedo_texture [[texture(0)]], sampler albedo_texture_sampler [[sampler(0)]],
+    texture2d<float> normal_texture [[texture(1)]], sampler normal_texture_sampler [[sampler(1)]]) {
     float4 albedo = sample_texture(albedo_texture, albedo_texture_sampler, input.texture_uv) * Material.tint;
-    return float4(albedo.rgb * (diffuse_lighting(input.world_position, input.world_normal, Lighting_Uniforms) + Material.emission), albedo.a);
+    float3 normal = input.world_normal;
+    if (Material.use_normal_map != 0) {
+        normal = mapped_normal(input.world_normal, input.world_tangent, input.world_bitangent, sample_texture(normal_texture, normal_texture_sampler, input.texture_uv).rgb);
+    }
+    return float4(albedo.rgb * (diffuse_lighting(input.world_position, normal, Lighting_Uniforms) + Material.emission), albedo.a);
 }

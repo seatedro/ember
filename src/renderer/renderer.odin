@@ -8,6 +8,7 @@ import "core:mem"
 Error :: rhi.Error
 
 Renderer :: struct {
+	flat_normal:             Texture,
 	shadow_texture:          rhi.Texture_Handle,
 	device:                  ^rhi.Device,
 	view_uniforms:           rhi.Buffer_Handle,
@@ -61,6 +62,16 @@ create :: proc(device: ^rhi.Device) -> (renderer: Renderer, err: Error) {
 	if err != .None {
 		destroy(&renderer)
 		return
+	}
+
+	flat_normal := [1][4]f16{{0.5, 0.5, 1, 1}}
+	renderer.flat_normal, err = create_texture(
+		&renderer,
+		{width = 1, height = 1, format = .RGBA16F, label = "flat normal"},
+		mem.slice_to_bytes(flat_normal[:]),
+	)
+	if err != .None {
+		destroy(&renderer)
 	}
 
 	return
@@ -208,6 +219,10 @@ draw_mesh_instances :: proc(
 }
 
 destroy :: proc(renderer: ^Renderer) -> (result: Error) {
+	if err := destroy_texture(renderer, &renderer.flat_normal); err != .None {
+		result = err
+	}
+
 	for handle in ([4]^rhi.Buffer_Handle {
 			&renderer.pending_instance_buffer,
 			&renderer.lighting_uniforms,

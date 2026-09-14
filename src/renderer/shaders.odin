@@ -18,9 +18,10 @@ Tint_Parameters :: struct {
 }
 
 Lit_Parameters :: struct {
-	tint:     [4]f32,
-	emission: f32,
-	_padding: [3]f32,
+	tint:           [4]f32,
+	emission:       f32,
+	use_normal_map: b32,
+	_padding:       [2]u32,
 }
 
 #assert(size_of(Lit_Parameters) == 32)
@@ -76,7 +77,9 @@ load_builtin_shader :: proc(
 					vertex = {entry_point = "main", code = GLSL_MESH_VERTEX_SOURCE},
 					fragment = {
 						entry_point = "main",
-						code = GLSL_LIGHTING_SOURCE + string(#load("glsl/lit.frag")),
+						code = GLSL_LIGHTING_SOURCE +
+						string(#load("glsl/normal.glsl")) +
+						string(#load("glsl/lit.frag")),
 					},
 				},
 			},
@@ -106,6 +109,7 @@ load_builtin_shader :: proc(
 						entry_point = "main",
 						code = GLSL_LIGHTING_SOURCE +
 						string(#load("glsl/shadow.glsl")) +
+						string(#load("glsl/normal.glsl")) +
 						string(#load("glsl/lit_shadowed.frag")),
 					},
 				},

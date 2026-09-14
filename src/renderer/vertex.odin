@@ -4,11 +4,13 @@ import "../geometry"
 
 VERTEX_LAYOUT :: Vertex_Layout {
 	stride = size_of(geometry.Vertex),
-	attribute_count = 3,
+	attribute_count = 5,
 	attributes = {
 		0 = {location = 0, format = .F32x3, offset = u32(offset_of(geometry.Vertex, position))},
 		1 = {location = 1, format = .F32x3, offset = u32(offset_of(geometry.Vertex, normal))},
 		2 = {location = 2, format = .F32x2, offset = u32(offset_of(geometry.Vertex, uv))},
+		3 = {location = 6, format = .F32x3, offset = u32(offset_of(geometry.Vertex, tangent))},
+		4 = {location = 7, format = .F32x3, offset = u32(offset_of(geometry.Vertex, bitangent))},
 	},
 }
 

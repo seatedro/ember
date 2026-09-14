@@ -62,8 +62,11 @@ create_sphere :: proc(
 	south_pole := segments + int(ring_vertices)
 	for segment in 0 ..< segments {
 		u := (f32(segment) + 0.5) / f32(segments)
-		vertices[segment] = {{0, radius, 0}, {0, 1, 0}, {u, 0}}
-		vertices[south_pole + segment] = {{0, -radius, 0}, {0, -1, 0}, {u, 1}}
+		phi := f32(2 * math.PI) * (u - 0.5)
+		tangent := [3]f32{-math.sin(phi), 0, math.cos(phi)}
+		bitangent := [3]f32{math.cos(phi), 0, math.sin(phi)}
+		vertices[segment] = {{0, radius, 0}, {0, 1, 0}, {u, 0}, tangent, bitangent}
+		vertices[south_pole + segment] = {{0, -radius, 0}, {0, -1, 0}, {u, 1}, tangent, -bitangent}
 	}
 
 	ring_stride := segments + 1
@@ -80,9 +83,11 @@ create_sphere :: proc(
 			normal := [3]f32{ring_radius * math.cos(phi), y, ring_radius * math.sin(phi)}
 			index := segments + (stack - 1) * ring_stride + segment
 			vertices[index] = {
-				position = normal * radius,
-				normal   = normal,
-				uv       = {u, v},
+				position  = normal * radius,
+				normal    = normal,
+				uv        = {u, v},
+				tangent   = {-math.sin(phi), 0, math.cos(phi)},
+				bitangent = {y * math.cos(phi), -ring_radius, y * math.sin(phi)},
 			}
 		}
 
