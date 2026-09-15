@@ -14,9 +14,16 @@ Environment :: struct {
 	filter_pipeline, brdf_pipeline, sky_pipeline: Pipeline,
 	filter_material, brdf_material, sky_material: Material,
 	mesh:                                         Mesh,
-	levels, samples:                              u32,
+	levels, filter_samples, irradiance_samples:   u32,
 	ready, brdf_ready:                            bool,
 }
+
+// Hazel's sizes (Renderer.cpp CreateEnvironmentMap; its BRDF LUT is a 512² image
+// on disk). The radiance resolution stays a parameter because it should follow
+// the source: a rendered sky has nothing to keep at 1024, a photographed HDRI does.
+IRRADIANCE_RESOLUTION :: 32
+BRDF_LUT_RESOLUTION :: 512
+MAX_ENVIRONMENT_SAMPLES :: 4096
 
 @(private)
 Environment_Filter_Uniforms :: struct {
@@ -35,12 +42,19 @@ create_environment :: proc(
 	renderer: ^Renderer,
 	library: ^shaders.Library,
 	resolution: i32 = 128,
-	samples: u32 = 256,
+	filter_samples: u32 = 1024,
+	irradiance_samples: u32 = 512,
 ) -> (
 	environment: Environment,
 	err: Error,
 ) {
-	if resolution < 2 || resolution & (resolution - 1) != 0 || samples == 0 || samples > 4096 {
+	if resolution < 2 || resolution & (resolution - 1) != 0 {
+		return {}, .Invalid_Size
+	}
+	if filter_samples == 0 ||
+	   filter_samples > MAX_ENVIRONMENT_SAMPLES ||
+	   irradiance_samples == 0 ||
+	   irradiance_samples > MAX_ENVIRONMENT_SAMPLES {
 		return {}, .Invalid_Size
 	}
 
@@ -50,13 +64,15 @@ create_environment :: proc(
 		}
 	}
 	environment.levels = rhi.texture_mip_count(resolution, resolution)
-	environment.samples = samples
+	environment.filter_samples = filter_samples
+	environment.irradiance_samples = irradiance_samples
 	for target, i in ([3]^Render_Target {
 			&environment.radiance,
 			&environment.irradiance,
 			&environment.brdf,
 		}) {
-		size := resolution if i == 0 else (32 if i == 1 else 128)
+		size :=
+			resolution if i == 0 else (IRRADIANCE_RESOLUTION if i == 1 else BRDF_LUT_RESOLUTION)
 		target^, err = create_render_target(
 			renderer,
 			{
@@ -104,7 +120,7 @@ create_environment :: proc(
 			materials[i]^, err = create_material(
 				renderer,
 				program,
-				Environment_Filter_Uniforms{samples = samples},
+				Environment_Filter_Uniforms{samples = filter_samples},
 			)
 		}
 		if err != .None {
@@ -232,7 +248,7 @@ update_environment :: proc(
 					face      = u32(face),
 					roughness = f32(level) / f32(environment.levels - 1),
 					mode      = 1 if i == 1 else (0 if level == 0 else 2),
-					samples   = environment.samples,
+					samples   = environment.irradiance_samples if i == 1 else environment.filter_samples,
 				}
 				if err := update_material(renderer, &environment.filter_material, parameters);
 				   err != .None {
