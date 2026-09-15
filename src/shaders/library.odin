@@ -13,6 +13,12 @@ Shader :: struct {
 
 // Each language supplies a complete pair; stages may share the same module
 // source and select different entry points (as with a Metal library).
+//
+// TODO: Author shaders once and generate each backend language, rather than
+// maintaining a hand-written GLSL and MSL copy of every shader that must stay
+// in sync by inspection. Candidates are compared in .docs/shader-toolchain.md;
+// this loader stays the consumer of the generated files
+// (see .docs/decisions.md RHI-19).
 Source :: struct {
 	vertex, fragment: rhi.Shader_Source,
 }
