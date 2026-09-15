@@ -23,8 +23,10 @@ Renderer :: struct {
 	lighting_uniforms:       rhi.Buffer_Handle,
 }
 
+// Fixed rather than derived from the RHI limit: msl/lit_shadowed.metal binds the
+// shadow map at texture(7) by attribute, while GLSL follows this constant by name.
 @(private)
-SHADOW_TEXTURE_BINDING :: rhi.MAX_TEXTURE_BINDINGS - 1
+SHADOW_TEXTURE_BINDING :: 7
 
 @(private)
 VIEW_BINDING :: 0

@@ -58,6 +58,10 @@ Texture_Kind :: enum {
 	Cube,
 }
 
+// Sampling state is part of the texture, as in Hazel's TextureSpecification;
+// there is no separate Sampler resource. Both backends already create a native
+// sampler per texture, so a texture that must be sampled two ways is either
+// created twice or handled in the shader (bloom's prefilter does the latter).
 Texture_Desc :: struct {
 	kind:           Texture_Kind,
 	mip_levels:     u32,
@@ -236,7 +240,9 @@ Pipeline_Desc :: struct {
 	textures:        []Texture_Binding_Desc,
 }
 
-MAX_TEXTURE_BINDINGS :: 8
+// The Metal backend rejects sampler indices at 16, and OpenGL 4.1 guarantees
+// 16 fragment texture units, so 16 is the limit both backends can honor.
+MAX_TEXTURE_BINDINGS :: 16
 
 Texture_Binding_Desc :: struct {
 	name:    string,
