@@ -16,6 +16,10 @@ Button_State :: struct {
 	repeated:  bool,
 }
 
+// TODO: Feed this state from an event queue instead of directly from window
+// callbacks. Per-frame flags lose the order between keys, collapse repeated
+// presses of one key within a frame, and cannot stamp commands with a tick
+// for replay. Keep the polled queries as the game-facing API (see .docs/decisions.md ENG-7).
 State :: struct {
 	keys:                 [Key]Button_State,
 	text:                 [dynamic]rune,
