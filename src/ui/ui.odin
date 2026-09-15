@@ -2,6 +2,7 @@ package ui
 
 import "../draw2d"
 import "../input"
+import "core:hash"
 import "core:time"
 
 ID :: distinct u64
@@ -82,13 +83,13 @@ create :: proc(allocator := context.allocator) -> Context {
 	}
 }
 
+// The parent is folded into the FNV offset basis, so the same label under two
+// parents hashes differently without an ID stack. Zero is reserved for "no ID".
 id :: proc(name: string, parent: ID = 0) -> ID {
-	hash := u64(14695981039346656037) ~ u64(parent)
-	for byte in transmute([]u8)name {
-		hash = (hash ~ u64(byte)) * 1099511628211
-	}
+	FNV64_BASIS :: 0xcbf29ce484222325
+	result := hash.fnv64a(transmute([]u8)name, FNV64_BASIS ~ u64(parent))
 
-	return ID(hash) if hash != 0 else ID(1)
+	return ID(result) if result != 0 else ID(1)
 }
 
 begin :: proc(
