@@ -119,7 +119,7 @@ dock_minimum :: proc(ctx: ^Context, id: u32) -> [2]f32 {
 		result[node.axis] = a[node.axis] + b[node.axis] + dock_divider_size(ctx)
 		return result
 	}
-	minimum := [2]f32{64, 64}
+	minimum := [2]f32{dock_leaf_minimum(ctx), dock_leaf_minimum(ctx)}
 	for id in node.windows {
 		if window_open(ctx, id) {
 			size := window_minimum_size(ctx, ctx.windows[id].state)
@@ -364,6 +364,18 @@ dock_divider_size :: proc(ctx: ^Context) -> f32 {
 	return max(6, ctx.style.border_width * 3)
 }
 
+// In font units so they scale with the style, as imgui's dock geometry does
+// (1.5 × font for its drop targets). 4 × font is one header plus a few rows.
+@(private)
+dock_edge_band :: proc(ctx: ^Context) -> f32 {
+	return ctx.style.font_size * 1.5
+}
+
+@(private)
+dock_leaf_minimum :: proc(ctx: ^Context) -> f32 {
+	return ctx.style.font_size * 4
+}
+
 @(private)
 dock_divider :: proc(ctx: ^Context, node: ^Dock_Node) -> Rect {
 	rect := node.bounds
@@ -531,12 +543,13 @@ find_dock_target :: proc(ctx: ^Context, moving: ID) -> Dock_Target {
 		return {}
 	}
 	point := ctx.pointer
+	band := f64(dock_edge_band(ctx))
 	for side in ([4]Dock_Side{.Left, .Right, .Top, .Bottom}) {
 		axis := 0 if side == .Left || side == .Right else 1
 		near := side == .Left || side == .Top
 		if point[axis] >= 0 &&
 		   point[axis] <= f64(ctx.draws.size[axis]) &&
-		   (point[axis] < 24 if near else point[axis] > f64(ctx.draws.size[axis] - 24)) {
+		   (point[axis] < band if near else point[axis] > f64(ctx.draws.size[axis]) - band) {
 			bounds := Rect{{}, ctx.draws.size}
 			bounds.size[axis] *= 0.3
 			if !near {
