@@ -324,7 +324,7 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 			&game.renderer,
 			&game.bloom,
 			game.target.pixels,
-			{threshold = 1, softness = 0.5},
+			render.DEFAULT_BLOOM_SETTINGS,
 		)
 		if !check(err, "bloom") {
 			return false
