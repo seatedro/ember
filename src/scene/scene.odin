@@ -142,6 +142,10 @@ set_local_transform :: proc(scene: ^Scene, object: Object, local: emath.Mat4) ->
 	return .None
 }
 
+// TODO: Temporary. Walking to the root on every query is O(depth) per call and
+// repeats the ancestor products for every object drawn. Replace with cached
+// world matrices invalidated by dirty flags, or a parent-before-child pass per
+// tick, once scenes are larger than the current demos (see .docs/decisions.md SCN-4).
 world_transform :: proc(scene: ^Scene, object: Object, alpha: f32 = 1) -> (emath.Mat4, bool) {
 	node := pool.get(&scene.objects, object)
 	if node == nil {
@@ -239,6 +243,11 @@ reparent :: proc(
 	return .None
 }
 
+// Destroys the object and every descendant, leaf-first, including their bodies.
+// Descendants are neither reparented nor a reason to refuse: a bound body has
+// to die with its object, which is only well defined when the whole subtree
+// goes at once, and this is the behavior users of Unity- and Godot-style scene
+// graphs expect.
 destroy_object :: proc(scene: ^Scene, object: Object) -> Error {
 	if !contains(scene, object) {
 		return .Invalid_Object
