@@ -11,7 +11,7 @@ import "ember:rhi"
 import "ember:shaders"
 import "ember:ui"
 
-RESOLUTION :: [2]i32{320, 180}
+RESOLUTION :: [2]i32{1280, 720}
 BACKGROUND :: [4]f32{0.012, 0.016, 0.025, 1}
 SAMPLE_SCALE :: 4
 

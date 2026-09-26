@@ -134,7 +134,7 @@ update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 		app,
 		&game.window,
 		"TRIANGLE",
-		"Indexed triangle\n320 x 180\n\nF1  Toggle overlay\nEsc Close",
+		"Indexed triangle\n1280 x 720\n\nF1  Toggle overlay\nEsc Close",
 	)
 	controls := ui.remaining_input(&game.overlay.interface)
 	if input.pressed(&controls, .Escape) {
