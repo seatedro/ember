@@ -1,8 +1,8 @@
 *
 !src
 !src/**
-!game
-!game/**
+!tools
+!tools/**
 !examples
 !examples/**
 !assets
