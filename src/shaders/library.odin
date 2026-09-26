@@ -13,13 +13,30 @@ Shader :: struct {
 
 // Each language supplies a full pair. Both stages can share one module and use
 // different entry points, like a Metal library.
-//
-// TODO: Generate GLSL and MSL from one source.
 Source :: struct {
 	vertex, fragment: rhi.Shader_Source,
 }
 
 Sources :: [rhi.Shader_Language]Source
+
+// tools/shadergen compiles each <name>.vert and <name>.frag source into
+// generated/<name>.vert<EXTENSION> and generated/<name>.frag<EXTENSION>.
+when rhi.SHADER_LANGUAGE == .GLSL {
+	EXTENSION :: ".glsl"
+	ENTRY_POINTS :: [rhi.Shader_Stage]string {
+		.Vertex   = "main",
+		.Fragment = "main",
+	}
+} else when rhi.SHADER_LANGUAGE == .MSL {
+	EXTENSION :: ".metal"
+	// Must match MSL_ENTRY_POINTS in tools/shadergen.
+	ENTRY_POINTS :: [rhi.Shader_Stage]string {
+		.Vertex   = "vertex_main",
+		.Fragment = "fragment_main",
+	}
+} else {
+	#panic("Generated shaders are not defined for this shader language")
+}
 
 Error :: enum {
 	None,
@@ -47,8 +64,17 @@ create :: proc(device: ^rhi.Device, allocator := context.allocator) -> Library {
 	return {device = device, allocator = allocator, entries = make([dynamic]Entry, allocator)}
 }
 
-// Loads .vert and .frag for GLSL, or one .metal file with vertex_main and
-// fragment_main for MSL. base_path has no extension.
+// Pairs generated stage code for the compiled language.
+generated_sources :: proc(vertex, fragment: string) -> (sources: Sources) {
+	sources[rhi.SHADER_LANGUAGE] = {
+		vertex = {code = vertex, entry_point = ENTRY_POINTS[.Vertex]},
+		fragment = {code = fragment, entry_point = ENTRY_POINTS[.Fragment]},
+	}
+	return
+}
+
+// Loads the generated files for base_path, which is generated/<name> with no
+// extension.
 load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 	if library.device == nil || library.closing {
 		return {}, .Invalid_Library
@@ -78,49 +104,19 @@ load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 		}
 	}
 
-	when rhi.SHADER_LANGUAGE == .GLSL {
-		vertex, vertex_error := read_source(path, ".vert", library.allocator)
-		defer delete(vertex, library.allocator)
-		if vertex_error != .None {
-			return {}, vertex_error
-		}
-
-		fragment, fragment_error := read_source(path, ".frag", library.allocator)
-		defer delete(fragment, library.allocator)
-		if fragment_error != .None {
-			return {}, fragment_error
-		}
-
-		return load_source(
-			library,
-			path,
-			#partial Sources {
-				.GLSL = {
-					vertex = {entry_point = "main", code = string(vertex)},
-					fragment = {entry_point = "main", code = string(fragment)},
-				},
-			},
-		)
-	} else when rhi.SHADER_LANGUAGE == .MSL {
-		module, err := read_source(path, ".metal", library.allocator)
-		defer delete(module, library.allocator)
-		if err != .None {
-			return {}, err
-		}
-
-		return load_source(
-			library,
-			path,
-			#partial Sources {
-				.MSL = {
-					vertex = {code = string(module), entry_point = "vertex_main"},
-					fragment = {code = string(module), entry_point = "fragment_main"},
-				},
-			},
-		)
-	} else {
-		#panic("File loading is not defined for this shader language")
+	vertex, vertex_error := read_source(path, ".vert" + EXTENSION, library.allocator)
+	defer delete(vertex, library.allocator)
+	if vertex_error != .None {
+		return {}, vertex_error
 	}
+
+	fragment, fragment_error := read_source(path, ".frag" + EXTENSION, library.allocator)
+	defer delete(fragment, library.allocator)
+	if fragment_error != .None {
+		return {}, fragment_error
+	}
+
+	return load_source(library, path, generated_sources(string(vertex), string(fragment)))
 }
 
 @(private)

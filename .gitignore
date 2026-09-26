@@ -9,6 +9,8 @@
 !assets/**
 !shaders
 !shaders/**
+!tools
+!tools/**
 !shell.nix
 !build.sh
 !.github
@@ -16,3 +18,4 @@
 !.nvim.lua
 !ols.json
 !odinfmt.json
+generated/

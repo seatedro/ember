@@ -3,6 +3,7 @@ package renderer
 import "../camera"
 import emath "../core/math"
 import "../rhi"
+import "../shaders"
 import "core:math"
 import "core:mem"
 import "core:slice"
@@ -43,14 +44,14 @@ Billboard_View :: struct {
 }
 
 @(private)
-BILLBOARD_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
-	.MSL  = {
-		{entry_point = "vertex_main", code = #load("msl/billboard.metal", string)},
-		{entry_point = "fragment_main", code = #load("msl/billboard.metal", string)},
+BILLBOARD_SOURCES :: [2]rhi.Shader_Source {
+	{
+		entry_point = shaders.ENTRY_POINTS[.Vertex],
+		code = #load(GENERATED + "billboard.vert" + shaders.EXTENSION, string),
 	},
-	.GLSL = {
-		{entry_point = "main", code = #load("glsl/billboard.vert", string)},
-		{entry_point = "main", code = #load("glsl/billboard.frag", string)},
+	{
+		entry_point = shaders.ENTRY_POINTS[.Fragment],
+		code = #load(GENERATED + "billboard.frag" + shaders.EXTENSION, string),
 	},
 }
 
@@ -82,7 +83,7 @@ create_billboard_renderer :: proc(
 		return renderer, .Allocation_Failed
 	}
 
-	sources := BILLBOARD_SOURCES[rhi.SHADER_LANGUAGE]
+	sources := BILLBOARD_SOURCES
 	for stage, i in ([2]rhi.Shader_Stage{.Vertex, .Fragment}) {
 		renderer.shaders[i], err = rhi.create_shader(
 			device,

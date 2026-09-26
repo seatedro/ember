@@ -7,17 +7,18 @@ import "core:mem"
 import "ember:engine"
 import "ember:input"
 import "ember:rhi"
+import "ember:shaders"
 import "ember:ui"
 
 @(private)
-TRIANGLE_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
-	.MSL  = {
-		{entry_point = "vertex_main", code = #load("shaders/triangle.metal", string)},
-		{entry_point = "fragment_main", code = #load("shaders/triangle.metal", string)},
+TRIANGLE_SOURCES :: [2]rhi.Shader_Source {
+	{
+		entry_point = shaders.ENTRY_POINTS[.Vertex],
+		code = #load("shaders/generated/triangle.vert" + shaders.EXTENSION, string),
 	},
-	.GLSL = {
-		{entry_point = "main", code = #load("shaders/triangle.vert", string)},
-		{entry_point = "main", code = #load("shaders/triangle.frag", string)},
+	{
+		entry_point = shaders.ENTRY_POINTS[.Fragment],
+		code = #load("shaders/generated/triangle.frag" + shaders.EXTENSION, string),
 	},
 }
 
@@ -79,7 +80,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		{
 			stage = .Vertex,
 			language = rhi.SHADER_LANGUAGE,
-			source = TRIANGLE_SOURCES[rhi.SHADER_LANGUAGE][0],
+			source = TRIANGLE_SOURCES[0],
 			label = "triangle vertex",
 		},
 	)
@@ -93,7 +94,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		{
 			stage = .Fragment,
 			language = rhi.SHADER_LANGUAGE,
-			source = TRIANGLE_SOURCES[rhi.SHADER_LANGUAGE][1],
+			source = TRIANGLE_SOURCES[1],
 			label = "triangle fragment",
 		},
 	)

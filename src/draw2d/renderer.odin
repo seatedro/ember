@@ -1,18 +1,19 @@
 package draw2d
 
 import "../rhi"
+import "../shaders"
 import "core:math"
 import "core:mem"
 
 @(private)
-QUAD_SOURCES :: #partial [rhi.Shader_Language][2]rhi.Shader_Source {
-	.MSL  = {
-		{entry_point = "vertex_main", code = #load("msl/quad.metal", string)},
-		{entry_point = "fragment_main", code = #load("msl/quad.metal", string)},
+QUAD_SOURCES :: [2]rhi.Shader_Source {
+	{
+		entry_point = shaders.ENTRY_POINTS[.Vertex],
+		code = #load("shaders/generated/quad.vert" + shaders.EXTENSION, string),
 	},
-	.GLSL = {
-		{entry_point = "main", code = #load("glsl/quad.vert", string)},
-		{entry_point = "main", code = #load("glsl/quad.frag", string)},
+	{
+		entry_point = shaders.ENTRY_POINTS[.Fragment],
+		code = #load("shaders/generated/quad.frag" + shaders.EXTENSION, string),
 	},
 }
 
@@ -48,7 +49,7 @@ create :: proc(device: ^rhi.Device) -> (Renderer, Error) {
 		{
 			stage = .Vertex,
 			language = rhi.SHADER_LANGUAGE,
-			source = QUAD_SOURCES[rhi.SHADER_LANGUAGE][0],
+			source = QUAD_SOURCES[0],
 			label = "2D vertex",
 		},
 	)
@@ -61,7 +62,7 @@ create :: proc(device: ^rhi.Device) -> (Renderer, Error) {
 		{
 			stage = .Fragment,
 			language = rhi.SHADER_LANGUAGE,
-			source = QUAD_SOURCES[rhi.SHADER_LANGUAGE][1],
+			source = QUAD_SOURCES[1],
 			label = "2D fragment",
 		},
 	)

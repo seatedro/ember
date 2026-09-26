@@ -1,0 +1,12 @@
+#version 450
+layout(location = 0) in vec2 texture_uv;
+layout(location = 0) out vec4 color;
+layout(std140, binding = 2) uniform Material { mat4 inverse_view_projection; vec4 settings; };
+layout(binding = 0) uniform samplerCube source_texture;
+void main() {
+    vec4 p = inverse_view_projection * vec4(texture_uv * 2.0 - 1.0, 1.0, 1.0);
+    vec3 d = normalize(p.xyz / p.w);
+    float c = cos(settings.y), s = sin(settings.y);
+    d = vec3(c*d.x + s*d.z, d.y, -s*d.x + c*d.z);
+    color = vec4(textureLod(source_texture, d, 0.0).rgb * settings.x, 1.0);
+}

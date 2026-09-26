@@ -30,11 +30,17 @@ Lit_Parameters :: struct {
 
 #assert(size_of(Lit_Parameters) == 32)
 
-MSL_COMMON_SOURCE :: #load("msl/common.metal", string)
+@(private)
+GENERATED :: "shaders/generated/"
 
-GLSL_INSTANCE_SOURCE :: "#version 410 core\n" + string(#load("glsl/instance.glsl"))
-GLSL_MESH_VERTEX_SOURCE :: GLSL_INSTANCE_SOURCE + string(#load("glsl/mesh.vert"))
-GLSL_LIGHTING_SOURCE :: "#version 410 core\n" + string(#load("glsl/lighting.glsl"))
+// Custom mesh shaders pair their fragment stage with this, as the sphere
+// example does.
+MESH_VERTEX_SOURCE :: #load(GENERATED + "mesh.vert" + shaders.EXTENSION, string)
+
+@(private)
+UNLIT_VERTEX_SOURCE :: #load(GENERATED + "unlit.vert" + shaders.EXTENSION, string)
+@(private)
+SCREEN_VERTEX_SOURCE :: #load(GENERATED + "screen.vert" + shaders.EXTENSION, string)
 
 load_builtin_shader :: proc(
 	library: ^shaders.Library,
@@ -43,307 +49,43 @@ load_builtin_shader :: proc(
 	shaders.Shader,
 	shaders.Error,
 ) {
+	name, vertex, fragment: string
 	switch kind {
-	case .Sky:
-		return shaders.load_source(
-			library,
-			"ember/sky",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE + string(#load("msl/sky.metal")),
-					},
-					fragment = {
-						entry_point = "sky_fragment",
-						code = MSL_COMMON_SOURCE + string(#load("msl/sky.metal")),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {entry_point = "main", code = string(#load("glsl/sky.frag"))},
-				},
-			},
-		)
-
-	case .Environment_BRDF:
-		return shaders.load_source(
-			library,
-			"ember/environment_brdf",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE +
-						string(#load("msl/environment_sampling.metal")) +
-						string(#load("msl/environment_brdf.metal")),
-					},
-					fragment = {
-						entry_point = "environment_fragment",
-						code = MSL_COMMON_SOURCE +
-						string(#load("msl/environment_sampling.metal")) +
-						string(#load("msl/environment_brdf.metal")),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {
-						entry_point = "main",
-						code = "#version 410 core\n" +
-						string(#load("glsl/environment_sampling.glsl")) +
-						string(#load("glsl/environment_brdf.frag")),
-					},
-				},
-			},
-		)
-
-	case .Environment_Filter:
-		return shaders.load_source(
-			library,
-			"ember/environment_filter",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE +
-						string(#load("msl/environment_sampling.metal")) +
-						string(#load("msl/environment_filter.metal")),
-					},
-					fragment = {
-						entry_point = "environment_fragment",
-						code = MSL_COMMON_SOURCE +
-						string(#load("msl/environment_sampling.metal")) +
-						string(#load("msl/environment_filter.metal")),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {
-						entry_point = "main",
-						code = "#version 410 core\n" +
-						string(#load("glsl/environment_sampling.glsl")) +
-						string(#load("glsl/environment_filter.frag")),
-					},
-				},
-			},
-		)
-
 	case .Unlit:
-		return shaders.load_source(
-			library,
-			"ember/unlit",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {entry_point = "unlit_vertex", code = MSL_COMMON_SOURCE},
-					fragment = {entry_point = "unlit_fragment", code = MSL_COMMON_SOURCE},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/unlit.vert")),
-					},
-					fragment = {entry_point = "main", code = string(#load("glsl/unlit.frag"))},
-				},
-			},
-		)
+		name, vertex = "ember/unlit", UNLIT_VERTEX_SOURCE
+		fragment = #load(GENERATED + "unlit.frag" + shaders.EXTENSION, string)
 	case .Lit:
-		return shaders.load_source(
-			library,
-			"ember/lit",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "mesh_vertex",
-						code = MSL_COMMON_SOURCE +
-						#load("msl/pbr.metal", string) +
-						#load("msl/environment.metal", string) +
-						#load("msl/lit.metal", string),
-					},
-					fragment = {
-						entry_point = "lit_fragment",
-						code = MSL_COMMON_SOURCE +
-						#load("msl/pbr.metal", string) +
-						#load("msl/environment.metal", string) +
-						#load("msl/lit.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {entry_point = "main", code = GLSL_MESH_VERTEX_SOURCE},
-					fragment = {
-						entry_point = "main",
-						code = GLSL_LIGHTING_SOURCE +
-						string(#load("glsl/pbr.glsl")) +
-						string(#load("glsl/environment.glsl")) +
-						string(#load("glsl/normal.glsl")) +
-						string(#load("glsl/lit.frag")),
-					},
-				},
-			},
-		)
+		name, vertex = "ember/lit", MESH_VERTEX_SOURCE
+		fragment = #load(GENERATED + "lit.frag" + shaders.EXTENSION, string)
 	case .Lit_Shadowed:
-		return shaders.load_source(
-			library,
-			"ember/lit-shadowed",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "mesh_vertex",
-						code = MSL_COMMON_SOURCE +
-						#load("msl/pbr.metal", string) +
-						#load("msl/environment.metal", string) +
-						#load("msl/shadow.metal", string) +
-						#load("msl/lit_shadowed.metal", string),
-					},
-					fragment = {
-						entry_point = "lit_fragment",
-						code = MSL_COMMON_SOURCE +
-						#load("msl/pbr.metal", string) +
-						#load("msl/environment.metal", string) +
-						#load("msl/shadow.metal", string) +
-						#load("msl/lit_shadowed.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {entry_point = "main", code = GLSL_MESH_VERTEX_SOURCE},
-					fragment = {
-						entry_point = "main",
-						code = GLSL_LIGHTING_SOURCE +
-						string(#load("glsl/shadow.glsl")) +
-						string(#load("glsl/pbr.glsl")) +
-						string(#load("glsl/environment.glsl")) +
-						string(#load("glsl/normal.glsl")) +
-						string(#load("glsl/lit_shadowed.frag")),
-					},
-				},
-			},
-		)
+		name, vertex = "ember/lit-shadowed", MESH_VERTEX_SOURCE
+		fragment = #load(GENERATED + "lit_shadowed.frag" + shaders.EXTENSION, string)
 	case .Shadow_Depth:
-		return shaders.load_source(
-			library,
-			"ember/shadow-depth",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "shadow_vertex",
-						code = MSL_COMMON_SOURCE + #load("msl/shadow_depth.metal", string),
-					},
-					fragment = {
-						entry_point = "shadow_fragment",
-						code = MSL_COMMON_SOURCE + #load("msl/shadow_depth.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/unlit.vert")),
-					},
-					fragment = {entry_point = "main", code = "#version 410 core\nvoid main() {}"},
-				},
-			},
-		)
+		name, vertex = "ember/shadow-depth", UNLIT_VERTEX_SOURCE
+		fragment = #load(GENERATED + "shadow_depth.frag" + shaders.EXTENSION, string)
 	case .Grid:
-		return shaders.load_source(
-			library,
-			"ember/grid",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {entry_point = "grid_vertex", code = MSL_COMMON_SOURCE},
-					fragment = {entry_point = "grid_fragment", code = MSL_COMMON_SOURCE},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/grid.vert")),
-					},
-					fragment = {entry_point = "main", code = string(#load("glsl/grid.frag"))},
-				},
-			},
-		)
-	case .Bloom:
-		return shaders.load_source(
-			library,
-			"ember/bloom",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE + #load("msl/bloom.metal", string),
-					},
-					fragment = {
-						entry_point = "bloom_fragment",
-						code = MSL_COMMON_SOURCE + #load("msl/bloom.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {entry_point = "main", code = string(#load("glsl/bloom.frag"))},
-				},
-			},
-		)
-	case .Downsample:
-		return shaders.load_source(
-			library,
-			"ember/downsample",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE + #load("msl/downsample.metal", string),
-					},
-					fragment = {
-						entry_point = "downsample_fragment",
-						code = MSL_COMMON_SOURCE + #load("msl/downsample.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {
-						entry_point = "main",
-						code = string(#load("glsl/downsample.frag")),
-					},
-				},
-			},
-		)
+		name = "ember/grid"
+		vertex = #load(GENERATED + "grid.vert" + shaders.EXTENSION, string)
+		fragment = #load(GENERATED + "grid.frag" + shaders.EXTENSION, string)
 	case .Presentation:
-		return shaders.load_source(
-			library,
-			"ember/presentation",
-			#partial shaders.Sources {
-				.MSL = {
-					vertex = {
-						entry_point = "screen_vertex",
-						code = MSL_COMMON_SOURCE + #load("msl/present.metal", string),
-					},
-					fragment = {
-						entry_point = "present_fragment",
-						code = MSL_COMMON_SOURCE + #load("msl/present.metal", string),
-					},
-				},
-				.GLSL = {
-					vertex = {
-						entry_point = "main",
-						code = GLSL_INSTANCE_SOURCE + string(#load("glsl/present.vert")),
-					},
-					fragment = {entry_point = "main", code = string(#load("glsl/present.frag"))},
-				},
-			},
-		)
+		name, vertex = "ember/presentation", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "present.frag" + shaders.EXTENSION, string)
+	case .Bloom:
+		name, vertex = "ember/bloom", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "bloom.frag" + shaders.EXTENSION, string)
+	case .Downsample:
+		name, vertex = "ember/downsample", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "downsample.frag" + shaders.EXTENSION, string)
+	case .Environment_Filter:
+		name, vertex = "ember/environment_filter", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "environment_filter.frag" + shaders.EXTENSION, string)
+	case .Environment_BRDF:
+		name, vertex = "ember/environment_brdf", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "environment_brdf.frag" + shaders.EXTENSION, string)
+	case .Sky:
+		name, vertex = "ember/sky", SCREEN_VERTEX_SOURCE
+		fragment = #load(GENERATED + "sky.frag" + shaders.EXTENSION, string)
 	}
 
-	return {}, .GPU_Failed
+	return shaders.load_source(library, name, shaders.generated_sources(vertex, fragment))
 }

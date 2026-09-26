@@ -110,6 +110,13 @@ esac
 
 mkdir -p "$OUT_DIR"
 
+SHADERGEN="build/tools/shadergen"
+if [ ! -x "$SHADERGEN" ] || [ -n "$(find tools/shadergen -name '*.odin' -newer "$SHADERGEN")" ]; then
+    mkdir -p "$(dirname "$SHADERGEN")"
+    odin build tools/shadergen -out:"$SHADERGEN"
+fi
+"$SHADERGEN" -include:src src "$GAME_DIR"
+
 echo "Building ember $TARGET ($BUILD, $BACKEND)"
 odin build src/entrypoint $ODIN_FLAGS
 mkdir -p "$LINK_DIR"

@@ -88,23 +88,10 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	banded, shader_error := shader.load_source(
 		&game.shaders,
 		"game/banded",
-		#partial shader.Sources {
-			.MSL = {
-				vertex = {entry_point = "mesh_vertex", code = render.MSL_COMMON_SOURCE},
-				fragment = {
-					entry_point = "banded_fragment",
-					code = render.MSL_COMMON_SOURCE + #load("assets/shaders/banded.metal", string),
-				},
-			},
-			.GLSL = {
-				vertex = {entry_point = "main", code = render.GLSL_MESH_VERTEX_SOURCE},
-				fragment = {
-					entry_point = "main",
-					code = render.GLSL_LIGHTING_SOURCE +
-					string(#load("assets/shaders/banded.frag")),
-				},
-			},
-		},
+		shader.generated_sources(
+			render.MESH_VERTEX_SOURCE,
+			#load("assets/shaders/generated/banded.frag" + shader.EXTENSION, string),
+		),
 	)
 	if shader_error != .None {
 		log.errorf("Load banded shader: %v", shader_error)

@@ -3,7 +3,9 @@
 }:
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
+    glslang
     odin
+    spirv-cross
   ];
   buildInputs = with pkgs; [
     glfw
