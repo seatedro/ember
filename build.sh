@@ -3,11 +3,11 @@
 set -e
 
 usage() {
-    echo "usage: ./build.sh [options]"
+    echo "usage: ./build.sh --example NAME [options]"
     echo ""
     echo "options:"
     echo "  -h, --help    show this help"
-    echo "  --example NAME build an example from examples/NAME"
+    echo "  --example NAME build the example in examples/NAME"
     echo "  --backend opengl|metal (default: metal on macOS, opengl elsewhere; Metal requires macOS 13+)"
     echo ""
     echo "environment:"
@@ -16,8 +16,8 @@ usage() {
     echo "  BUILD=dist    aggressively optimized distribution build"
     echo ""
     echo "examples:"
-    echo "  ./build.sh"
-    echo "  BUILD=release ./build.sh"
+    echo "  ./build.sh --example physics"
+    echo "  BUILD=release ./build.sh --example physics"
     echo "  ./build.sh --example triangle"
     echo "  ./build.sh --backend metal --example triangle"
     echo ""
@@ -77,20 +77,19 @@ case "$BACKEND" in
         exit 1
         ;;
 esac
-GAME_DIR="game"
-TARGET="game"
-LINK_TARGET="$BACKEND/$TARGET"
-if [ -n "$EXAMPLE" ]; then
-    GAME_DIR="examples/$EXAMPLE"
-    if [ ! -f "$GAME_DIR/main.odin" ]; then
-        echo "error: unknown example '$EXAMPLE'" >&2
-        exit 1
-    fi
-    OUT_DIR="$OUT_DIR/examples"
-    TARGET="$EXAMPLE"
-    LINK_DIR="$LINK_DIR/examples"
-    LINK_TARGET="../$BACKEND/examples/$TARGET"
+if [ -z "$EXAMPLE" ]; then
+    echo "error: choose an example with --example NAME" >&2
+    exit 1
 fi
+GAME_DIR="examples/$EXAMPLE"
+if [ ! -f "$GAME_DIR/main.odin" ]; then
+    echo "error: unknown example '$EXAMPLE'" >&2
+    exit 1
+fi
+OUT_DIR="$OUT_DIR/examples"
+TARGET="$EXAMPLE"
+LINK_DIR="$LINK_DIR/examples"
+LINK_TARGET="../$BACKEND/examples/$TARGET"
 ODIN_FLAGS="-define:EMBER_BACKEND=$BACKEND -collection:ember=src -collection:game=$GAME_DIR -out:$OUT_DIR/$TARGET"
 
 case "$BUILD" in
