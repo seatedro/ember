@@ -1,20 +1,28 @@
-package physics
+package collision
 
-import emath "../core/math"
+import emath "../../core/math"
 import "core:math"
 
-@(private)
-ray_shape :: proc(
+// Where a ray or moving shape first touches the target. fraction runs along the
+// displacement, so 1 is the end. normal is the target's surface normal at
+// position. A cast that starts inside reports fraction 0 and a zero normal.
+Cast_Hit :: struct {
+	fraction:            f32,
+	position, normal:    emath.Vec3,
+	started_overlapping: bool,
+}
+
+// Exact ray test against one shape. Only hits within the displacement count.
+raycast :: proc(
 	origin, displacement: emath.Vec3,
 	shape: Shape,
-	pose: emath.Pose,
+	position: emath.Vec3,
+	orientation: emath.Quaternion,
 ) -> (
-	f32,
-	emath.Vec3,
-	bool,
+	Cast_Hit,
 	bool,
 ) {
-	basis := convex(shape, pose, origin)
+	basis := convex(shape, position, orientation, origin)
 	local, delta: [3]f64
 	for i in 0 ..< 3 {
 		local[i] = dot64(-basis.center, basis.axes[i])
@@ -38,7 +46,7 @@ ray_shape :: proc(
 			inside = inside && abs(local[i]) <= half
 			if delta[i] == 0 {
 				if abs(local[i]) > half {
-					return 0, {}, false, false
+					return {}, false
 				}
 				continue
 			}
@@ -51,7 +59,7 @@ ray_shape :: proc(
 			}
 			hi = min(hi, exit)
 			if lo > hi {
-				return 0, {}, false, false
+				return {}, false
 			}
 		}
 		fraction = lo
@@ -59,7 +67,7 @@ ray_shape :: proc(
 		half, radius := f64(s.half_height), f64(s.radius)
 		nearest := local - [3]f64{0, clamp(local.y, -half, half), 0}
 		inside = dot64(nearest, nearest) <= radius * radius
-		// The capsule is the union of a finite cylinder and its two end spheres.
+		// A capsule is a cylinder with a sphere on each end.
 		flat, flat_delta := local, delta
 		flat.y, flat_delta.y = 0, 0
 		cylinder := ray_sphere(flat, flat_delta, radius)
@@ -77,10 +85,10 @@ ray_shape :: proc(
 		}
 	}
 	if inside {
-		return 0, {}, true, true
+		return {position = origin, started_overlapping = true}, true
 	}
 	if fraction > 1 {
-		return 0, {}, false, false
+		return {}, false
 	}
 	world_normal: [3]f64
 	for i in 0 ..< 3 {
@@ -90,7 +98,12 @@ ray_shape :: proc(
 	if magnitude > 0 {
 		world_normal /= magnitude
 	}
-	return f32(fraction), emath.Vec3(world_normal), false, true
+	return {
+			fraction = f32(fraction),
+			position = origin + displacement * f32(fraction),
+			normal = emath.Vec3(world_normal),
+		},
+		true
 }
 
 @(private)
@@ -105,7 +118,8 @@ ray_sphere :: proc(origin, delta: [3]f64, radius: f64) -> f64 {
 	if discriminant < 0 {
 		return 2
 	}
-	// c / (-b + sqrt(D)) avoids subtracting nearly equal values at the entry.
+	// Writing the entry root as c / (-b + sqrt(D)) avoids subtracting two
+	// nearly equal numbers.
 	denominator := -b + math.sqrt(discriminant)
 	if denominator == 0 {
 		return 0

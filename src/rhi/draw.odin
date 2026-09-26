@@ -62,7 +62,8 @@ bind_uniform_buffer :: proc(device: ^Device, binding: u32, handle: Buffer_Handle
 	return .None
 }
 
-// Resolve handles again at draw time: a bound resource may have been destroyed.
+// Look handles up again at draw time, since a bound resource may have been
+// destroyed.
 bind_pipeline :: proc(device: ^Device, handle: Pipeline_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -181,8 +182,8 @@ validate_indexed_range :: proc(
 	return .None
 }
 
-// Index values must refer to initialized vertices in the bound stream. The RHI
-// validates the index byte range; it does not read GPU indices back to the CPU.
+// Indices must point at initialized vertices in the bound stream. The RHI
+// checks the index byte range but can't read GPU indices back.
 draw_indexed :: proc(device: ^Device, desc: Draw_Indexed_Desc) -> Error {
 	if err := validate_device(device); err != .None {
 		return err

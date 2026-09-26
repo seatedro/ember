@@ -39,8 +39,8 @@ Pipeline :: struct {
 	requirements: types.Pipeline_Requirements,
 }
 
-// Use impl_* for operations with explicit error handling. The vendor's debug
-// wrappers consume glGetError themselves, which would hide allocation failures.
+// Use the impl_* calls when we check errors ourselves. The vendor's debug
+// wrappers call glGetError on their own, which would hide allocation failures.
 check_errors :: proc(operation: string) -> types.Error {
 	result := types.Error.None
 
@@ -172,8 +172,8 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	return backend, .None
 }
 
-// OpenGL needs no per-frame command buffer. These boundaries allow other
-// backends to acquire a drawable and record the same RHI operations.
+// OpenGL doesn't need a per-frame command buffer. These hooks exist so other
+// backends can grab a drawable and record the same RHI calls.
 begin_frame :: proc(device: ^Device, size: [2]i32) -> types.Error {
 	return check_errors("begin frame")
 }
@@ -191,8 +191,8 @@ end_frame :: proc(device: ^Device, present: bool) -> types.Error {
 	return .None
 }
 
-// Called after the RHI has ended outstanding work and destroyed all resources.
-// The platform owns the OpenGL context and outlives this device.
+// Called after the RHI has finished all work and destroyed every resource. The
+// platform owns the OpenGL context, which outlives this device.
 destroy_device :: proc(device: ^Device) -> types.Error {
 	device^ = {}
 	return .None
@@ -227,7 +227,8 @@ create_buffer :: proc(
 		return {}, err
 	}
 
-	// COPY_WRITE avoids changing vertex state or requiring a bound VAO for indices.
+	// Binding to COPY_WRITE avoids touching vertex state or needing a VAO bound
+	// for index buffers.
 	defer gl.impl_BindBuffer(gl.COPY_WRITE_BUFFER, u32(previous))
 
 	native: Buffer
@@ -487,7 +488,8 @@ create_shader :: proc(
 		return {}, .Backend_Failed
 	}
 
-	// Explicit length accepts Odin string slices without a trailing zero.
+	// Pass an explicit length so Odin string slices work without a trailing
+	// zero.
 	source := cstring(raw_data(desc.source.code))
 	length := i32(len(desc.source.code))
 	gl.impl_ShaderSource(native.id, 1, &source, &length)
@@ -969,7 +971,7 @@ update_buffer :: proc(device: ^Device, native: ^Buffer, offset: u64, data: []u8)
 		return err
 	}
 
-	// BufferSubData copies the bytes and synchronizes earlier uses implicitly.
+	// BufferSubData copies the bytes and waits on earlier uses for us.
 	gl.impl_BufferSubData(gl.COPY_WRITE_BUFFER, int(offset), len(data), raw_data(data))
 
 	return check_errors("update buffer")
@@ -1307,7 +1309,8 @@ configure_textures :: proc(
 	return check_errors("configure texture bindings")
 }
 
-// Recognize unsupported sampler types too, so they cannot bypass declaration checks.
+// Recognize unsupported sampler types too, so they can't slip past the
+// declaration checks.
 is_sampler_uniform :: proc(kind: u32) -> bool {
 	switch kind {
 	case gl.SAMPLER_1D,

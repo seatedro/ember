@@ -83,8 +83,8 @@ create :: proc(allocator := context.allocator) -> Context {
 	}
 }
 
-// The parent is folded into the FNV offset basis, so the same label under two
-// parents hashes differently without an ID stack. Zero is reserved for "no ID".
+// The parent is mixed into the FNV starting value, so the same label under two
+// parents gets different IDs without an ID stack. Zero means no ID.
 id :: proc(name: string, parent: ID = 0) -> ID {
 	FNV64_BASIS :: 0xcbf29ce484222325
 	result := hash.fnv64a(transmute([]u8)name, FNV64_BASIS ~ u64(parent))

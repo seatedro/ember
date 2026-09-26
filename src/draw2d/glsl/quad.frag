@@ -12,7 +12,8 @@ float median(vec3 value) {
 void main() {
     vec4 sample_color = texture(source_texture, texture_uv);
     if (pixel_range > 0.0) {
-        // Convert atlas distances to screen pixels so edge coverage follows text scale.
+        // Convert atlas distances to screen pixels so edges stay crisp at any
+        // text size.
         vec2 unit_range = vec2(pixel_range) / vec2(textureSize(source_texture, 0));
         float screen_range = max(0.5 * dot(unit_range, 1.0 / fwidth(texture_uv)), 1.0);
         float coverage = clamp(screen_range * (median(sample_color.rgb) - 0.5) + 0.5, 0.0, 1.0);

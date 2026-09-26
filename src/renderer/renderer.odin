@@ -23,8 +23,9 @@ Renderer :: struct {
 	lighting_uniforms:       rhi.Buffer_Handle,
 }
 
-// Fixed rather than derived from the RHI limit: msl/lit_shadowed.metal binds the
-// shadow map at texture(7) by attribute, while GLSL follows this constant by name.
+// Hard-coded instead of taken from the RHI limit, because
+// msl/lit_shadowed.metal binds the shadow map at texture(7) directly. GLSL
+// looks it up by name.
 @(private)
 SHADOW_TEXTURE_BINDING :: 7
 
@@ -141,8 +142,9 @@ set_view :: proc(
 	}
 
 	view_projection := projection * camera.view_matrix(view)
-	// Cube face storage follows the sampler direction convention on both APIs.
-	// Metal needs a vertical projection flip; its backend also reverses winding.
+	// Both APIs store cube faces in the sampler's direction convention. Metal
+	// needs the projection flipped vertically, and its backend flips winding to
+	// match.
 	when graphics.METAL {
 		target := pool.get(&renderer.device.render_targets, renderer.device.pass_target)
 		if target != nil && target.kind == .Cube {

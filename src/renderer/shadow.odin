@@ -127,7 +127,7 @@ draw_directional_shadow :: proc(
 	}
 
 	clear_draw_list(&shadow.draws)
-	// Camera visibility does not determine whether an object can cast a shadow.
+	// Objects outside the camera's view can still cast shadows.
 	for entry in list.items {
 		if entry.item.order != .Opaque {
 			continue

@@ -2,14 +2,10 @@ package rhi
 
 import "backend"
 
-// Frames contain all passes for one presentation. Resource creation and updates
-// can also happen outside a frame. Size is the current drawable size in pixels.
+// A frame holds every pass for one present. Resources can be created and
+// updated outside a frame too. size is the drawable size in pixels.
 //
-// TODO: Record passes, bindings, and draws into a command list per frame and
-// submit it at end_frame, instead of executing each call on the backend as it
-// arrives. Recording is what a render thread and draw sorting need; per-draw
-// uniform bytes must then be copied into frame-owned storage. The typed array
-// form is described in .docs/rhi.md (see .docs/decisions.md RHI-6).
+// TODO: Record into a command list and submit at end_frame.
 begin_frame :: proc(device: ^Device, size: [2]i32) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -33,8 +29,8 @@ begin_frame :: proc(device: ^Device, size: [2]i32) -> Error {
 	return .None
 }
 
-// Present only after every pass is closed. Once submitted to the backend, the
-// frame is consumed even if submission or GPU execution fails.
+// Presents only after every pass is closed. Once handed to the backend, the
+// frame is used up even if submitting or running it fails.
 end_frame :: proc(device: ^Device) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -51,8 +47,8 @@ end_frame :: proc(device: ^Device) -> Error {
 	return finish_frame(device, true)
 }
 
-// Close outstanding work without presenting. This does not roll back writes to
-// resources. It is also safe to call when there is no active frame.
+// Closes any open work without presenting. Writes to resources aren't undone.
+// Safe to call with no active frame.
 discard_frame :: proc(device: ^Device) -> Error {
 	if err := validate_device(device); err != .None {
 		return err

@@ -74,7 +74,7 @@ create_mesh :: proc(
 		index_bytes,
 	)
 	if err != .None {
-		// If cleanup fails, return the remaining handle so the caller can release it.
+		// If cleanup fails, hand back what's left so the caller can release it.
 		release_mesh(device, &mesh)
 		return
 	}

@@ -13,7 +13,7 @@ transform_sphere :: proc(sphere: Bounding_Sphere, transform: Transform) -> Bound
 
 	return {
 		center = transform.position + quaternion_rotate(quaternion_normalize(transform.orientation), sphere.center * transform.scale),
-		// The largest scale bounds every direction under T * R * S.
+		// The largest scale is the most any direction can stretch.
 		radius = sphere.radius * max(transform.scale.x, transform.scale.y, transform.scale.z),
 	}
 }

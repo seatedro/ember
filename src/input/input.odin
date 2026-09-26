@@ -16,10 +16,7 @@ Button_State :: struct {
 	repeated:  bool,
 }
 
-// TODO: Feed this state from an event queue instead of directly from window
-// callbacks. Per-frame flags lose the order between keys, collapse repeated
-// presses of one key within a frame, and cannot stamp commands with a tick
-// for replay. Keep the polled queries as the game-facing API (see .docs/decisions.md ENG-7).
+// TODO: Feed this from an event queue.
 State :: struct {
 	keys:                 [Key]Button_State,
 	text:                 [dynamic]rune,
@@ -105,7 +102,7 @@ record_scroll :: proc(state: ^State, offset: [2]f64) {
 	state.scroll_delta += offset
 }
 
-// Discard the old cursor position so regaining focus cannot cause a jump.
+// Forget the old cursor position so getting focus back doesn't cause a jump.
 record_focus :: proc(state: ^State, focused: bool) {
 	if state.focused == focused {
 		return

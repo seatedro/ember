@@ -45,7 +45,7 @@ Pipeline :: struct {
 	settings:                           types.Pipeline_Settings,
 }
 
-// Indices are stored plus one so zero denotes an unused RHI binding.
+// Indices are stored plus one, so zero means the binding is unused.
 Stage_Bindings :: struct {
 	uniforms:           [types.MAX_UNIFORM_BINDINGS]u8,
 	textures, samplers: [types.MAX_TEXTURE_BINDINGS]u8,
@@ -180,8 +180,8 @@ begin_frame :: proc(device: ^Device, size: [2]i32) -> types.Error {
 	return .None
 }
 
-// Keep up to three frames in flight. Metal retains encoded resources, including
-// allocations replaced by later buffer updates or render-target resizes.
+// Allow up to three frames in flight. Metal holds onto every resource a frame
+// encoded, including buffers and targets that were replaced later.
 end_frame :: proc(device: ^Device, present: bool) -> types.Error {
 	if device.encoder != nil {
 		end_pass(device)
@@ -222,7 +222,8 @@ wait_idle :: proc(device: ^Device) -> types.Error {
 			result = err
 		}
 	}
-	// An open, unsubmitted command buffer also retains its encoded resources.
+	// An open command buffer that hasn't been submitted still holds its
+	// resources.
 	return result
 }
 
@@ -251,8 +252,8 @@ create_buffer :: proc(
 }
 
 update_buffer :: proc(device: ^Device, native: ^Buffer, offset: u64, data: []u8) -> types.Error {
-	// Replacing the allocation preserves data referenced by earlier draws in an
-	// open frame. Their command buffer retains the previous allocation.
+	// Swapping in a new allocation keeps the data that earlier draws in this
+	// frame refer to; their command buffer still holds the old one.
 	old := native.object
 	replacement := device.gpu->newBufferWithLength(old->length(), MTL.ResourceStorageModeShared)
 	if replacement == nil {
@@ -326,7 +327,7 @@ create_pipeline :: proc(
 	Pipeline,
 	types.Error,
 ) {
-	// Metal vertex strides are limited to 2048 bytes.
+	// Metal limits vertex strides to 2048 bytes.
 	if settings.layout.stride > 2048 || settings.instance_layout.stride > 2048 {
 		return {}, .Invalid_Vertex_Layout
 	}
@@ -364,8 +365,8 @@ create_pipeline :: proc(
 		}
 	}
 
-	// The RHI pipeline can be used on the window or any supported target format.
-	// Build each state now so later draws cannot trigger shader compilation.
+	// An RHI pipeline can draw to the window or any supported target format.
+	// Build every state now so no draw has to compile shaders later.
 	for format, i in COLOR_FORMATS {
 		if settings.depth_only != (i == 4) {
 			continue
@@ -553,7 +554,8 @@ reflect_bindings :: proc(
 				return .Invalid_Texture_Binding
 			}
 
-			// MSL samplers use the texture argument name followed by _sampler.
+			// In MSL, a texture's sampler is named after it with _sampler on
+			// the end.
 			for binding in textures {
 				if strings.has_suffix(name, "_sampler") && name[:len(name) - 8] == binding.name {
 					stage.samplers[binding.binding] = u8(index + 1)
@@ -787,8 +789,8 @@ create_texture :: proc(
 		}
 	}
 	if len(pixels) != 0 {
-		// 2D images use the RHI bottom-left origin; cube faces already use
-		// the native direction convention shared by both backends.
+		// 2D images use the RHI's bottom-left origin. Cube faces already use
+		// the direction convention both backends share.
 		flipped, error := make([]u8, len(pixels))
 		if error != .None {
 			return {}, .Allocation_Failed

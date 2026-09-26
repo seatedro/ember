@@ -82,7 +82,7 @@ destroy_draw_list :: proc(list: ^Draw_List) {
 	list^ = {}
 }
 
-// Entries borrow GPU resources; keep them alive until the list is drawn.
+// Entries borrow GPU resources, so keep those alive until the list is drawn.
 add_draw :: proc(list: ^Draw_List, item: Draw_Item) -> Error {
 	if item.order < .Opaque || item.order > .Transparent {
 		return .Invalid_Draw

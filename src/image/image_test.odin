@@ -5,8 +5,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:testing"
 
-// PNG signature and an IHDR chunk claiming the given size. Enough for the
-// header pass; the file has no pixel data, so decoding it would fail.
+// Writes a PNG signature and an IHDR chunk with the given size. That's enough
+// for the header check; there's no pixel data, so a full decode would fail.
 write_png_header :: proc(t: ^testing.T, name: string, width, height: u32) -> string {
 	directory, dir_err := os.temp_directory(context.temp_allocator)
 	testing.expect(t, dir_err == nil)

@@ -8,33 +8,39 @@ import "ember:ui"
 
 init_queries :: proc(game: ^State) -> bool {
 	world := &game.world.physics
-	_, err := physics.create_collider(world, game.probe_body, physics.Sphere{1.4})
+	err: physics.Error
+	game.probe_colliders[0], err = physics.create_collider(
+		world,
+		game.probe_body,
+		physics.Sphere{1.4},
+	)
 	if !check_physics(err) {
 		return false
 	}
-	_, err = physics.create_collider(
+	game.probe_colliders[1], err = physics.create_collider(
 		world,
 		game.probe_body,
 		physics.Sphere{0.3},
-		local_pose = {position = {2, 0, 0}, orientation = 1},
+		local_position = {2, 0, 0},
 	)
 	if !check_physics(err) {
 		return false
 	}
 	obstacles := [2]struct {
-		shape: physics.Shape,
-		pose:  emath.Pose,
+		shape:       physics.Shape,
+		position:    emath.Vec3,
+		orientation: emath.Quaternion,
 	} {
-		{
-			physics.Box{{0.8, 1.3, 0.8}},
-			{position = {3, 0, -2}, orientation = emath.quaternion_angle_axis(0.35, {0, 1, 0})},
-		},
-		{physics.Capsule{0.6, 0.9}, {position = {-3, 0, 2}, orientation = 1}},
+		{physics.Box{{0.8, 1.3, 0.8}}, {3, 0, -2}, emath.quaternion_angle_axis(0.35, {0, 1, 0})},
+		{physics.Capsule{0.6, 0.9}, {-3, 0, 2}, 1},
 	}
 	for obstacle in obstacles {
 		body, error := physics.create_body(
 			world,
-			{motion = .Static, state = {pose = obstacle.pose}},
+			{
+				motion = .Static,
+				state = {position = obstacle.position, orientation = obstacle.orientation},
+			},
 		)
 		if !check_physics(error) {
 			return false
@@ -84,7 +90,8 @@ update_queries :: proc(game: ^State) -> bool {
 		game.query_hit, game.query_found, err = physics.cast_shape(
 			world,
 			query_shape(game),
-			{position = origin, orientation = 1},
+			origin,
+			1,
 			displacement,
 			filter,
 		)
@@ -92,7 +99,8 @@ update_queries :: proc(game: ^State) -> bool {
 		_, game.query_total, err = physics.overlap_shape(
 			world,
 			query_shape(game),
-			{position = origin, orientation = 1},
+			origin,
+			1,
 			game.query_overlaps[:],
 			filter,
 		)
@@ -103,7 +111,8 @@ update_queries :: proc(game: ^State) -> bool {
 query_lines :: proc(game: ^State) -> bool {
 	render.clear_debug_lines(&game.debug_lines)
 	game.debug_error = .None
-	// Queries use the last simulation pose, so their debug geometry uses it too.
+	// Queries see the last simulation state, so draw their debug shapes from it
+	// too.
 	if !check_physics(physics.debug_world(&game.world.physics, emit_collider_line, game)) {
 		return false
 	}
@@ -114,12 +123,7 @@ query_lines :: proc(game: ^State) -> bool {
 	}
 	if game.query_mode != 0 {
 		if !check_physics(
-			physics.debug_shape(
-				query_shape(game),
-				{position = origin, orientation = 1},
-				emit_query_shape,
-				game,
-			),
+			physics.debug_shape(query_shape(game), origin, 1, emit_query_shape, game),
 		) {
 			return false
 		}
@@ -136,7 +140,8 @@ query_lines :: proc(game: ^State) -> bool {
 			if !check_physics(
 				physics.debug_shape(
 					query_shape(game),
-					{position = origin + displacement * hit.fraction, orientation = 1},
+					origin + displacement * hit.fraction,
+					1,
 					emit_query_shape,
 					game,
 				),
@@ -243,7 +248,7 @@ query_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		return false
 	}
 	rect, err = ui.next(column, 48)
-	if !check_ui(err) || !update_queries(game) {
+	if !check_ui(err) {
 		return false
 	}
 	buffer: [128]u8

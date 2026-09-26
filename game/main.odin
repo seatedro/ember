@@ -23,8 +23,14 @@ State :: struct {
 	query_hit:                                               physics.Query_Hit,
 	query_overlaps:                                          [8]physics.Overlap_Hit,
 	probe, probe_marker:                                     scene.Object,
-	probe_body:                                              physics.Body_Handle,
+	probe_body, paddle:                                      physics.Body_Handle,
+	probe_colliders:                                         [2]physics.Collider_Handle,
+	sensor:                                                  physics.Collider_Handle,
 	probe_thrust, probe_impulse, probe_spin, physics_failed: bool,
+	gravity, paddle_moving:                                  bool,
+	paddle_time, probe_friction, probe_restitution:          f32,
+	peak_impulse:                                            f32,
+	contact_begins, contact_ends, colliders_in_sensor:       int,
 	world:                                                   scene.Scene,
 	simulation:                                              ^engine.Clock,
 	renderer:                                                render.Renderer,
@@ -63,6 +69,7 @@ configure :: proc() -> engine.Config {
 		update = update,
 		fixed_update = fixed_update,
 		fixed_timestep = 1.0 / 60.0,
+		late_update = late_update,
 		draw = draw,
 		quit = quit,
 	}
@@ -72,7 +79,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 	game := cast(^State)userdata
 	game^ = {
 		orbit = INITIAL_ORBIT,
-		physics_tab = 1,
+		physics_tab = 2,
 		query_x = -5,
 		query_probe = true,
 		simulation = &app.simulation,
@@ -221,6 +228,13 @@ fixed_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
 	update_physics(game, dt)
 }
 
+late_update :: proc(app: ^engine.Context, userdata: rawptr, dt: f32) {
+	game := cast(^State)userdata
+	if game.physics_tab == 1 && !update_queries(game) {
+		game.physics_failed = true
+	}
+}
+
 reset_simulation :: proc(game: ^State) {
 	engine.reset_clock(game.simulation)
 	reset_physics(game)
@@ -261,8 +275,14 @@ draw :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		projection,
 		{ambient = {0.15, 0.15, 0.18}, directional_lights = lights[:]},
 	)
-	if draw_error == .None && game.physics_tab == 1 {
-		if !update_queries(game) || !query_lines(game) {
+	if draw_error == .None && game.physics_tab != 0 {
+		lines_ok: bool
+		if game.physics_tab == 1 {
+			lines_ok = query_lines(game)
+		} else {
+			lines_ok = contact_lines(game)
+		}
+		if !lines_ok {
 			render.end_pass(&game.renderer)
 			return false
 		}

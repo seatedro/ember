@@ -25,7 +25,7 @@ float3 pbr_brdf(float3 albedo, float metallic, float roughness, float3 normal, f
     float3 fresnel = f0 + (max(float3(1.0 - roughness), f0) - f0) * pow(1.0 - vdoth, 5.0);
     float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * albedo;
     float3 specular = fresnel * distribution * geometry / max(0.00001, 4.0 * ndotl * ndotv);
-    // Cap the specular term to limit extreme highlights from punctual lights.
+    // Cap the specular term so point lights can't make extreme highlights.
     return (diffuse + min(specular, float3(10.0))) * ndotl;
 }
 
@@ -34,7 +34,7 @@ float3 pbr_lighting(float3 position, float3 normal, float3 view_direction, float
     normal = normalize(normal);
     float3 view = pbr_direction(view_direction);
     metallic = clamp(metallic, 0.0, 1.0);
-    // A perfectly smooth GGX surface is singular under a punctual light.
+    // A perfectly smooth GGX surface blows up under a light with no size.
     roughness = clamp(roughness, 0.05, 1.0);
     float3 illumination = lighting.ambient.rgb * albedo * (1.0 - metallic);
     for (uint i = 0; i < lighting.point_light_count; ++i) {

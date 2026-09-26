@@ -18,9 +18,9 @@ Environment :: struct {
 	ready, brdf_ready:                            bool,
 }
 
-// Hazel's sizes (Renderer.cpp CreateEnvironmentMap; its BRDF LUT is a 512² image
-// on disk). The radiance resolution stays a parameter because it should follow
-// the source: a rendered sky has nothing to keep at 1024, a photographed HDRI does.
+// The irradiance and BRDF sizes are fixed. The radiance size is a parameter
+// because it should match the source: a rendered sky doesn't need 1024, but a
+// photographed HDRI does.
 IRRADIANCE_RESOLUTION :: 32
 BRDF_LUT_RESOLUTION :: 512
 MAX_ENVIRONMENT_SAMPLES :: 4096
@@ -139,8 +139,8 @@ create_environment :: proc(
 	return
 }
 
-// The callback draws an ordinary view into the active face. Capture all six
-// faces before filtering, and exclude the reflecting object when appropriate.
+// The callback draws a normal view into the current cube face. Capture all six
+// faces before filtering, and leave out the reflecting object if there is one.
 Capture_Draw :: proc(
 	renderer: ^Renderer,
 	view: camera.Camera,

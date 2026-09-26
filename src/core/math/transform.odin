@@ -1,18 +1,18 @@
 package ember_math
 
-// Object-local coordinates to world coordinates. The identity pose is
-// {orientation = 1, scale = {1, 1, 1}}; a zero-initialized Transform is invalid.
-// Scale must be positive: collapsed axes and reflections are unsupported.
+// Maps object space to world space. Identity is {orientation = 1, scale = {1,
+// 1, 1}}, so a zeroed Transform isn't valid. Scale must be positive; flat or
+// mirrored axes aren't supported.
 Transform :: struct {
 	position:    Vec3,
 	orientation: Quaternion,
 	scale:       Vec3,
 }
 
-// Convert quaternion orientation into a matrix that rotates local axes.
-rotation_matrix :: proc(orientation: Quaternion) -> Mat4 {
+// Rotation matrix whose columns are the rotated local axes.
+rotation_matrix3 :: proc(orientation: Quaternion) -> Mat3 {
 	q := quaternion_normalize(orientation)
-	result := identity()
+	result: Mat3
 
 	for axis in 0 ..< 3 {
 		basis: Vec3
@@ -27,7 +27,31 @@ rotation_matrix :: proc(orientation: Quaternion) -> Mat4 {
 	return result
 }
 
-// T * R * S: scale locally, rotate, then translate into world space.
+rotation_matrix :: proc(orientation: Quaternion) -> Mat4 {
+	rotation := rotation_matrix3(orientation)
+	result := identity()
+
+	for row in 0 ..< 3 {
+		for column in 0 ..< 3 {
+			result[row, column] = rotation[row, column]
+		}
+	}
+
+	return result
+}
+
+// Translation times rotation, with no scale.
+rigid_matrix :: proc(position: Vec3, orientation: Quaternion) -> Mat4 {
+	result := rotation_matrix(orientation)
+
+	for row in 0 ..< 3 {
+		result[row, 3] = position[row]
+	}
+
+	return result
+}
+
+// Scale, then rotate, then translate.
 transform_matrix :: proc(transform: Transform) -> Mat4 {
 	result := rotation_matrix(transform.orientation)
 
@@ -44,8 +68,8 @@ transform_matrix :: proc(transform: Transform) -> Mat4 {
 	return result
 }
 
-// For T*R*S, the inverse transpose of the linear part is R * inverse(S).
-// Embed it in mat4 for uniform-block layout; transform normals with its mat3.
+// Normals need the inverse transpose, which for T*R*S is R * inverse(S). It
+// comes back as a mat4 to fit uniform block layout; use its 3x3 part.
 normal_matrix :: proc(transform: Transform) -> Mat4 {
 	result := rotation_matrix(transform.orientation)
 

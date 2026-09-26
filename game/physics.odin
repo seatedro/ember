@@ -8,19 +8,20 @@ import render "ember:renderer"
 import "ember:scene"
 import "ember:ui"
 
-PROBE_POSE :: emath.Pose {
-	position    = {0, 0, 0},
-	orientation = 1,
-}
+PROBE_POSITION :: emath.Vec3{0, 0, 0}
+PROBE_MASS :: f32(2)
 
 init_physics :: proc(game: ^State) -> bool {
 	scene_error: scene.Error
-	game.world, scene_error = scene.create(4)
+	game.world, scene_error = scene.create(8)
 	if !check_scene(scene_error) {
 		return false
 	}
 
-	game.probe, scene_error = scene.create_object(&game.world, emath.pose_matrix(PROBE_POSE))
+	game.probe, scene_error = scene.create_object(
+		&game.world,
+		emath.rigid_matrix(PROBE_POSITION, 1),
+	)
 	if !check_scene(scene_error) {
 		return false
 	}
@@ -36,20 +37,27 @@ init_physics :: proc(game: ^State) -> bool {
 	err: physics.Error
 	game.probe_body, err = physics.create_body(
 		&game.world.physics,
-		{state = {pose = PROBE_POSE}, mass = physics.sphere_mass(2, 1.4)},
+		{
+			state = {position = PROBE_POSITION, orientation = 1},
+			mass = physics.sphere_mass(PROBE_MASS, 1.4),
+		},
 	)
 	if !check_physics(err) {
 		return false
 	}
 	return(
 		check_scene(scene.bind_body(&game.world, game.probe, game.probe_body)) &&
-		init_queries(game) \
+		init_queries(game) &&
+		init_contacts(game) \
 	)
 }
 
 update_physics :: proc(game: ^State, dt: f32) {
 	world := &game.world.physics
 	if game.probe_thrust && !check_physics(physics.add_force(world, game.probe_body, {0, 2, 0})) {
+		game.physics_failed = true
+	}
+	if !update_contacts(game, dt) {
 		game.physics_failed = true
 	}
 	if game.probe_impulse {
@@ -65,13 +73,22 @@ update_physics :: proc(game: ^State, dt: f32) {
 		game.probe_spin = false
 	}
 	game.physics_failed = !check_physics(physics.step(world, dt)) || game.physics_failed
+	read_contacts(game)
 }
 
 reset_physics :: proc(game: ^State) {
 	game.probe_thrust, game.probe_impulse, game.probe_spin = false, false, false
-	game.physics_failed = !check_physics(
-		physics.teleport(&game.world.physics, game.probe_body, PROBE_POSE, clear_velocity = true),
-	)
+	game.physics_failed =
+		!check_physics(
+			physics.teleport(
+				&game.world.physics,
+				game.probe_body,
+				PROBE_POSITION,
+				1,
+				clear_velocity = true,
+			),
+		) ||
+		!reset_contacts(game)
 }
 
 draw_physics :: proc(game: ^State) -> bool {
@@ -114,7 +131,7 @@ physics_controls :: proc(game: ^State, column: ^ui.Layout) -> bool {
 		"MASS 2 KG\nSPEED %.2f M/S\nSPIN %.2f RAD/S\nHEIGHT %.2f M",
 		emath.length(state.velocity),
 		emath.length(state.angular_velocity),
-		state.pose.position.y,
+		state.position.y,
 	)
 	if !check_ui(ui.label(ctx, rect, text)) {
 		return false

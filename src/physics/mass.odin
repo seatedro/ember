@@ -5,7 +5,7 @@ import "core:math/linalg"
 
 Mass_Properties :: struct {
 	mass:    f32,
-	inertia: matrix[3, 3]f32,
+	inertia: emath.Mat3,
 }
 
 sphere_mass :: proc(mass, radius: f32) -> Mass_Properties {
@@ -24,24 +24,25 @@ box_mass :: proc(mass: f32, half_extent: emath.Vec3) -> Mass_Properties {
 
 @(private)
 valid_mass :: proc(properties: Mass_Properties) -> bool {
-	if !finite(properties.mass) || properties.mass <= 0 {
+	if !emath.finite(properties.mass) || properties.mass <= 0 {
 		return false
 	}
 
 	m := properties.inertia
 	for row in 0 ..< 3 {
 		for column in 0 ..< 3 {
-			if !finite(m[row, column]) || m[row, column] != m[column, row] {
+			if !emath.finite(m[row, column]) || m[row, column] != m[column, row] {
 				return false
 			}
 		}
 	}
-	// Sylvester's criterion: a symmetric inertia tensor must be positive definite.
+	// Sylvester's criterion: a symmetric inertia tensor is positive definite
+	// when its leading minors are all positive.
 	determinant := linalg.determinant(m)
 	return(
 		m[0, 0] > 0 &&
 		m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0] > 0 &&
 		determinant > 0 &&
-		finite(determinant) \
+		emath.finite(determinant) \
 	)
 }

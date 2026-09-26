@@ -96,7 +96,8 @@ free :: proc(pool: ^Pool($T, $Handle), handle: Handle) -> bool {
 	slot.value = {}
 	slot.used = false
 
-	// Never recycle a slot whose generation would wrap and validate an old handle.
+	// Retire a slot before its generation wraps, or an old handle could become
+	// valid again.
 	if slot.generation == max(u32) {
 		slot.generation = 0
 		return true

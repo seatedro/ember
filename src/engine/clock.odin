@@ -83,8 +83,8 @@ tick_clock :: proc(clock: ^Clock) -> bool {
 	clock.elapsed += clock.timestep
 	clock.ticks += 1
 	clock.snap = clock.manual_frame
-	// A manual step shows its completed state until the next ordinary tick,
-	// so resuming cannot interpolate backward from the displayed result.
+	// After a manual step, show the finished step until the next normal tick,
+	// so resuming doesn't interpolate backward.
 	clock.interpolation = 1 if clock.snap else f32(clamp(clock.accumulator / clock.timestep, 0, 1))
 	return true
 }

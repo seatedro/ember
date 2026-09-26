@@ -31,7 +31,7 @@ vec3 diffuse_lighting(vec3 position, vec3 normal, float shadow_visibility) {
         float radius = light.position_range.w;
         float attenuation = max(1.0 - distance_squared / (radius * radius), 0.0);
         attenuation *= attenuation;
-        // Keep the direction finite when a light coincides with the surface.
+        // Keep the direction finite when a light sits exactly on the surface.
         vec3 direction = to_light * inversesqrt(max(distance_squared, 0.000001));
         float diffuse = max(dot(normal, direction), 0.0);
         illumination += light.color_intensity.rgb * light.color_intensity.w * attenuation * diffuse;

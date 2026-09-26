@@ -61,7 +61,8 @@ validate_texture_desc :: proc(desc: Texture_Desc, byte_count: int) -> Error {
 	return .None
 }
 
-// Pixels contain complete mip levels, with cube faces ordered +X, -X, +Y, -Y, +Z, -Z within each level.
+// pixels holds every mip level in full, with cube faces in the order +X, -X,
+// +Y, -Y, +Z, -Z inside each level.
 create_texture :: proc(
 	device: ^Device,
 	desc: Texture_Desc,

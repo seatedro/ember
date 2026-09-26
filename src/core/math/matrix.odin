@@ -2,9 +2,10 @@ package ember_math
 
 import stdmath "core:math"
 
-// Column-major storage, column vectors, m[row, column] indexing. World/view use
-// +Y up and a right-handed camera looking down -Z. Projection depth is [-1, 1].
+// Column-major, column vectors, indexed m[row, column]. +Y is up, the camera
+// looks down -Z (right-handed), and depth runs from -1 to 1.
 Mat4 :: matrix[4, 4]f32
+Mat3 :: matrix[3, 3]f32
 Vec4 :: [4]f32
 
 identity :: proc() -> Mat4 {

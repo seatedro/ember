@@ -3,18 +3,18 @@ package image
 import "core:os"
 import stbi "vendor:stb/image"
 
-// Decoded 8-bit RGBA pixels. Color space is not a property of the image: 8-bit
-// files carry no reliable tag (stb_image ignores PNG gAMA/iCCP/sRGB chunks), so
-// the consumer states it through the texture format when uploading.
+// Decoded 8-bit RGBA pixels. We don't know the color space: 8-bit files don't
+// tag it reliably and stb_image ignores the PNG chunks that would, so the
+// caller picks it through the texture format.
 Image :: struct {
 	width, height: i32,
 	pixels:        []u8,
 }
 
-// Largest side either backend accepts as a texture on macOS (Metal and the GL
-// implementation limit, from memory). Checked from the header before decoding,
-// so a hostile file is refused before it costs width * height * 4 bytes;
-// stb_image's own guard is 2^24 per side, which bounds nothing useful.
+// The biggest texture side both backends accept on macOS (from memory). We
+// check it from the header before decoding, so a malicious file can't make us
+// allocate width * height * 4 bytes. stb_image's own limit is 2^24 per side,
+// which is too big to help.
 MAX_DIMENSION :: 16384
 
 Error :: enum {

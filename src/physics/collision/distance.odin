@@ -1,7 +1,47 @@
-package physics
+package collision
 
-import emath "../core/math"
+import emath "../../core/math"
+import "core:math"
 
+// Closest points between two shapes. The normal points from A to B, and is zero
+// when they're within tolerance.
+Distance :: struct {
+	distance:     f32,
+	a, b, normal: emath.Vec3,
+}
+
+distance :: proc(
+	shape_a: Shape,
+	position_a: emath.Vec3,
+	orientation_a: emath.Quaternion,
+	shape_b: Shape,
+	position_b: emath.Vec3,
+	orientation_b: emath.Quaternion,
+	tolerance: f32,
+) -> (
+	Distance,
+	Error,
+) {
+	origin := position_a
+	result, err := convex_distance(
+		convex(shape_a, position_a, orientation_a, origin),
+		convex(shape_b, position_b, orientation_b, origin),
+		f64(tolerance),
+	)
+	if err != .None {
+		return {}, err
+	}
+	return {
+			distance = f32(result.distance),
+			a = origin + emath.Vec3(result.a),
+			b = origin + emath.Vec3(result.b),
+			normal = emath.Vec3(result.normal),
+		},
+		.None
+}
+
+// A shape placed relative to an origin near the query, in f64, so the simplex
+// math keeps the small differences it depends on.
 @(private)
 Convex :: struct {
 	shape:  Shape,
@@ -21,12 +61,23 @@ Distance_Result :: struct {
 }
 
 @(private)
-convex :: proc(shape: Shape, pose: emath.Pose, origin: emath.Vec3) -> Convex {
+Simplex :: struct {
+	points: [4]Support_Point,
+	count:  int,
+}
+
+@(private)
+convex :: proc(
+	shape: Shape,
+	position: emath.Vec3,
+	orientation: emath.Quaternion,
+	origin: emath.Vec3,
+) -> Convex {
 	result := Convex {
 		shape  = shape,
-		center = cast([3]f64)(pose.position) - cast([3]f64)(origin),
+		center = cast([3]f64)(position) - cast([3]f64)(origin),
 	}
-	q := emath.quaternion_normalize(pose.orientation)
+	q := emath.quaternion_normalize(orientation)
 	for i in 0 ..< 3 {
 		axis: emath.Vec3
 		axis[i] = 1
@@ -66,53 +117,61 @@ minkowski_support :: proc(a, b: Convex, direction: [3]f64) -> Support_Point {
 	return {point = pa - pb, a = pa, b = pb}
 }
 
-// GJK finds the nearest point on A - B to the origin. Keeping the support points
-// from both shapes lets the simplex weights reconstruct their witness points.
 @(private)
 convex_distance :: proc(a, b: Convex, tolerance: f64) -> (Distance_Result, Error) {
+	result, _, err := gjk(a, b, tolerance)
+	return result, err
+}
+
+// GJK finds the point on A - B closest to the origin. We keep each shape's
+// support points so the simplex weights give us the closest points on both.
+// When the distance is within tolerance, the simplex contains the origin and
+// seeds EPA.
+@(private)
+gjk :: proc(a, b: Convex, tolerance: f64) -> (Distance_Result, Simplex, Error) {
 	direction := b.center - a.center
 	if dot64(direction, direction) == 0 {
 		direction = {1, 0, 0}
 	}
-	simplex: [4]Support_Point
-	simplex[0] = minkowski_support(a, b, direction)
-	count := 1
-	for iteration in 0 ..< 128 {
-		weights, closest := closest_simplex(simplex[:count])
+	simplex: Simplex
+	simplex.points[0] = minkowski_support(a, b, direction)
+	simplex.count = 1
+	for _ in 0 ..< 128 {
+		weights, closest := closest_simplex(simplex.points[:simplex.count])
 		result: Distance_Result
-		for i in 0 ..< count {
-			result.a += simplex[i].a * weights[i]
-			result.b += simplex[i].b * weights[i]
+		for i in 0 ..< simplex.count {
+			result.a += simplex.points[i].a * weights[i]
+			result.b += simplex.points[i].b * weights[i]
 		}
 		result.distance = length64(closest)
 		if result.distance <= tolerance {
-			return result, .None
+			return result, simplex, .None
 		}
-		result.normal = closest / result.distance
+		result.normal = -closest / result.distance
 		next := minkowski_support(a, b, -closest)
 		gap := dot64(closest, closest - next.point)
 		if gap <= tolerance * result.distance {
-			return result, .None
+			return result, simplex, .None
 		}
 
 		kept := 0
-		for i in 0 ..< count {
+		for i in 0 ..< simplex.count {
 			if weights[i] > 0 {
-				simplex[kept] = simplex[i]
+				simplex.points[kept] = simplex.points[i]
 				kept += 1
 			}
 		}
 		if kept == 4 {
-			return {}, .Query_Did_Not_Converge
+			return {}, {}, .Did_Not_Converge
 		}
-		simplex[kept] = next
-		count = kept + 1
+		simplex.points[kept] = next
+		simplex.count = kept + 1
 	}
-	return {}, .Query_Did_Not_Converge
+	return {}, {}, .Did_Not_Converge
 }
 
-// A simplex has at most 15 nonempty faces. Solve each affine projection and
-// retain nonnegative barycentric weights; degenerate faces fall back to edges.
+// A simplex has at most 15 faces. Project onto each one, keep the weights that
+// aren't negative, and fall back to edges when a face is degenerate.
 @(private)
 closest_simplex :: proc(points: []Support_Point) -> ([4]f64, [3]f64) {
 	best := f64(1e300)
@@ -207,4 +266,14 @@ solve_projection :: proc(input: [3][4]f64, n: int) -> ([3]f64, bool) {
 		result[i] = a[i][n]
 	}
 	return result, true
+}
+
+@(private)
+length64 :: proc(v: [3]f64) -> f64 {
+	return math.sqrt(dot64(v, v))
+}
+
+@(private)
+dot64 :: proc(a, b: [3]f64) -> f64 {
+	return a.x * b.x + a.y * b.y + a.z * b.z
 }

@@ -139,7 +139,8 @@ update :: proc(emitter: ^Emitter, dt: f32) -> Error {
 		emitter.remainder = total - f64(count)
 		for i in 0 ..< count {
 			particle := spawn(emitter)
-			// Births occur throughout the step, so a steady stream does not clump at frame boundaries.
+			// Spread births across the step so a steady stream doesn't bunch up
+			// at frame boundaries.
 			age := f32((total - f64(i + 1)) / f64(emitter.settings.rate))
 			if !advance(particle, age) {
 				emitter.count -= 1

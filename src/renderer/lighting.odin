@@ -3,7 +3,7 @@ package renderer
 import emath "../core/math"
 import "core:math"
 
-// TODO: Replace the fixed light limits with scalable light selection and storage.
+// TODO: Scale past fixed light limits.
 MAX_POINT_LIGHTS :: 16
 MAX_DIRECTIONAL_LIGHTS :: 4
 
@@ -15,7 +15,7 @@ Point_Light :: struct {
 }
 
 Directional_Light :: struct {
-	// Direction toward the light source; normalized when uploaded.
+	// Points toward the light. Normalized on upload.
 	direction: emath.Vec3,
 	color:     emath.Vec3,
 	intensity: f32,

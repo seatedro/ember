@@ -1,8 +1,8 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// MSL buffer slots 0 and 1 are vertex and instance streams. Uniform argument
-// names are reflected into RHI bindings; samplers use <texture-name>_sampler.
+// Buffer slots 0 and 1 are the vertex and instance streams. Uniform argument
+// names become RHI bindings, and samplers are named <texture-name>_sampler.
 struct View_Uniforms { float4x4 view_projection; float4 camera_position; };
 
 struct Tint_Uniforms { float4 tint; };
@@ -30,8 +30,8 @@ float4 clip_position(float4 position) {
     return position;
 }
 
-// RHI texture coordinates have their origin at the bottom left. Uploads and
-// render targets both use Metal's top-left storage, so sampling converts here.
+// RHI texture coordinates start at the bottom left. Uploads and render targets
+// are both stored top-left in Metal, so we flip when sampling.
 float4 sample_texture(texture2d<float> image, sampler state, float2 uv) {
     return image.sample(state, float2(uv.x, 1.0 - uv.y));
 }
@@ -179,7 +179,8 @@ float3 mapped_normal(float3 normal, float3 tangent, float3 bitangent, float3 sam
     if (tangent_scale == 0.0) {
         return n;
     }
-    // Rebuild an orthonormal frame after interpolation and nonuniform scaling.
+    // Rebuild an orthonormal frame, since interpolation and uneven scaling bend
+    // it.
     float3 t = tangent / tangent_scale;
     t -= n * dot(n, t);
     float tangent_length = dot(t, t);

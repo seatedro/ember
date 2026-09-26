@@ -5,11 +5,9 @@ import "../geometry"
 import "../rhi"
 import "../shaders"
 
-// knee = threshold * softness; the prefilter curve is Hazel's QuadraticThreshold
-// (Hazelnut/Resources/Shaders/PostProcessing/Bloom.glsl). Threshold 1 is both
-// Hazel's and Unity's default: display white in linear HDR. Softness 0.1 matches
-// Hazel's absolute Knee = 0.1 at that threshold, so only clearly overbright
-// pixels bloom; Unity's ratio default of 0.5 gives a wider, softer band.
+// knee = threshold * softness. A threshold of 1 is display white in linear HDR.
+// A softness of 0.1 keeps the knee narrow, so only clearly overbright pixels
+// bloom; bigger values give a wider, softer glow.
 Bloom_Settings :: struct {
 	threshold, softness: f32,
 }

@@ -90,6 +90,7 @@ test_clock_catchup_cap_and_queued_steps :: proc(t: ^testing.T) {
 @(private)
 Update_Probe :: struct {
 	frames, ticks, presses, commands_consumed: int,
+	late_frames, ticks_before_late:            int,
 	command_pending:                           bool,
 	step_requested:                            bool,
 	bad_input, bad_time:                       bool,
@@ -132,6 +133,12 @@ test_frame_input_and_fixed_simulation_are_separate :: proc(t: ^testing.T) {
 				probe.command_pending = false
 			}
 		},
+		late_update = proc(app: ^Context, userdata: rawptr, dt: f32) {
+			probe := cast(^Update_Probe)userdata
+			probe.late_frames += 1
+			probe.ticks_before_late = probe.ticks
+			probe.bad_input = probe.bad_input || input.pressed(app.input, .Space)
+		},
 	}
 	input.record_key(&state, .Space, true)
 	testing.expect(t, run_updates(config, &app, 0.001))
@@ -150,5 +157,6 @@ test_frame_input_and_fixed_simulation_are_separate :: proc(t: ^testing.T) {
 	probe.step_requested = true
 	testing.expect(t, run_updates(config, &app, 1))
 	testing.expect(t, probe.frames == 4 && probe.ticks == 6 && app.simulation.paused)
+	testing.expect(t, probe.late_frames == 4 && probe.ticks_before_late == 6)
 	testing.expect(t, !probe.bad_input && !probe.bad_time)
 }

@@ -1,6 +1,7 @@
 package ember_math
 
 import "core:math"
+import "core:math/linalg"
 import "core:testing"
 
 @(test)
@@ -39,9 +40,28 @@ test_transform_normals_stay_perpendicular :: proc(t: ^testing.T) {
 	normal := normals * Vec4{1, 1, 1, 0}
 	expect_f32_approximately_equal(t, dot(Vec3(tangent_a.xyz), Vec3(normal.xyz)), 0)
 	expect_f32_approximately_equal(t, dot(Vec3(tangent_b.xyz), Vec3(normal.xyz)), 0)
-	// This is precisely the case an ordinary model matrix gets wrong.
+	// A plain model matrix gets this normal wrong.
 	wrong_normal := model * Vec4{1, 1, 1, 0}
 	testing.expect(t, abs(dot(Vec3(tangent_a.xyz), Vec3(wrong_normal.xyz))) > 1)
 	pose.position = {-20, 8, 9}
 	testing.expect_value(t, normal_matrix(pose), normals)
+}
+
+@(test)
+test_rotation_matrix_matches_linalg :: proc(t: ^testing.T) {
+	orientation := quaternion_angle_axis(0.7, normalize({1, 2, 3}))
+	expected := linalg.matrix3_from_quaternion(orientation)
+	actual := rotation_matrix3(orientation)
+	for row in 0 ..< 3 {
+		for column in 0 ..< 3 {
+			expect_f32_approximately_equal(t, actual[row, column], expected[row, column])
+		}
+	}
+	// Rotations are orthonormal, so R * R^T should be the identity.
+	product := actual * linalg.transpose(actual)
+	for row in 0 ..< 3 {
+		for column in 0 ..< 3 {
+			expect_f32_approximately_equal(t, product[row, column], 1 if row == column else 0)
+		}
+	}
 }

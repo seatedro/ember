@@ -223,7 +223,8 @@ draw :: proc(renderer: ^Renderer, list: ^List) -> Error {
 
 @(private)
 scissor :: proc(rect: Rect, size: [2]f32, viewport: rhi.Viewport) -> rhi.Scissor {
-	// Flip top-left logical coordinates into the RHI's bottom-left pixel coordinates.
+	// Logical coordinates start at the top left; the RHI's pixels start at the
+	// bottom left.
 	sx := f64(viewport.width) / f64(size.x)
 	sy := f64(viewport.height) / f64(size.y)
 	x0 := i32(math.floor(clamp(f64(rect.position.x) * sx, 0, f64(viewport.width))))

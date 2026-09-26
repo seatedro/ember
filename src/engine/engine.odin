@@ -18,6 +18,7 @@ Config :: struct {
 	userdata:             rawptr,
 	init:                 proc(app: ^Context, userdata: rawptr) -> bool,
 	update:               proc(app: ^Context, userdata: rawptr, dt: f32),
+	late_update:          proc(app: ^Context, userdata: rawptr, dt: f32),
 	draw:                 proc(app: ^Context, userdata: rawptr) -> bool,
 	quit:                 proc(app: ^Context, userdata: rawptr),
 }
@@ -51,7 +52,8 @@ request_quit :: proc(app: ^Context) {
 	app.running = false
 }
 
-// quit also runs after failed init, while the device is alive, to clean up partial state.
+// quit runs even if init failed, while the device is still alive, so it can
+// clean up whatever init made.
 run :: proc(config: Config) -> (result: Error) {
 	if config.width <= 0 ||
 	   config.height <= 0 ||
@@ -107,7 +109,7 @@ run :: proc(config: Config) -> (result: Error) {
 		window_size = win.size(&window),
 	}
 	defer {
-		// Close unfinished GPU work before the game releases its resources.
+		// Finish any GPU work before the game frees its resources.
 		if err := rhi.discard_frame(&device); err != .None {
 			log.errorf("Failed to discard frame: %v", err)
 			if result == .None {
@@ -198,6 +200,9 @@ run_updates :: proc(config: Config, app: ^Context, dt: f64) -> bool {
 		if config.fixed_update != nil {
 			config.fixed_update(app, config.userdata, f32(app.simulation.timestep))
 		}
+	}
+	if app.running && config.late_update != nil {
+		config.late_update(app, config.userdata, f32(dt))
 	}
 	return true
 }

@@ -45,7 +45,7 @@ zoom_orbit :: proc(orbit: ^Orbit, amount: f64, min_distance, max_distance: f32) 
 		return false
 	}
 
-	// Clamp in log space so a large scroll cannot overflow exp.
+	// Clamp in log space so a big scroll can't overflow exp.
 	distance := clamp(
 		math.ln(f64(orbit.distance)) - amount,
 		math.ln(f64(min_distance)),

@@ -12,7 +12,7 @@ Shader_Desc :: types.Shader_Desc
 Shader_Language :: types.Shader_Language
 Shader_Source :: types.Shader_Source
 
-// Shader assets select the language implemented by the compiled backend.
+// Shader assets use whatever language the compiled backend expects.
 SHADER_LANGUAGE :: backend.SHADER_LANGUAGE
 
 validate_shader_desc :: proc(desc: Shader_Desc) -> Error {

@@ -124,7 +124,8 @@ validate_pipeline_settings :: proc(settings: Pipeline_Settings) -> Error {
 	return .None
 }
 
-// Pipeline creation finishes here; the pipeline survives destruction of its shader stages.
+// The pipeline is finished here, and it keeps working after its shader stages
+// are destroyed.
 create_pipeline :: proc(device: ^Device, desc: Pipeline_Desc) -> (Pipeline_Handle, Error) {
 	if err := validate_device(device); err != .None {
 		return {}, err

@@ -213,7 +213,8 @@ create_billboard_renderer :: proc(
 	return
 }
 
-// Call within the world pass after opaque geometry. Alpha ordering covers this entire slice.
+// Call inside the world pass, after opaque geometry. Sorting by depth covers
+// this whole slice.
 draw_billboards :: proc(
 	renderer: ^Billboard_Renderer,
 	billboards: []Billboard,
@@ -325,7 +326,18 @@ prepare_billboards :: proc(
 ) {
 	count := 0
 	for billboard in billboards {
-		for value in ([10]f32{billboard.position.x, billboard.position.y, billboard.position.z, billboard.size.x, billboard.size.y, billboard.rotation, billboard.color.r, billboard.color.g, billboard.color.b, billboard.color.a}) {
+		for value in ([10]f32 {
+				billboard.position.x,
+				billboard.position.y,
+				billboard.position.z,
+				billboard.size.x,
+				billboard.size.y,
+				billboard.rotation,
+				billboard.color.r,
+				billboard.color.g,
+				billboard.color.b,
+				billboard.color.a,
+			}) {
 			if math.is_nan(value) || math.is_inf(value) {
 				return 0, .Invalid_Draw
 			}
@@ -366,7 +378,12 @@ prepare_billboards :: proc(
 
 destroy_billboard_renderer :: proc(renderer: ^Billboard_Renderer) -> (result: Error) {
 	device := renderer.device
-	for handle in ([4]^rhi.Buffer_Handle{&renderer.vertices, &renderer.indices, &renderer.instances, &renderer.view}) {
+	for handle in ([4]^rhi.Buffer_Handle {
+			&renderer.vertices,
+			&renderer.indices,
+			&renderer.instances,
+			&renderer.view,
+		}) {
 		if handle.generation != 0 {
 			if err := rhi.destroy_buffer(device, handle^); err != .None {
 				result = err

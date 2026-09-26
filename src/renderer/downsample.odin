@@ -61,7 +61,7 @@ create_downsample :: proc(
 	return
 }
 
-// Average complete source texel blocks in linear color before tone mapping.
+// Average whole blocks of source texels, in linear color, before tone mapping.
 downsample :: proc(
 	renderer: ^Renderer,
 	filter: ^Downsample,

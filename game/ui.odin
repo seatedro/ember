@@ -50,7 +50,7 @@ build_physics_window :: proc(game: ^State, title: string) -> bool {
 		ctx,
 		ui.id("physics-tabs"),
 		tab_rect,
-		{"MOTION", "QUERIES"},
+		{"MOTION", "QUERIES", "CONTACTS"},
 		&game.physics_tab,
 	)
 	if !check_ui(tab_error) {
@@ -63,11 +63,17 @@ build_physics_window :: proc(game: ^State, title: string) -> bool {
 	body.position.y += 36
 	body.size.y = max(body.size.y - 36, 0)
 
+	heights := [3]f32{280, 360, 320}
+	controls := [3]proc(game: ^State, column: ^ui.Layout) -> bool {
+		physics_controls,
+		query_controls,
+		contact_controls,
+	}
 	content, scroll_error := ui.begin_scroll(
 		ctx,
 		ui.id("physics-content"),
 		body,
-		{max(body.size.x - 12, 0), 360 if game.physics_tab == 1 else 280},
+		{max(body.size.x - 12, 0), heights[game.physics_tab]},
 		&game.ui_scroll,
 	)
 	if !check_ui(scroll_error) {
@@ -76,8 +82,7 @@ build_physics_window :: proc(game: ^State, title: string) -> bool {
 	}
 
 	column, layout_error := ui.layout(content, .Column, spacing = 8)
-	controls := query_controls if game.physics_tab == 1 else physics_controls
-	ok := check_ui(layout_error) && controls(game, &column)
+	ok := check_ui(layout_error) && controls[game.physics_tab](game, &column)
 	ok = check_ui(ui.end_scroll(ctx)) && ok
 	return check_ui(ui.end_window(ctx)) && ok
 }

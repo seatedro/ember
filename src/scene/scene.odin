@@ -142,10 +142,7 @@ set_local_transform :: proc(scene: ^Scene, object: Object, local: emath.Mat4) ->
 	return .None
 }
 
-// TODO: Temporary. Walking to the root on every query is O(depth) per call and
-// repeats the ancestor products for every object drawn. Replace with cached
-// world matrices invalidated by dirty flags, or a parent-before-child pass per
-// tick, once scenes are larger than the current demos (see .docs/decisions.md SCN-4).
+// TODO: Cache world matrices.
 world_transform :: proc(scene: ^Scene, object: Object, alpha: f32 = 1) -> (emath.Mat4, bool) {
 	node := pool.get(&scene.objects, object)
 	if node == nil {
@@ -155,11 +152,15 @@ world_transform :: proc(scene: ^Scene, object: Object, alpha: f32 = 1) -> (emath
 	world := emath.identity()
 	for {
 		if node.body.generation != 0 {
-			pose, ok := physics.body_pose(&scene.physics, node.body, alpha)
+			position, orientation, ok := physics.body_position_and_orientation(
+				&scene.physics,
+				node.body,
+				alpha,
+			)
 			if !ok {
 				return {}, false
 			}
-			world = emath.pose_matrix(pose) * node.body_offset * world
+			world = emath.rigid_matrix(position, orientation) * node.body_offset * world
 			break
 		}
 		world = node.local * world
@@ -243,11 +244,10 @@ reparent :: proc(
 	return .None
 }
 
-// Destroys the object and every descendant, leaf-first, including their bodies.
-// Descendants are neither reparented nor a reason to refuse: a bound body has
-// to die with its object, which is only well defined when the whole subtree
-// goes at once, and this is the behavior users of Unity- and Godot-style scene
-// graphs expect.
+// Destroys the object, all of its descendants (leaves first), and their bodies.
+// Children aren't reparented and don't block the call: a bound body has to go
+// with its object, which only makes sense if the whole subtree goes together.
+// It's also what people expect from Unity and Godot.
 destroy_object :: proc(scene: ^Scene, object: Object) -> Error {
 	if !contains(scene, object) {
 		return .Invalid_Object

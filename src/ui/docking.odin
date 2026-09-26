@@ -364,8 +364,8 @@ dock_divider_size :: proc(ctx: ^Context) -> f32 {
 	return max(6, ctx.style.border_width * 3)
 }
 
-// In font units so they scale with the style, as imgui's dock geometry does
-// (1.5 × font for its drop targets). 4 × font is one header plus a few rows.
+// Sizes are multiples of the font size so they scale with the style. 1.5
+// matches imgui's drop targets, and 4 fits a header and a few rows.
 @(private)
 dock_edge_band :: proc(ctx: ^Context) -> f32 {
 	return ctx.style.font_size * 1.5

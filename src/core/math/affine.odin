@@ -3,9 +3,9 @@ package ember_math
 import "core:math"
 import "core:math/linalg"
 
-// Affine matrices preserve shear from hierarchy composition. A positive
-// determinant keeps the renderer's winding convention; singular transforms
-// cannot supply an inverse for normals or world-preserving reparenting.
+// Hierarchies can add shear, so we keep full affine matrices. The determinant
+// has to be positive: a flip would break triangle winding, and a singular
+// matrix has no inverse for normals or reparenting.
 valid_affine :: proc(model: Mat4) -> bool {
 	for row in 0 ..< 4 {
 		for column in 0 ..< 4 {
@@ -25,9 +25,10 @@ valid_affine :: proc(model: Mat4) -> bool {
 
 transform_sphere_matrix :: proc(sphere: Bounding_Sphere, model: Mat4) -> Bounding_Sphere {
 	center := model * Vec4{sphere.center.x, sphere.center.y, sphere.center.z, 1}
-	// The maximum absolute row sum of A^T*A bounds its largest eigenvalue.
-	// Its square root bounds stretch under shear and is exact for orthogonal axes.
-	linear: matrix[3, 3]f32
+	// The largest row sum of |A^T A| bounds its biggest eigenvalue. Its square
+	// root bounds how far the matrix can stretch a vector, and it's exact when
+	// the axes are orthogonal.
+	linear: Mat3
 	for row in 0 ..< 3 {
 		for column in 0 ..< 3 {
 			linear[row, column] = model[row, column]

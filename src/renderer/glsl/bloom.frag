@@ -15,7 +15,7 @@ vec3 sample_source(vec2 uv) {
         return texture(source_texture, uv).rgb;
     }
 
-    // The scene texture may use nearest filtering for pixel-art presentation.
+    // The scene texture might use nearest filtering for pixel-art output.
     ivec2 size = textureSize(source_texture, 0);
     vec2 pixel = uv * vec2(size) - 0.5;
     ivec2 base = ivec2(floor(pixel));
@@ -64,7 +64,8 @@ void main() {
         float brightness = max(max(result.r, result.g), result.b);
         float soft = clamp(brightness - threshold + knee, 0.0, 2.0 * knee);
         soft = soft * soft / max(4.0 * knee, 0.0001);
-        // Keep strength stable when resizing changes the number of bloom levels.
+        // Keep the strength steady when a resize changes how many bloom levels
+        // there are.
         result *= level_weight * max(soft, brightness - threshold) / max(brightness, 0.0001);
     }
     color = vec4(result, 0.0);

@@ -80,7 +80,8 @@ validate_buffer_range :: proc(size, offset: u64, data_size: int) -> Error {
 	return .None
 }
 
-// Copies the bytes before returning; the backend orders the update against GPU reads.
+// Copies the bytes before returning. The backend makes sure the update happens
+// after earlier GPU reads.
 update_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64, data: []u8) -> Error {
 	if err := validate_device(device); err != .None {
 		return err
@@ -102,7 +103,7 @@ update_buffer :: proc(device: ^Device, handle: Buffer_Handle, offset: u64, data:
 	return backend.update_buffer(&device.native, &slot.native, offset, data)
 }
 
-// Wait for GPU reads to finish before recycling the buffer slot.
+// Wait for the GPU to finish reading before the slot is reused.
 destroy_buffer :: proc(device: ^Device, handle: Buffer_Handle) -> Error {
 	if err := validate_device(device); err != .None {
 		return err

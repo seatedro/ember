@@ -11,7 +11,8 @@ layout(std140) uniform Material {
 };
 
 vec3 aces_fitted(vec3 linear_color) {
-    // ACES fit by Stephen Hill; matrices convert into and out of the fit's color space.
+    // Stephen Hill's ACES fit. The matrices move colors into and out of the
+    // fit's color space.
     mat3 input_matrix = mat3(
         0.59719, 0.07600, 0.02840,
         0.35458, 0.90834, 0.13383,

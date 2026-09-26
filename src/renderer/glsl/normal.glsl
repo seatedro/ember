@@ -4,7 +4,8 @@ vec3 mapped_normal(vec3 normal, vec3 tangent, vec3 bitangent, vec3 sample_value)
     if (tangent_scale == 0.0) {
         return n;
     }
-    // Rebuild an orthonormal frame after interpolation and nonuniform scaling.
+    // Rebuild an orthonormal frame, since interpolation and uneven scaling bend
+    // it.
     vec3 t = tangent / tangent_scale;
     t -= n * dot(n, t);
     float tangent_length = dot(t, t);

@@ -18,8 +18,8 @@ Sphere_Error :: enum {
 	Allocation_Failed,
 }
 
-// Seam vertices share positions but carry U=0 and U=1. Each pole triangle
-// has its own pole vertex so its U stays within that longitude slice.
+// The seam has duplicate vertices with U=0 and U=1. Each pole triangle gets its
+// own pole vertex so its U stays inside its slice.
 create_sphere :: proc(
 	segments := 48,
 	stacks := 24,

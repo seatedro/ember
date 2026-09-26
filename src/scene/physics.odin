@@ -10,7 +10,10 @@ bind_body :: proc(scene: ^Scene, object: Object, body: physics.Body_Handle) -> E
 	if node == nil {
 		return .Invalid_Object
 	}
-	pose, valid_body := physics.body_pose(&scene.physics, body)
+	position, orientation, valid_body := physics.body_position_and_orientation(
+		&scene.physics,
+		body,
+	)
 	if !valid_body {
 		return .Invalid_Body
 	}
@@ -27,12 +30,10 @@ bind_body :: proc(scene: ^Scene, object: Object, body: physics.Body_Handle) -> E
 	if !ok {
 		return .Invalid_Transform
 	}
-	// Preserve the rendered affine transform relative to the physical center of
-	// mass. Visual scale and shear do not change the body's inertia tensor.
-	inverse_pose :=
-		emath.pose_matrix({orientation = conj(pose.orientation)}) *
-		emath.translation(-pose.position)
-	offset := inverse_pose * world
+	// Keep the rendered transform fixed relative to the body's center of mass.
+	// Visual scale and shear don't affect the body's inertia.
+	inverse_body := emath.rotation_matrix(conj(orientation)) * emath.translation(-position)
+	offset := inverse_body * world
 	if !emath.valid_affine(offset) {
 		return .Invalid_Transform
 	}
@@ -89,7 +90,8 @@ relative_transform :: proc(
 		return {}, false
 	}
 	inverse := linalg.inverse(parent_world)
-	// Restore the affine row after rounding in the general matrix inverse.
+	// Put the bottom row back to exactly 0, 0, 0, 1 after rounding in the
+	// inverse.
 	inverse[3, 0], inverse[3, 1], inverse[3, 2], inverse[3, 3] = 0, 0, 0, 1
 	local := inverse * world
 	return local, emath.valid_affine(local)

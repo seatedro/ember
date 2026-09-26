@@ -89,3 +89,11 @@ normalize_or_zero :: proc(v: Vec3) -> Vec3 {
 	}
 	return Vec3{v[0] / len, v[1] / len, v[2] / len}
 }
+
+finite :: proc(value: f32) -> bool {
+	return !stdmath.is_nan(value) && !stdmath.is_inf(value)
+}
+
+finite_vector :: proc(v: Vec3) -> bool {
+	return finite(v[0]) && finite(v[1]) && finite(v[2])
+}

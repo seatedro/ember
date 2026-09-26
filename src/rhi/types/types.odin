@@ -58,10 +58,10 @@ Texture_Kind :: enum {
 	Cube,
 }
 
-// Sampling state is part of the texture, as in Hazel's TextureSpecification;
-// there is no separate Sampler resource. Both backends already create a native
-// sampler per texture, so a texture that must be sampled two ways is either
-// created twice or handled in the shader (bloom's prefilter does the latter).
+// Sampling settings belong to the texture; there's no separate sampler object.
+// Both backends already make one native sampler per texture, so a texture that
+// needs two kinds of sampling is created twice or handled in the shader, as
+// bloom's prefilter does.
 Texture_Desc :: struct {
 	kind:           Texture_Kind,
 	mip_levels:     u32,
@@ -240,8 +240,8 @@ Pipeline_Desc :: struct {
 	textures:        []Texture_Binding_Desc,
 }
 
-// The Metal backend rejects sampler indices at 16, and OpenGL 4.1 guarantees
-// 16 fragment texture units, so 16 is the limit both backends can honor.
+// Metal rejects sampler index 16 and up, and OpenGL 4.1 only promises 16
+// fragment texture units, so 16 works on both.
 MAX_TEXTURE_BINDINGS :: 16
 
 Texture_Binding_Desc :: struct {
@@ -256,8 +256,8 @@ Uniform_Block_Desc :: struct {
 	binding: u32,
 }
 
-// Shader resource requirements reported by a backend after pipeline creation.
-// A zero uniform size or false texture flag means the binding is unused.
+// What a pipeline's shaders need, as reported by the backend. A zero uniform
+// size or false texture flag means that binding isn't used.
 Pipeline_Requirements :: struct {
 	uniform_sizes:    [MAX_UNIFORM_BINDINGS]u64,
 	texture_bindings: [MAX_TEXTURE_BINDINGS]bool,

@@ -7,7 +7,8 @@ Camera :: struct {
 	orientation: emath.Quaternion,
 }
 
-// Invert the camera pose: transpose its rotation and apply it to -position.
+// Undo the camera's pose: move by -position, then rotate by the transposed
+// rotation.
 view_matrix :: proc(camera: Camera) -> emath.Mat4 {
 	q := emath.quaternion_normalize(camera.orientation)
 	right := emath.quaternion_rotate(q, {1, 0, 0})

@@ -11,14 +11,10 @@ Shader :: struct {
 	vertex, fragment: rhi.Shader_Handle,
 }
 
-// Each language supplies a complete pair; stages may share the same module
-// source and select different entry points (as with a Metal library).
+// Each language supplies a full pair. Both stages can share one module and use
+// different entry points, like a Metal library.
 //
-// TODO: Author shaders once and generate each backend language, rather than
-// maintaining a hand-written GLSL and MSL copy of every shader that must stay
-// in sync by inspection. Candidates are compared in .docs/shader-toolchain.md;
-// this loader stays the consumer of the generated files
-// (see .docs/decisions.md RHI-19).
+// TODO: Generate GLSL and MSL from one source.
 Source :: struct {
 	vertex, fragment: rhi.Shader_Source,
 }
@@ -51,14 +47,14 @@ create :: proc(device: ^rhi.Device, allocator := context.allocator) -> Library {
 	return {device = device, allocator = allocator, entries = make([dynamic]Entry, allocator)}
 }
 
-// Loads .vert/.frag for GLSL, or one .metal module with vertex_main and
-// fragment_main entry points for MSL. The base path has no extension.
+// Loads .vert and .frag for GLSL, or one .metal file with vertex_main and
+// fragment_main for MSL. base_path has no extension.
 load :: proc(library: ^Library, base_path: string) -> (Shader, Error) {
 	if library.device == nil || library.closing {
 		return {}, .Invalid_Library
 	}
 
-	// The base has no file extension and need not exist as a filesystem entry.
+	// No file extension, and it doesn't have to exist on disk as is.
 	directory: string
 	if !filepath.is_abs(base_path) {
 		path_error: os.Error
