@@ -2,6 +2,7 @@ package toml
 
 import "core:math"
 import "core:mem"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -112,5 +113,71 @@ test_table_definition_rules :: proc(t: ^testing.T) {
 	for text in invalid {
 		_, err := parse_string(text)
 		testing.expectf(t, err.kind == .Invalid_Table, "%q: %v", text, err)
+	}
+}
+
+@(test)
+test_write_layout :: proc(t: ^testing.T) {
+	document, err := parse_string(
+		"version = 1\n" +
+		"[[asset]]\npath = \"models/astronaut.glb\"\nid = \"6f3a9c2e81d4b705\"\n" +
+		"[[asset]]\ntype = \"texture\"\nid = \"a1c07e5d93f2468b\"\n" +
+		"[build.cache]\nroot = 'build/assets'\n" +
+		"[\"odd key\"]\nlist = [1, {b = 2, a = 1}]\n",
+	)
+	defer destroy(document)
+	testing.expect_value(t, err.kind, Error_Kind.None)
+
+	builder := strings.builder_make()
+	defer strings.builder_destroy(&builder)
+	testing.expect_value(t, write(&builder, document.root), Write_Error.None)
+	testing.expect_value(
+		t,
+		strings.to_string(builder),
+		"version = 1\n" +
+		"\n[build.cache]\nroot = \"build/assets\"\n" +
+		"\n[\"odd key\"]\nlist = [1, { a = 1, b = 2 }]\n" +
+		"\n[[asset]]\nid = \"6f3a9c2e81d4b705\"\npath = \"models/astronaut.glb\"\n" +
+		"\n[[asset]]\nid = \"a1c07e5d93f2468b\"\ntype = \"texture\"\n",
+	)
+}
+
+@(test)
+test_write_floats_read_back_as_floats :: proc(t: ^testing.T) {
+	table := make(Table)
+	defer delete(table)
+	table["whole"] = Float(300)
+	table["negative_zero"] = math.copy_sign(f64(0), -1)
+	table["tiny"] = Float(6.626e-34)
+	table["infinite"] = math.inf_f64(-1)
+
+	builder := strings.builder_make()
+	defer strings.builder_destroy(&builder)
+	testing.expect_value(t, write(&builder, table), Write_Error.None)
+	testing.expect_value(
+		t,
+		strings.to_string(builder),
+		"infinite = -inf\nnegative_zero = -0.0\ntiny = 6.626e-34\nwhole = 300.0\n",
+	)
+}
+
+@(test)
+test_write_rejects_what_toml_cannot_hold :: proc(t: ^testing.T) {
+	cases := []struct {
+		value: Value,
+		error: Write_Error,
+	} {
+		{nil, .Empty_Value},
+		{Local_Date{2023, 2, 29}, .Invalid_Date_Time},
+		{Offset_Date_Time{date = {2024, 1, 1}, offset_minutes = 24 * 60}, .Invalid_Date_Time},
+		{String("\xff"), .Invalid_Encoding},
+	}
+	for c in cases {
+		table := make(Table)
+		table["v"] = c.value
+		builder := strings.builder_make()
+		testing.expect_value(t, write(&builder, table), c.error)
+		strings.builder_destroy(&builder)
+		delete(table)
 	}
 }
