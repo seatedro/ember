@@ -117,6 +117,14 @@ if [ ! -x "$SHADERGEN" ] || [ -n "$(find tools/shadergen -name '*.odin' -newer "
 fi
 "$SHADERGEN" -include:src src "$GAME_DIR"
 
+if [ -f assets.toml ]; then
+    KILN="build/tools/kiln"
+    if [ ! -x "$KILN" ] || [ -n "$(find tools/kiln src/assets src/image src/core src/geometry -name '*.odin' -newer "$KILN")" ]; then
+        odin build tools/kiln -collection:ember=src -out:"$KILN"
+    fi
+    "$KILN"
+fi
+
 echo "Building ember $TARGET ($BUILD, $BACKEND)"
 odin build src/entrypoint $ODIN_FLAGS
 mkdir -p "$LINK_DIR"

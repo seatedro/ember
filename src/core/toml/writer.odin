@@ -1,6 +1,5 @@
 package toml
 
-import "base:runtime"
 import "core:math"
 import "core:slice"
 import "core:strconv"
@@ -25,11 +24,10 @@ Write_Error :: enum {
 // tables inside them, are written inline. On error the builder holds a
 // partial document.
 write :: proc(b: ^strings.Builder, table: Table) -> Write_Error {
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	w := Writer {
 		builder = b,
-		path    = make([dynamic]string, context.temp_allocator),
 	}
+	defer delete(w.path)
 	return write_body(&w, table)
 }
 
@@ -43,6 +41,7 @@ Writer :: struct {
 @(private = "file")
 write_body :: proc(w: ^Writer, table: Table) -> Write_Error {
 	keys := sorted_keys(table)
+	defer delete(keys)
 	for key in keys {
 		value := table[key]
 		if is_section(value) {
@@ -158,8 +157,10 @@ write_inline_table :: proc(w: ^Writer, table: Table) -> Write_Error {
 		return .None
 	}
 
+	keys := sorted_keys(table)
+	defer delete(keys)
 	strings.write_string(w.builder, "{ ")
-	for key, i in sorted_keys(table) {
+	for key, i in keys {
 		if i > 0 {
 			strings.write_string(w.builder, ", ")
 		}
@@ -334,7 +335,7 @@ write_digits :: proc(w: ^Writer, n: int) {
 
 @(private = "file")
 sorted_keys :: proc(table: Table) -> []string {
-	keys := make([]string, len(table), context.temp_allocator)
+	keys := make([]string, len(table))
 	i := 0
 	for key in table {
 		keys[i] = key

@@ -29,6 +29,7 @@ Section_Kind :: enum u32 {
 	Key_Values    = 'K' | 'V' << 8 | 'A' << 16 | 'L' << 24,
 	Texture_Info  = 'T' | 'X' << 8 | 'H' << 16 | 'D' << 24,
 	Pixels        = 'P' | 'I' << 8 | 'X' << 16 | 'L' << 24,
+	Index_Entries = 'E' | 'N' << 8 | 'T' << 16 | 'R' << 24,
 }
 
 // stride is the size of one record; byte blobs use 1.

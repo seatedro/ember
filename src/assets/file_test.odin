@@ -229,3 +229,22 @@ test_texture_round_trip_and_limits :: proc(t: ^testing.T) {
 		testing.expect_value(t, bad_err, c.error)
 	}
 }
+
+@(test)
+test_index_rejects_unsorted_or_misnamed_entries :: proc(t: ^testing.T) {
+	cases := []struct {
+		entries: []Index_Entry,
+		error:   File_Error,
+	} {
+		{{{2, .Model, "a.glb"}, {1, .Texture, ""}}, .Invalid_Value},
+		{{{1, .Model, "a.glb"}, {1, .Texture, ""}}, .Invalid_Value},
+		{{{0, .Texture, ""}}, .Invalid_Value},
+		{{{1, .Texture, "a.png"}}, .Invalid_Value},
+		{{{1, .Model, "../a.glb"}}, .Invalid_Value},
+	}
+	for c in cases {
+		data, err := encode_index(c.entries)
+		delete(data)
+		testing.expect_value(t, err, c.error)
+	}
+}

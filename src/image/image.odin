@@ -32,6 +32,10 @@ load :: proc(path: string) -> (Image, Error) {
 		return {}, .Read_Failed
 	}
 
+	return decode(source)
+}
+
+decode :: proc(source: []byte) -> (Image, Error) {
 	if len(source) == 0 || len(source) > int(max(i32)) {
 		return {}, .Decode_Failed
 	}

@@ -2,10 +2,7 @@ package assets
 
 import emath "../core/math"
 import "../geometry"
-import "core:encoding/endian"
 import "core:math"
-import "core:strings"
-import "core:unicode/utf8"
 
 // Record sizes in bytes
 NODE_SIZE :: 60
@@ -77,6 +74,8 @@ Skin_Vertex :: struct {
 	joints:  [4]u16,
 	weights: [4]f32,
 }
+
+MAX_SKIN_JOINTS :: int(max(u16)) + 1
 
 // u16 when every index fits, u32 otherwise.
 Indices :: union {
@@ -153,15 +152,10 @@ encode_model :: proc(
 	context.allocator = context.temp_allocator
 
 	strings_table: [dynamic]byte
-	name :: proc(w: ^[dynamic]byte, table: ^[dynamic]byte, s: string) {
-		put_u32(w, u32(len(table)))
-		put_u32(w, u32(len(s)))
-		append(table, s)
-	}
 
 	nodes := make([dynamic]byte, 0, NODE_SIZE * len(model.nodes))
 	for &node in model.nodes {
-		name(&nodes, &strings_table, node.name)
+		put_name(&nodes, &strings_table, node.name)
 		put_i32(&nodes, node.parent)
 		put_i32(&nodes, node.mesh)
 		put_i32(&nodes, node.skin)
@@ -173,7 +167,7 @@ encode_model :: proc(
 
 	meshes := make([dynamic]byte, 0, MESH_SIZE * len(model.meshes))
 	for mesh in model.meshes {
-		name(&meshes, &strings_table, mesh.name)
+		put_name(&meshes, &strings_table, mesh.name)
 		put_u32(&meshes, mesh.first_submesh)
 		put_u32(&meshes, mesh.submesh_count)
 	}
@@ -189,7 +183,7 @@ encode_model :: proc(
 
 	materials := make([dynamic]byte, 0, MATERIAL_SIZE * len(model.materials))
 	for &m in model.materials {
-		name(&materials, &strings_table, m.name)
+		put_name(&materials, &strings_table, m.name)
 		put_f32s(&materials, m.base_color[:])
 		put_f32s(&materials, m.emissive[:])
 		put_f32s(&materials, {m.metallic, m.roughness, m.alpha_cutoff})
@@ -252,7 +246,7 @@ encode_model :: proc(
 
 	animations := make([dynamic]byte, 0, ANIMATION_SIZE * len(model.animations))
 	for animation in model.animations {
-		name(&animations, &strings_table, animation.name)
+		put_name(&animations, &strings_table, animation.name)
 		put_f32s(&animations, {animation.duration})
 		put_u32(&animations, animation.first_channel)
 		put_u32(&animations, animation.channel_count)
@@ -607,108 +601,4 @@ validate_model :: proc(model: Model) -> File_Error {
 		}
 	}
 	return .None
-}
-
-@(private = "file")
-put_u16 :: proc(w: ^[dynamic]byte, value: u16) {
-	bytes: [2]byte
-	endian.put_u16(bytes[:], .Little, value)
-	append(w, ..bytes[:])
-}
-
-@(private = "file")
-put_u32 :: proc(w: ^[dynamic]byte, value: u32) {
-	bytes: [4]byte
-	endian.put_u32(bytes[:], .Little, value)
-	append(w, ..bytes[:])
-}
-
-@(private = "file")
-put_i32 :: proc(w: ^[dynamic]byte, value: i32) {
-	put_u32(w, u32(value))
-}
-
-@(private = "file")
-put_u64 :: proc(w: ^[dynamic]byte, value: u64) {
-	bytes: [8]byte
-	endian.put_u64(bytes[:], .Little, value)
-	append(w, ..bytes[:])
-}
-
-@(private = "file")
-put_f32s :: proc(w: ^[dynamic]byte, values: []f32) {
-	for value in values {
-		put_u32(w, transmute(u32)value)
-	}
-}
-
-// Walks one section's records. Record sizes were checked against the section
-// length, so reads stay inside data.
-@(private = "file")
-Reader :: struct {
-	data:  []byte,
-	table: []byte,
-}
-
-@(private = "file")
-read_u16 :: proc(r: ^Reader) -> u16 {
-	value, _ := endian.get_u16(r.data, .Little)
-	r.data = r.data[2:]
-	return value
-}
-
-@(private = "file")
-read_u32 :: proc(r: ^Reader) -> u32 {
-	value, _ := endian.get_u32(r.data, .Little)
-	r.data = r.data[4:]
-	return value
-}
-
-@(private = "file")
-read_i32 :: proc(r: ^Reader) -> i32 {
-	return i32(read_u32(r))
-}
-
-@(private = "file")
-read_u64 :: proc(r: ^Reader) -> u64 {
-	value, _ := endian.get_u64(r.data, .Little)
-	r.data = r.data[8:]
-	return value
-}
-
-@(private = "file")
-read_f32 :: proc(r: ^Reader) -> f32 {
-	return transmute(f32)read_u32(r)
-}
-
-@(private = "file")
-read_vec3 :: proc(r: ^Reader) -> [3]f32 {
-	return {read_f32(r), read_f32(r), read_f32(r)}
-}
-
-// An offset and length into the string table, copied out as UTF-8.
-@(private = "file")
-read_name :: proc(r: ^Reader) -> (string, File_Error) {
-	offset, length := read_u32(r), read_u32(r)
-	if u64(offset) + u64(length) > u64(len(r.table)) {
-		return "", .Invalid_Reference
-	}
-	text := string(r.table[offset:][:length])
-	if !utf8.valid_string(text) {
-		return "", .Invalid_Value
-	}
-	copied, err := strings.clone(text)
-	if err != nil {
-		return "", .Allocation_Failed
-	}
-	return copied, .None
-}
-
-@(private = "file")
-make_records :: proc($T: typeid, count: int) -> ([]T, File_Error) {
-	records, err := make([]T, count)
-	if err != nil {
-		return nil, .Allocation_Failed
-	}
-	return records, .None
 }
