@@ -2,6 +2,7 @@ package renderer
 
 import "../assets"
 import emath "../core/math"
+import "../rhi"
 import "../shaders"
 import "core:mem"
 
@@ -46,6 +47,30 @@ create_model_shading :: proc(
 	shading: Model_Shading,
 	err: Error,
 ) {
+	shading.single_sided = create_model_pipeline(renderer, shader, .Back) or_return
+	shading.double_sided, err = create_model_pipeline(renderer, shader, .None)
+	if err != .None {
+		destroy_pipeline(renderer, &shading.single_sided)
+		return {}, err
+	}
+	return
+}
+
+destroy_model_shading :: proc(renderer: ^Renderer, shading: ^Model_Shading) -> Error {
+	single_err := destroy_pipeline(renderer, &shading.single_sided)
+	double_err := destroy_pipeline(renderer, &shading.double_sided)
+	return single_err if single_err != .None else double_err
+}
+
+@(private = "file")
+create_model_pipeline :: proc(
+	renderer: ^Renderer,
+	shader: shaders.Shader,
+	cull: rhi.Cull_Mode,
+) -> (
+	Pipeline,
+	Error,
+) {
 	textures := [5]Texture_Binding_Desc {
 		{name = "base_color_texture", binding = 0},
 		{name = "normal_texture", binding = 1},
@@ -53,35 +78,19 @@ create_model_shading :: proc(
 		{name = "emissive_texture", binding = 3},
 		{name = "occlusion_texture", binding = 8},
 	}
-	for pipeline, i in ([2]^Pipeline{&shading.single_sided, &shading.double_sided}) {
-		pipeline^, err = create_pipeline(
-			renderer,
-			shader,
-			{
-				layout = VERTEX_LAYOUT,
-				primitive = .Triangles,
-				depth = {test_enabled = true, write_enabled = true, compare = .Less},
-				raster = {cull = .None if i == 1 else .Back, winding = .CCW},
-			},
-			textures[:],
-			lighting = true,
-			environment = true,
-		)
-		if err != .None {
-			destroy_model_shading(renderer, &shading)
-			return {}, err
-		}
-	}
-	return
-}
-
-destroy_model_shading :: proc(renderer: ^Renderer, shading: ^Model_Shading) -> (result: Error) {
-	for pipeline in ([2]^Pipeline{&shading.single_sided, &shading.double_sided}) {
-		if err := destroy_pipeline(renderer, pipeline); err != .None && result == .None {
-			result = err
-		}
-	}
-	return
+	return create_pipeline(
+		renderer,
+		shader,
+		{
+			layout = VERTEX_LAYOUT,
+			primitive = .Triangles,
+			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			raster = {cull = cull, winding = .CCW},
+		},
+		textures[:],
+		lighting = true,
+		environment = true,
+	)
 }
 
 load_model :: proc(
@@ -154,7 +163,8 @@ load_model :: proc(
 			if material == assets.NO_INDEX {
 				material = len(source.materials)
 			}
-			double_sided := material < len(source.materials) && source.materials[material].double_sided
+			double_sided :=
+				material < len(source.materials) && source.materials[material].double_sided
 			append(
 				&parts,
 				Model_Part {
