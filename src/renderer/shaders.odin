@@ -6,6 +6,7 @@ Builtin_Shader :: enum {
 	Unlit,
 	Lit,
 	Lit_Shadowed,
+	Model,
 	Shadow_Depth,
 	Grid,
 	Presentation,
@@ -37,10 +38,10 @@ GENERATED :: "shaders/generated/"
 // example does.
 MESH_VERTEX_SOURCE :: #load(GENERATED + "mesh.vert" + shaders.EXTENSION, string)
 
+SCREEN_VERTEX_SOURCE :: #load(GENERATED + "screen.vert" + shaders.EXTENSION, string)
+
 @(private)
 UNLIT_VERTEX_SOURCE :: #load(GENERATED + "unlit.vert" + shaders.EXTENSION, string)
-@(private)
-SCREEN_VERTEX_SOURCE :: #load(GENERATED + "screen.vert" + shaders.EXTENSION, string)
 
 load_builtin_shader :: proc(
 	library: ^shaders.Library,
@@ -60,6 +61,9 @@ load_builtin_shader :: proc(
 	case .Lit_Shadowed:
 		name, vertex = "ember/lit-shadowed", MESH_VERTEX_SOURCE
 		fragment = #load(GENERATED + "lit_shadowed.frag" + shaders.EXTENSION, string)
+	case .Model:
+		name, vertex = "ember/model", MESH_VERTEX_SOURCE
+		fragment = #load(GENERATED + "model.frag" + shaders.EXTENSION, string)
 	case .Shadow_Depth:
 		name, vertex = "ember/shadow-depth", UNLIT_VERTEX_SOURCE
 		fragment = #load(GENERATED + "shadow_depth.frag" + shaders.EXTENSION, string)
