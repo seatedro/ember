@@ -7,6 +7,7 @@ import "../shaders"
 Pipeline :: struct {
 	shadows:     bool,
 	environment: bool,
+	skinned:     bool,
 	shader:      shaders.Shader,
 	handle:      rhi.Pipeline_Handle,
 }
@@ -23,6 +24,7 @@ create_pipeline :: proc(
 	shadows: bool = false,
 	material_uniforms := true,
 	environment := false,
+	skinned := false,
 ) -> (
 	pipeline: Pipeline,
 	err: Error,
@@ -34,22 +36,22 @@ create_pipeline :: proc(
 	}
 
 	mesh_settings.instance_layout = INSTANCE_LAYOUT
-	blocks := [3]rhi.Uniform_Block_Desc {
-		{name = "Per_View", binding = VIEW_BINDING},
-		{name = "Material", binding = MATERIAL_BINDING},
-		{name = "Lighting_Uniforms", binding = LIGHTING_BINDING},
+	blocks: [4]rhi.Uniform_Block_Desc
+	blocks[0] = {name = "Per_View", binding = VIEW_BINDING}
+	block_count := 1
+	if material_uniforms {
+		blocks[block_count] = {name = "Material", binding = MATERIAL_BINDING}
+		block_count += 1
+	} else if lighting || shadows || skinned {
+		return {}, .Invalid_Usage
 	}
-
-	block_count := 2
 	if lighting {
-		block_count = 3
+		blocks[block_count] = {name = "Lighting_Uniforms", binding = LIGHTING_BINDING}
+		block_count += 1
 	}
-
-	if !material_uniforms {
-		if lighting || shadows {
-			return {}, .Invalid_Usage
-		}
-		block_count = 1
+	if skinned {
+		blocks[block_count] = {name = "Skin", binding = SKIN_BINDING}
+		block_count += 1
 	}
 
 	texture_bindings: [rhi.MAX_TEXTURE_BINDINGS]Texture_Binding_Desc
@@ -98,7 +100,8 @@ create_pipeline :: proc(
 
 	slot := pool.get(&renderer.device.pipelines, pipeline.handle)
 	if slot.requirements.uniform_sizes[VIEW_BINDING] > size_of(Per_View) ||
-	   slot.requirements.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) {
+	   slot.requirements.uniform_sizes[LIGHTING_BINDING] > size_of(Lighting_Uniforms) ||
+	   slot.requirements.uniform_sizes[SKIN_BINDING] > size_of(Joint_Uniforms) {
 		destroy_pipeline(renderer, &pipeline)
 		return pipeline, .Invalid_Size
 	}
@@ -106,6 +109,7 @@ create_pipeline :: proc(
 	pipeline.shader = shader
 	pipeline.shadows = shadows
 	pipeline.environment = environment
+	pipeline.skinned = skinned
 
 	return
 }

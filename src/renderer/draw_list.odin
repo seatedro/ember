@@ -17,6 +17,7 @@ Draw_Item :: struct {
 	material:  Material,
 	transform: emath.Mat4,
 	order:     Draw_Order,
+	joints:    rhi.Buffer_Handle,
 }
 
 Draw_List :: struct {
@@ -44,6 +45,7 @@ Batch_Key :: struct {
 	vertices, indices: rhi.Buffer_Handle,
 	index_count:       u32,
 	material:          Material,
+	joints:            rhi.Buffer_Handle,
 }
 
 @(private)
@@ -194,6 +196,7 @@ draw_list :: proc(
 			renderer.instance_buffer,
 			u64(batch.first) * size_of(Instance_Data),
 			u32(batch.count),
+			item.joints,
 		); err != .None {
 			return err
 		}
@@ -225,6 +228,7 @@ build_draw_batches :: proc(list: ^Draw_List, batching: bool) -> Error {
 			item.mesh.indices,
 			item.mesh.index_count,
 			item.material,
+			item.joints,
 		}
 		batch, found := list.batch_indices[key]
 		group := batching && item.order == .Opaque

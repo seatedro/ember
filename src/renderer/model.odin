@@ -2,9 +2,9 @@ package renderer
 
 import "../assets"
 import emath "../core/math"
+import "../geometry"
 import "../rhi"
 import "../shaders"
-import "core:mem"
 
 Model_Parameters :: struct {
 	base_color:     [4]f32,
@@ -17,21 +17,53 @@ Model_Parameters :: struct {
 
 #assert(size_of(Model_Parameters) == 48)
 
+MAX_JOINTS :: 256
+
+Joint_Uniforms :: struct {
+	joints: [MAX_JOINTS]emath.Mat4,
+}
+
+Skinned_Vertex :: struct {
+	vertex:  geometry.Vertex,
+	joints:  [4]f32,
+	weights: [4]f32,
+}
+
+#assert(offset_of(Skinned_Vertex, vertex) == 0)
+
+SKINNED_VERTEX_LAYOUT :: Vertex_Layout {
+	stride = size_of(Skinned_Vertex),
+	attribute_count = 7,
+	attributes = {
+		0 = {location = 0, format = .F32x3, offset = u32(offset_of(geometry.Vertex, position))},
+		1 = {location = 1, format = .F32x3, offset = u32(offset_of(geometry.Vertex, normal))},
+		2 = {location = 2, format = .F32x2, offset = u32(offset_of(geometry.Vertex, uv))},
+		3 = {location = 6, format = .F32x3, offset = u32(offset_of(geometry.Vertex, tangent))},
+		4 = {location = 7, format = .F32x3, offset = u32(offset_of(geometry.Vertex, bitangent))},
+		5 = {location = 8, format = .F32x4, offset = u32(offset_of(Skinned_Vertex, joints))},
+		6 = {location = 9, format = .F32x4, offset = u32(offset_of(Skinned_Vertex, weights))},
+	},
+}
+
 Model_Shading :: struct {
-	single_sided, double_sided: Pipeline,
+	single_sided, double_sided:                 Pipeline,
+	skinned_single_sided, skinned_double_sided: Pipeline,
 }
 
 Model_Part :: struct {
 	mesh, material: int,
+	node:           int,
+	skin:           int,
 	double_sided:   bool,
-	transform:      emath.Mat4,
 }
 
 Model :: struct {
-	meshes:    []Mesh,
-	materials: []Material,
-	textures:  []Texture,
-	parts:     []Model_Part,
+	meshes:     []Mesh,
+	materials:  []Material,
+	textures:   []Texture,
+	parts:      []Model_Part,
+	skeleton:   assets.Model,
+	node_order: []int,
 }
 
 Model_Error :: union {
@@ -42,55 +74,44 @@ Model_Error :: union {
 
 create_model_shading :: proc(
 	renderer: ^Renderer,
-	shader: shaders.Shader,
+	static_shader, skinned_shader: shaders.Shader,
 ) -> (
 	shading: Model_Shading,
 	err: Error,
 ) {
-	shading.single_sided = create_model_pipeline(renderer, shader, .Back) or_return
-	shading.double_sided, err = create_model_pipeline(renderer, shader, .None)
-	if err != .None {
-		destroy_pipeline(renderer, &shading.single_sided)
-		return {}, err
+	defer if err != .None {
+		destroy_model_shading(renderer, &shading)
+		shading = {}
 	}
+	shading.single_sided = create_model_pipeline(renderer, static_shader, .Back, false) or_return
+	shading.double_sided = create_model_pipeline(renderer, static_shader, .None, false) or_return
+	shading.skinned_single_sided = create_model_pipeline(
+		renderer,
+		skinned_shader,
+		.Back,
+		true,
+	) or_return
+	shading.skinned_double_sided = create_model_pipeline(
+		renderer,
+		skinned_shader,
+		.None,
+		true,
+	) or_return
 	return
 }
 
-destroy_model_shading :: proc(renderer: ^Renderer, shading: ^Model_Shading) -> Error {
-	single_err := destroy_pipeline(renderer, &shading.single_sided)
-	double_err := destroy_pipeline(renderer, &shading.double_sided)
-	return single_err if single_err != .None else double_err
-}
-
-@(private = "file")
-create_model_pipeline :: proc(
-	renderer: ^Renderer,
-	shader: shaders.Shader,
-	cull: rhi.Cull_Mode,
-) -> (
-	Pipeline,
-	Error,
-) {
-	textures := [5]Texture_Binding_Desc {
-		{name = "base_color_texture", binding = 0},
-		{name = "normal_texture", binding = 1},
-		{name = "metallic_roughness_texture", binding = 2},
-		{name = "emissive_texture", binding = 3},
-		{name = "occlusion_texture", binding = 8},
+destroy_model_shading :: proc(renderer: ^Renderer, shading: ^Model_Shading) -> (result: Error) {
+	for err in ([4]Error {
+			destroy_pipeline(renderer, &shading.single_sided),
+			destroy_pipeline(renderer, &shading.double_sided),
+			destroy_pipeline(renderer, &shading.skinned_single_sided),
+			destroy_pipeline(renderer, &shading.skinned_double_sided),
+		}) {
+		if err != .None && result == .None {
+			result = err
+		}
 	}
-	return create_pipeline(
-		renderer,
-		shader,
-		{
-			layout = VERTEX_LAYOUT,
-			primitive = .Triangles,
-			depth = {test_enabled = true, write_enabled = true, compare = .Less},
-			raster = {cull = cull, winding = .CCW},
-		},
-		textures[:],
-		lighting = true,
-		environment = true,
-	)
+	return
 }
 
 load_model :: proc(
@@ -103,13 +124,13 @@ load_model :: proc(
 	model: Model,
 	err: Model_Error,
 ) {
-	source, load_err := assets.load_model(library, id)
+	source, load_err := assets.load_model(library, id, allocator)
 	if load_err != nil {
 		return {}, flatten_load_error(load_err)
 	}
-	defer assets.destroy_model(&source)
 
 	context.allocator = allocator
+	model.skeleton = source
 	defer if err != nil {
 		destroy_model(renderer, &model)
 	}
@@ -128,55 +149,96 @@ load_model :: proc(
 		model.textures[i] = load_model_texture(renderer, library, id) or_return
 	}
 
-	model.materials = make([]Material, len(source.materials) + 1)
-	for material, i in source.materials {
-		model.materials[i] = create_model_material(
-			renderer,
-			shading,
-			material,
-			texture_ids[:],
-			model.textures,
-		) or_return
+	material_count := len(source.materials) + 1
+	model.materials = make([]Material, 2 * material_count)
+	for variant in 0 ..< 2 {
+		shader := shading.single_sided.shader
+		if variant == 1 {
+			shader = shading.skinned_single_sided.shader
+		}
+		for i in 0 ..< material_count {
+			material := assets.Material {
+				base_color = {1, 1, 1, 1},
+				roughness  = 1,
+			}
+			if i < len(source.materials) {
+				material = source.materials[i]
+			}
+			model.materials[variant * material_count + i] = create_model_material(
+				renderer,
+				shader,
+				material,
+				texture_ids[:],
+				model.textures,
+			) or_return
+		}
 	}
-	model.materials[len(source.materials)] = create_model_material(
-		renderer,
-		shading,
-		{base_color = {1, 1, 1, 1}, metallic = 0, roughness = 1},
-		nil,
-		nil,
-	) or_return
 
-	model.meshes = make([]Mesh, len(source.submeshes))
-	for submesh, i in source.submeshes {
-		model.meshes[i] = create_submesh(renderer, source, submesh) or_return
+	model.node_order = parents_first(source.nodes)
+	rest := make([]emath.Mat4, len(source.nodes), context.temp_allocator)
+	for i in model.node_order {
+		node := source.nodes[i]
+		rest[i] = compose(node.translation, node.rotation, node.scale)
+		if node.parent != assets.NO_INDEX {
+			rest[i] = rest[node.parent] * rest[i]
+		}
 	}
+	skinned_bounds := model_bounds(source, rest)
+	skinned_bounds.radius *= 1.25
 
-	worlds := node_world_transforms(source.nodes, context.temp_allocator)
+	mesh_keys := make([dynamic][2]int, context.temp_allocator)
+	mesh_indices := make(map[[2]int]int, allocator = context.temp_allocator)
 	parts := make([dynamic]Model_Part)
-	for node, i in source.nodes {
+	for node, node_index in source.nodes {
 		if node.mesh == assets.NO_INDEX {
 			continue
 		}
+		skinned := node.skin != assets.NO_INDEX && len(source.skin_vertices) > 0
 		mesh := source.meshes[node.mesh]
 		for submesh_index in mesh.first_submesh ..< mesh.first_submesh + mesh.submesh_count {
-			material := int(source.submeshes[submesh_index].material)
+			submesh := source.submeshes[submesh_index]
+			key := [2]int{int(submesh_index), int(skinned)}
+			mesh_index, found := mesh_indices[key]
+			if !found {
+				mesh_index = len(mesh_keys)
+				append(&mesh_keys, key)
+				mesh_indices[key] = mesh_index
+			}
+
+			material := int(submesh.material)
 			if material == assets.NO_INDEX {
 				material = len(source.materials)
 			}
-			double_sided :=
-				material < len(source.materials) && source.materials[material].double_sided
 			append(
 				&parts,
 				Model_Part {
-					mesh = int(submesh_index),
-					material = material,
-					double_sided = double_sided,
-					transform = worlds[i],
+					mesh = mesh_index,
+					material = int(skinned) * material_count + material,
+					node = node_index,
+					skin = int(node.skin) if skinned else assets.NO_INDEX,
+					double_sided = material < len(source.materials) &&
+					source.materials[material].double_sided,
 				},
 			)
 		}
 	}
 	model.parts = parts[:]
+
+	model.meshes = make([]Mesh, len(mesh_keys))
+	for key, i in mesh_keys {
+		submesh := source.submeshes[key[0]]
+		if key[1] == 1 {
+			model.meshes[i] = create_skinned_submesh(
+				renderer,
+				source,
+				submesh,
+				skinned_bounds,
+			) or_return
+		} else {
+			model.meshes[i] = create_submesh(renderer, source, submesh) or_return
+		}
+	}
+	drop_geometry(&model.skeleton)
 	return
 }
 
@@ -184,18 +246,24 @@ add_model :: proc(
 	list: ^Draw_List,
 	shading: ^Model_Shading,
 	model: ^Model,
+	pose: ^Model_Pose,
 	transform: emath.Mat4,
 ) -> Error {
 	for part in model.parts {
-		add_draw(
-			list,
-			{
-				pipeline = shading.double_sided if part.double_sided else shading.single_sided,
-				mesh = model.meshes[part.mesh],
-				material = model.materials[part.material],
-				transform = transform * part.transform,
-			},
-		) or_return
+		item := Draw_Item {
+			mesh     = model.meshes[part.mesh],
+			material = model.materials[part.material],
+		}
+		if part.skin == assets.NO_INDEX {
+			item.pipeline = shading.double_sided if part.double_sided else shading.single_sided
+			item.transform = transform * pose.worlds[part.node]
+		} else {
+			item.pipeline =
+				shading.skinned_double_sided if part.double_sided else shading.skinned_single_sided
+			item.transform = transform
+			item.joints = pose.joints[part.skin]
+		}
+		add_draw(list, item) or_return
 	}
 	return .None
 }
@@ -225,8 +293,107 @@ destroy_model :: proc(
 	delete(model.materials, allocator)
 	delete(model.textures, allocator)
 	delete(model.parts, allocator)
+	delete(model.node_order, allocator)
+	assets.destroy_model(&model.skeleton, allocator)
 	model^ = {}
 	return
+}
+
+@(private = "file")
+create_model_pipeline :: proc(
+	renderer: ^Renderer,
+	shader: shaders.Shader,
+	cull: rhi.Cull_Mode,
+	skinned: bool,
+) -> (
+	Pipeline,
+	Error,
+) {
+	textures := [5]Texture_Binding_Desc {
+		{name = "base_color_texture", binding = 0},
+		{name = "normal_texture", binding = 1},
+		{name = "metallic_roughness_texture", binding = 2},
+		{name = "emissive_texture", binding = 3},
+		{name = "occlusion_texture", binding = 8},
+	}
+	return create_pipeline(
+		renderer,
+		shader,
+		{
+			layout = SKINNED_VERTEX_LAYOUT if skinned else VERTEX_LAYOUT,
+			primitive = .Triangles,
+			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			raster = {cull = cull, winding = .CCW},
+		},
+		textures[:],
+		lighting = true,
+		environment = true,
+		skinned = skinned,
+	)
+}
+
+@(private = "file")
+drop_geometry :: proc(skeleton: ^assets.Model) {
+	switch indices in skeleton.indices {
+	case []u16:
+		delete(indices)
+	case []u32:
+		delete(indices)
+	}
+	delete(skeleton.vertices)
+	delete(skeleton.skin_vertices)
+	skeleton.indices = nil
+	skeleton.vertices = nil
+	skeleton.skin_vertices = nil
+}
+
+@(private = "file")
+parents_first :: proc(nodes: []assets.Node) -> []int {
+	order := make([dynamic]int, 0, len(nodes))
+	placed := make([]bool, len(nodes), context.temp_allocator)
+	for len(order) < len(nodes) {
+		progress := false
+		for node, i in nodes {
+			if !placed[i] && (node.parent == assets.NO_INDEX || placed[node.parent]) {
+				append(&order, i)
+				placed[i] = true
+				progress = true
+			}
+		}
+		if !progress {
+			break
+		}
+	}
+	return order[:]
+}
+
+@(private = "file")
+model_bounds :: proc(source: assets.Model, worlds: []emath.Mat4) -> emath.Bounding_Sphere {
+	lowest := emath.Vec3{max(f32), max(f32), max(f32)}
+	highest := emath.Vec3{min(f32), min(f32), min(f32)}
+	for node, i in source.nodes {
+		if node.mesh == assets.NO_INDEX {
+			continue
+		}
+		mesh := source.meshes[node.mesh]
+		for submesh in source.submeshes[mesh.first_submesh:][:mesh.submesh_count] {
+			sphere := emath.transform_sphere_matrix(submesh.bounds, worlds[i])
+			lowest = {
+				min(lowest.x, sphere.center.x - sphere.radius),
+				min(lowest.y, sphere.center.y - sphere.radius),
+				min(lowest.z, sphere.center.z - sphere.radius),
+			}
+			highest = {
+				max(highest.x, sphere.center.x + sphere.radius),
+				max(highest.y, sphere.center.y + sphere.radius),
+				max(highest.z, sphere.center.z + sphere.radius),
+			}
+		}
+	}
+	if lowest.x > highest.x {
+		return {}
+	}
+	return {center = (lowest + highest) * 0.5, radius = emath.length(highest - lowest) * 0.5}
 }
 
 @(private = "file")
@@ -286,7 +453,7 @@ load_model_texture :: proc(
 @(private = "file")
 create_model_material :: proc(
 	renderer: ^Renderer,
-	shading: ^Model_Shading,
+	shader: shaders.Shader,
 	material: assets.Material,
 	ids: []assets.Asset_ID,
 	textures: []Texture,
@@ -320,7 +487,7 @@ create_model_material :: proc(
 	}
 	result, err := create_material(
 		renderer,
-		shading.single_sided.shader,
+		shader,
 		parameters,
 		{
 			{binding = 0, texture = find(.Base_Color, material, ids, textures, white)},
@@ -337,6 +504,36 @@ create_model_material :: proc(
 }
 
 @(private = "file")
+Submesh_Range :: struct {
+	indices:         []u32,
+	lowest, highest: u32,
+}
+
+@(private = "file")
+submesh_range :: proc(source: assets.Model, submesh: assets.Submesh) -> Submesh_Range {
+	range := Submesh_Range {
+		indices = make([]u32, submesh.index_count, context.temp_allocator),
+		lowest  = max(u32),
+	}
+	for i in 0 ..< submesh.index_count {
+		index: u32
+		switch all in source.indices {
+		case []u16:
+			index = u32(all[submesh.first_index + i])
+		case []u32:
+			index = all[submesh.first_index + i]
+		}
+		range.indices[i] = index
+		range.lowest = min(range.lowest, index)
+		range.highest = max(range.highest, index)
+	}
+	for &index in range.indices {
+		index -= range.lowest
+	}
+	return range
+}
+
+@(private = "file")
 create_submesh :: proc(
 	renderer: ^Renderer,
 	source: assets.Model,
@@ -348,28 +545,11 @@ create_submesh :: proc(
 	if submesh.index_count == 0 {
 		return {}, Error.Invalid_Size
 	}
-	lowest, highest := max(u32), u32(0)
-	indices := make([]u32, submesh.index_count, context.temp_allocator)
-	for i in 0 ..< submesh.index_count {
-		index: u32
-		switch all in source.indices {
-		case []u16:
-			index = u32(all[submesh.first_index + i])
-		case []u32:
-			index = all[submesh.first_index + i]
-		}
-		indices[i] = index
-		lowest = min(lowest, index)
-		highest = max(highest, index)
-	}
-	for &index in indices {
-		index -= lowest
-	}
-
+	range := submesh_range(source, submesh)
 	mesh, err := create_mesh(
 		renderer,
-		source.vertices[lowest:highest + 1],
-		indices,
+		source.vertices[range.lowest:range.highest + 1],
+		range.indices,
 		VERTEX_LAYOUT,
 		submesh.bounds,
 	)
@@ -380,27 +560,49 @@ create_submesh :: proc(
 }
 
 @(private = "file")
-node_world_transforms :: proc(nodes: []assets.Node, allocator: mem.Allocator) -> []emath.Mat4 {
-	worlds := make([]emath.Mat4, len(nodes), allocator)
-	done := make([]bool, len(nodes), context.temp_allocator)
-	resolve :: proc(i: int, nodes: []assets.Node, worlds: []emath.Mat4, done: []bool, depth: int) {
-		if done[i] {
-			return
-		}
-		node := nodes[i]
-		local := emath.transform_matrix(
-			{position = node.translation, orientation = node.rotation, scale = node.scale},
-		)
-		parent := int(node.parent)
-		if parent != assets.NO_INDEX && depth < len(nodes) {
-			resolve(parent, nodes, worlds, done, depth + 1)
-			local = worlds[parent] * local
-		}
-		worlds[i] = local
-		done[i] = true
+create_skinned_submesh :: proc(
+	renderer: ^Renderer,
+	source: assets.Model,
+	submesh: assets.Submesh,
+	bounds: emath.Bounding_Sphere,
+) -> (
+	Mesh,
+	Model_Error,
+) {
+	if submesh.index_count == 0 {
+		return {}, Error.Invalid_Size
 	}
-	for i in 0 ..< len(nodes) {
-		resolve(i, nodes, worlds, done, 0)
+	range := submesh_range(source, submesh)
+	vertices := make([]Skinned_Vertex, range.highest - range.lowest + 1, context.temp_allocator)
+	for &vertex, i in vertices {
+		index := range.lowest + u32(i)
+		influence := source.skin_vertices[index]
+		vertex = {
+			vertex  = source.vertices[index],
+			joints  = {
+				f32(influence.joints[0]),
+				f32(influence.joints[1]),
+				f32(influence.joints[2]),
+				f32(influence.joints[3]),
+			},
+			weights = influence.weights,
+		}
 	}
-	return worlds
+	mesh, err := create_mesh(renderer, vertices, range.indices, SKINNED_VERTEX_LAYOUT, bounds)
+	if err != .None {
+		return {}, err
+	}
+	return mesh, nil
+}
+
+@(private)
+compose :: proc(translation: emath.Vec3, rotation: emath.Quaternion, scale: emath.Vec3) -> emath.Mat4 {
+	result := emath.rotation_matrix(rotation)
+	for column in 0 ..< 3 {
+		for row in 0 ..< 3 {
+			result[row, column] *= scale[column]
+		}
+		result[column, 3] = translation[column]
+	}
+	return result
 }

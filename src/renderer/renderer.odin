@@ -33,6 +33,9 @@ SHADOW_TEXTURE_BINDING :: 7
 VIEW_BINDING :: 0
 
 @(private)
+SKIN_BINDING :: 1
+
+@(private)
 MATERIAL_BINDING :: 2
 
 @(private)
@@ -230,6 +233,7 @@ draw_mesh_instances :: proc(
 	instances: rhi.Buffer_Handle,
 	instance_offset: u64,
 	instance_count: u32,
+	joints: rhi.Buffer_Handle = {},
 ) -> Error {
 	device := renderer.device
 	if err := rhi.validate_device(device); err != .None {
@@ -268,6 +272,15 @@ draw_mesh_instances :: proc(
 	if err := rhi.bind_uniform_buffer(device, LIGHTING_BINDING, renderer.lighting_uniforms);
 	   err != .None {
 		return err
+	}
+
+	if pipeline.skinned {
+		if joints.generation == 0 {
+			return .Invalid_Draw
+		}
+		if err := rhi.bind_uniform_buffer(device, SKIN_BINDING, joints); err != .None {
+			return err
+		}
 	}
 
 	for texture, binding in material.textures {
