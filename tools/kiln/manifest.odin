@@ -13,7 +13,7 @@ import "ember:core/toml"
 MANIFEST_FILE :: "manifest.toml"
 MANIFEST_VERSION :: 1
 
-CONVERTER_VERSION :: 1
+CONVERTER_VERSION :: 2
 
 Source :: struct {
 	path: string,

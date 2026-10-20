@@ -224,3 +224,27 @@ test_refuses_unsupported_input :: proc(t: ^testing.T) {
 	}
 	free_all(context.temp_allocator)
 }
+
+@(test)
+test_mips_average_in_the_right_space :: proc(t: ^testing.T) {
+	base := []byte{255, 255, 255, 255, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0}
+	testing.expect_value(t, full_mip_count(2), 2)
+	testing.expect_value(t, full_mip_count(3), 2)
+	testing.expect_value(t, full_mip_count(2048), 12)
+
+	for c in ([2]struct {
+			srgb: bool,
+			want: [4]byte,
+		}{{false, {128, 128, 128, 128}}, {true, {188, 188, 188, 128}}}) {
+		pixels := make([]byte, assets.texture_size(2, 2, 2), context.temp_allocator)
+		build_mips(pixels, base, 2, 2, 2, c.srgb)
+		testing.expect_value(t, [4]byte{pixels[16], pixels[17], pixels[18], pixels[19]}, c.want)
+	}
+
+	odd := []byte{0, 0, 0, 255, 90, 90, 90, 255, 200, 200, 200, 255}
+	pixels := make([]byte, assets.texture_size(3, 1, 2), context.temp_allocator)
+	build_mips(pixels, odd, 3, 1, 2, false)
+	testing.expect_value(t, len(pixels), 16)
+	testing.expect_value(t, pixels[12], 45)
+	free_all(context.temp_allocator)
+}
