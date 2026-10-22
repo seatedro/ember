@@ -197,10 +197,9 @@ generate :: proc(
 				STAGE_NAMES[stage],
 			)
 			if stage == .Vertex {
-				// Ember's clip depth is OpenGL's [-w, w] and Metal's is [0, w].
-				// Metal also leaves the point size undefined unless the vertex
-				// shader writes it.
-				append(&cross, "--fixup-clipspace", "--msl-default-point-size", "1")
+				// Metal leaves the point size undefined unless the vertex shader
+				// writes it.
+				append(&cross, "--msl-default-point-size", "1")
 			}
 		}
 		append(&cross, "--output", output)

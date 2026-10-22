@@ -112,7 +112,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 				1 = {location = 1, format = .F32x3, offset = u32(offset_of(Vertex, color))},
 			},
 		},
-		depth = {test_enabled = true, write_enabled = true, compare = .Less},
+		depth = {test_enabled = true, write_enabled = true, compare = .Greater_Equal},
 		raster = {cull = .Back, winding = .CCW},
 	}
 

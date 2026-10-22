@@ -18,7 +18,7 @@ begin_pass :: proc(
 	device: ^Device,
 	desc: Pass_Desc,
 	clear_color: [4]f32 = {0.1, 0.1, 0.1, 1},
-	clear_depth: f64 = 1,
+	clear_depth: f64 = 0,
 ) -> Error {
 	if err := validate_device(device); err != .None {
 		return err

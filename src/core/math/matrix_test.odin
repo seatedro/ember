@@ -44,12 +44,28 @@ test_projection_depth_and_fov :: proc(t: ^testing.T) {
 	projection := perspective(fov, 2, 0.1, 100)
 	near := projection * Vec4{0, 0, -0.1, 1}
 	far := projection * Vec4{0, 0, -100, 1}
-	expect_f32_approximately_equal(t, near[2] / near[3], -1)
-	expect_f32_approximately_equal(t, far[2] / far[3], 1)
+	expect_f32_approximately_equal(t, near[2] / near[3], 1)
+	expect_f32_approximately_equal(t, far[2] / far[3], 0)
 
 	top := projection * Vec4{0, 2 * stdmath.tan(fov / 2), -2, 1}
 	right := projection * Vec4{4 * stdmath.tan(fov / 2), 0, -2, 1}
 	expect_f32_approximately_equal(t, top[1] / top[3], 1)
 	expect_f32_approximately_equal(t, right[0] / right[3], 1)
 	testing.expect(t, near[3] > 0 && far[3] > 0)
+}
+
+@(test)
+test_infinite_projection_keeps_distant_depth :: proc(t: ^testing.T) {
+	projection := perspective_infinite(f32(stdmath.PI / 3), 2, 0.1)
+	near := projection * Vec4{0, 0, -0.1, 1}
+	expect_f32_approximately_equal(t, near[2] / near[3], 1)
+
+	previous: f32 = 1
+	for distance in ([4]f32{1e3, 1e9, 1e15, 1e21}) {
+		point := projection * Vec4{0, 0, -distance, 1}
+		depth := point[2] / point[3]
+		testing.expect(t, depth > 0 && depth < previous)
+		expect_f32_approximately_equal(t, depth * distance, 0.1)
+		previous = depth
+	}
 }

@@ -46,6 +46,15 @@ test_frustum_edges_and_camera_pose :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_infinite_frustum_keeps_distant_spheres :: proc(t: ^testing.T) {
+	view := look_at({0, 0, 0}, {0, 0, -1}, {0, 1, 0})
+	frustum := frustum_from_matrix(perspective_infinite(math.PI / 2, 1, 0.1) * view)
+	testing.expect(t, sphere_in_frustum(frustum, {center = {0, 0, -1e20}, radius = 1}))
+	testing.expect(t, !sphere_in_frustum(frustum, {center = {0, 0, 1}, radius = 0.5}))
+	testing.expect(t, !sphere_in_frustum(frustum, {center = {1e20, 0, -1}, radius = 1}))
+}
+
+@(test)
 test_sphere_bounds_under_nonuniform_scale :: proc(t: ^testing.T) {
 	local := Bounding_Sphere {
 		center = {1, 2, 3},

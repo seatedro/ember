@@ -108,7 +108,7 @@ create_environment :: proc(
 		pipelines[i]^, err = create_pipeline(
 			renderer,
 			program,
-			{layout = VERTEX_LAYOUT, depth = {test_enabled = i == 2, compare = .Less_Equal}},
+			{layout = VERTEX_LAYOUT, depth = {test_enabled = i == 2, compare = .Greater_Equal}},
 			textures[:0 if i == 1 else 1],
 		)
 		if err != .None {
@@ -338,9 +338,7 @@ draw_environment :: proc(
 	); err != .None {
 		return err
 	}
-	far_plane := emath.identity()
-	far_plane[2, 3] = 1
-	if err := set_view(renderer, {orientation = 1}, far_plane); err != .None {
+	if err := set_view(renderer, {orientation = 1}, emath.identity()); err != .None {
 		return err
 	}
 	return draw_mesh(

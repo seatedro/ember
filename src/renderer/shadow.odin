@@ -60,7 +60,7 @@ create_shadow_map :: proc(
 		{
 			layout = VERTEX_LAYOUT,
 			depth_only = true,
-			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			depth = {test_enabled = true, write_enabled = true, compare = .Greater},
 		},
 		material_uniforms = false,
 	)
@@ -118,7 +118,8 @@ draw_directional_shadow :: proc(
 	projection := emath.identity()
 	projection[0, 0] = 1 / view.half_size.x
 	projection[1, 1] = 1 / view.half_size.y
-	projection[2, 2] = -2 / view.depth
+	projection[2, 2] = 1 / view.depth
+	projection[2, 3] = 0.5
 	light_matrix := projection * light_view
 	for value in transmute([16]f32)light_matrix {
 		if math.is_nan(value) || math.is_inf(value) {

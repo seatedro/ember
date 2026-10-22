@@ -11,7 +11,11 @@ SHADER_LANGUAGE :: types.Shader_Language.GLSL
 
 Device :: struct {
 	platform_context: Device_Context,
+	clip_fixup:       bool,
 }
+
+@(private = "file")
+CLIP_FIXUP_MAIN :: "\nvoid main()\n{\n    ember_main();\n    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n}\n"
 
 Buffer :: struct {
 	id: u32,
@@ -167,6 +171,15 @@ create_device :: proc(platform_context: Device_Context) -> (Device, types.Error)
 	gl.impl_Enable(gl.DEPTH_TEST)
 	if err := check_errors("enable depth test"); err != .None {
 		return {}, err
+	}
+
+	if gl.impl_ClipControl != nil {
+		gl.impl_ClipControl(gl.LOWER_LEFT, gl.ZERO_TO_ONE)
+		if err := check_errors("set clip depth range"); err != .None {
+			return {}, err
+		}
+	} else {
+		backend.clip_fixup = true
 	}
 
 	return backend, .None
@@ -488,10 +501,23 @@ create_shader :: proc(
 		return {}, .Backend_Failed
 	}
 
+	code := desc.source.code
+	if kind == gl.VERTEX_SHADER && device.clip_fixup {
+		renamed, allocated := strings.replace(code, "void main()", "void ember_main()", 1, allocator)
+		if !allocated {
+			return {}, .Invalid_Shader_Entry_Point
+		}
+		code = strings.concatenate({renamed, CLIP_FIXUP_MAIN}, allocator)
+		delete(renamed, allocator)
+	}
+	defer if raw_data(code) != raw_data(desc.source.code) {
+		delete(code, allocator)
+	}
+
 	// Pass an explicit length so Odin string slices work without a trailing
 	// zero.
-	source := cstring(raw_data(desc.source.code))
-	length := i32(len(desc.source.code))
+	source := cstring(raw_data(code))
+	length := i32(len(code))
 	gl.impl_ShaderSource(native.id, 1, &source, &length)
 	if err := check_errors("set shader source"); err != .None {
 		return {}, err

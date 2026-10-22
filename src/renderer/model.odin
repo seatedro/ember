@@ -322,7 +322,7 @@ create_model_pipeline :: proc(
 		{
 			layout = SKINNED_VERTEX_LAYOUT if skinned else VERTEX_LAYOUT,
 			primitive = .Triangles,
-			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			depth = {test_enabled = true, write_enabled = true, compare = .Greater},
 			raster = {cull = cull, winding = .CCW},
 		},
 		textures[:],

@@ -21,7 +21,7 @@ init_blending :: proc(game: ^State) -> bool {
 	settings := render.Pipeline_Settings {
 		layout = render.VERTEX_LAYOUT,
 		primitive = .Triangles,
-		depth = {test_enabled = true, write_enabled = false, compare = .Less},
+		depth = {test_enabled = true, write_enabled = false, compare = .Greater},
 		raster = {cull = .None},
 		blend = {
 			enabled = true,

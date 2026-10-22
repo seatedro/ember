@@ -51,7 +51,7 @@ begin_pass :: proc(
 	renderer: ^Renderer,
 	desc: Pass_Desc,
 	clear_color: [4]f32 = {0.1, 0.1, 0.1, 1},
-	clear_depth: f64 = 1,
+	clear_depth: f64 = 0,
 ) -> Error {
 	pass := rhi.Pass_Desc {
 		viewport   = desc.viewport,

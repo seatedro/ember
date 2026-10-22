@@ -35,7 +35,7 @@ create_debug_grid :: proc(
 		{
 			layout = COLOR_VERTEX_LAYOUT,
 			primitive = .Lines,
-			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			depth = {test_enabled = true, write_enabled = true, compare = .Greater},
 		},
 	)
 	if err != .None {

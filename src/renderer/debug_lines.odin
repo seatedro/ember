@@ -59,7 +59,7 @@ create_debug_lines :: proc(
 		{
 			layout = COLOR_VERTEX_LAYOUT,
 			primitive = .Lines,
-			depth = {test_enabled = depth_test, write_enabled = false, compare = .Less_Equal},
+			depth = {test_enabled = depth_test, write_enabled = false, compare = .Greater_Equal},
 		},
 	)
 	if err != .None {

@@ -143,7 +143,7 @@ create_billboard_renderer :: proc(
 							},
 						},
 					},
-					depth = {test_enabled = true, write_enabled = false, compare = .Less_Equal},
+					depth = {test_enabled = true, write_enabled = false, compare = .Greater_Equal},
 					blend = {
 						enabled = true,
 						src_factor_rgb = .Src_Alpha,

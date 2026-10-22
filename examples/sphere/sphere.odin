@@ -110,7 +110,7 @@ init :: proc(app: ^engine.Context, userdata: rawptr) -> bool {
 		{
 			layout = render.VERTEX_LAYOUT,
 			primitive = .Triangles,
-			depth = {test_enabled = true, write_enabled = true, compare = .Less},
+			depth = {test_enabled = true, write_enabled = true, compare = .Greater},
 			raster = {cull = .Back, winding = .CCW},
 		},
 		{{name = "albedo_texture", binding = 0}},
