@@ -20,6 +20,7 @@ Draw_Item :: struct {
 	joints:    rhi.Buffer_Handle,
 }
 
+// TODO: Keep instance data on the GPU and upload only the items that changed.
 Draw_List :: struct {
 	items:         [dynamic]Draw_Entry,
 	visible:       [dynamic]Draw_Entry,
