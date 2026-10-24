@@ -6,6 +6,7 @@ import "core:math"
 
 Shadow_View :: struct {
 	center:    emath.Vec3,
+	origin:    emath.Vec3d,
 	half_size: [2]f32,
 	depth:     f32,
 }
@@ -22,6 +23,7 @@ Shadow_Map :: struct {
 	material:        Material,
 	draws:           Draw_List,
 	view_projection: emath.Mat4,
+	origin:          emath.Vec3d,
 	ready:           bool,
 }
 
@@ -110,10 +112,9 @@ draw_directional_shadow :: proc(
 	}
 	light_view := emath.look_at(direction, {}, up)
 	for row in 0 ..< 3 {
-		light_view[row, 3] = -(light_view[row, 0] * view.center.x +
-			light_view[row, 1] * view.center.y +
-			light_view[row, 2] * view.center.z)
+		light_view[row, 3] = 0
 	}
+	center := view.origin + emath.to_vec3d(view.center)
 
 	projection := emath.identity()
 	projection[0, 0] = 1 / view.half_size.x
@@ -140,6 +141,7 @@ draw_directional_shadow :: proc(
 				material = shadow.material,
 				mesh = entry.item.mesh,
 				transform = entry.item.transform,
+				origin = entry.item.origin,
 			},
 		); err != .None {
 			return
@@ -156,11 +158,12 @@ draw_directional_shadow :: proc(
 		}
 		if err == .None {
 			shadow.view_projection = light_matrix
+			shadow.origin = center
 			shadow.ready = true
 		}
 	}
 
-	return draw_list(renderer, &shadow.draws, {orientation = 1}, light_matrix)
+	return draw_list(renderer, &shadow.draws, {position = center, orientation = 1}, light_matrix)
 }
 
 destroy_shadow_map :: proc(renderer: ^Renderer, shadow: ^Shadow_Map) -> (result: Error) {

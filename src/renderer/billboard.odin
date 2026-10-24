@@ -223,6 +223,7 @@ draw_billboards :: proc(
 	projection: emath.Mat4,
 	blend: Billboard_Blend = .Alpha,
 	texture: Texture = {},
+	origin := emath.Vec3d{},
 ) -> Error {
 	renderer.stats = {
 		submitted = len(billboards),
@@ -245,11 +246,12 @@ draw_billboards :: proc(
 		return .Invalid_Draw
 	}
 
-	view_matrix := camera.view_matrix(view)
+	view_matrix := camera.view_rotation(view)
 	view_projection := projection * view_matrix
 	count, err := prepare_billboards(
 		renderer.entries,
 		billboards,
+		emath.to_vec3(origin - view.position),
 		view_matrix,
 		emath.frustum_from_matrix(view_projection),
 		blend,
@@ -318,6 +320,7 @@ draw_billboards :: proc(
 prepare_billboards :: proc(
 	entries: []Billboard_Entry,
 	billboards: []Billboard,
+	offset: emath.Vec3,
 	view: emath.Mat4,
 	frustum: emath.Frustum,
 	blend: Billboard_Blend,
@@ -326,7 +329,9 @@ prepare_billboards :: proc(
 	Error,
 ) {
 	count := 0
-	for billboard in billboards {
+	for source in billboards {
+		billboard := source
+		billboard.position += offset
 		for value in ([10]f32 {
 				billboard.position.x,
 				billboard.position.y,

@@ -21,6 +21,7 @@ Renderer :: struct {
 	pending_instance_buffer: rhi.Buffer_Handle,
 	instance_capacity:       int,
 	lighting_uniforms:       rhi.Buffer_Handle,
+	view_origin:             emath.Vec3d,
 }
 
 // Hard-coded instead of taken from the RHI limit, because
@@ -120,7 +121,7 @@ set_view :: proc(
 		return err
 	}
 
-	packed_lighting, lighting_error := pack_lighting(lighting)
+	packed_lighting, lighting_error := pack_lighting(lighting, view.position)
 	if lighting_error != .None {
 		return lighting_error
 	}
@@ -144,7 +145,7 @@ set_view :: proc(
 		return err
 	}
 
-	view_projection := projection * camera.view_matrix(view)
+	view_projection := projection * camera.view_rotation(view)
 	// Both APIs store cube faces in the sampler's direction convention. Metal
 	// needs the projection flipped vertically, and its backend flips winding to
 	// match.
@@ -170,12 +171,7 @@ set_view :: proc(
 		}
 	}
 
-	data := [1]Per_View {
-		{
-			view_projection = view_projection,
-			camera_position = {view.position.x, view.position.y, view.position.z, 1},
-		},
-	}
+	data := [1]Per_View{{view_projection = view_projection, camera_position = {0, 0, 0, 1}}}
 	if err := rhi.update_buffer(
 		renderer.device,
 		renderer.view_uniforms,
@@ -185,6 +181,7 @@ set_view :: proc(
 		return err
 	}
 
+	renderer.view_origin = view.position
 	return .None
 }
 
@@ -194,8 +191,16 @@ draw_mesh :: proc(
 	mesh: ^Mesh,
 	material: ^Material,
 	transform: emath.Transform,
+	origin := emath.Vec3d{},
 ) -> Error {
-	return draw_mesh_matrix(renderer, pipeline, mesh, material, emath.transform_matrix(transform))
+	return draw_mesh_matrix(
+		renderer,
+		pipeline,
+		mesh,
+		material,
+		emath.transform_matrix(transform),
+		origin,
+	)
 }
 
 draw_mesh_matrix :: proc(
@@ -204,6 +209,7 @@ draw_mesh_matrix :: proc(
 	mesh: ^Mesh,
 	material: ^Material,
 	transform: emath.Mat4,
+	origin := emath.Vec3d{},
 ) -> Error {
 	if err := rhi.validate_device(renderer.device); err != .None {
 		return err
@@ -217,7 +223,9 @@ draw_mesh_matrix :: proc(
 		return .Invalid_Draw
 	}
 
-	data := [1]Instance_Data{pack_instance(transform)}
+	data := [1]Instance_Data {
+		pack_instance(relative_transform(transform, origin, renderer.view_origin)),
+	}
 	if err := upload_instances(renderer, data[:]); err != .None {
 		return err
 	}
@@ -350,4 +358,14 @@ destroy :: proc(renderer: ^Renderer) -> (result: Error) {
 	}
 
 	return
+}
+
+@(private)
+relative_transform :: proc(transform: emath.Mat4, origin, view_origin: emath.Vec3d) -> emath.Mat4 {
+	result := transform
+	offset := origin - view_origin
+	for row in 0 ..< 3 {
+		result[row, 3] = f32(offset[row] + f64(transform[row, 3]))
+	}
+	return result
 }

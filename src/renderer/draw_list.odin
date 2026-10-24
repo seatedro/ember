@@ -16,6 +16,7 @@ Draw_Item :: struct {
 	mesh:      Mesh,
 	material:  Material,
 	transform: emath.Mat4,
+	origin:    emath.Vec3d,
 	order:     Draw_Order,
 	joints:    rhi.Buffer_Handle,
 }
@@ -51,10 +52,11 @@ Batch_Key :: struct {
 
 @(private)
 Draw_Entry :: struct {
-	item:     Draw_Item,
-	depth:    f32,
-	sequence: int,
-	batch:    int,
+	item:      Draw_Item,
+	transform: emath.Mat4,
+	depth:     f32,
+	sequence:  int,
+	batch:     int,
 }
 
 create_draw_list :: proc(allocator := context.allocator) -> Draw_List {
@@ -104,9 +106,14 @@ add_draw :: proc(list: ^Draw_List, item: Draw_Item) -> Error {
 }
 
 sort_draw_list :: proc(list: ^Draw_List, view: camera.Camera) -> Error {
-	view_matrix := camera.view_matrix(view)
+	view_matrix := camera.view_rotation(view)
 	for &entry in list.items {
-		model := entry.item.transform
+		entry.transform = relative_transform(
+			entry.item.transform,
+			entry.item.origin,
+			view.position,
+		)
+		model := entry.transform
 		p := emath.Vec3{model[0, 3], model[1, 3], model[2, 3]}
 		entry.depth = (view_matrix * emath.Vec4{p.x, p.y, p.z, 1}).z
 		if math.is_nan(entry.depth) || math.is_inf(entry.depth) {
@@ -152,10 +159,10 @@ draw_list :: proc(
 	}
 
 	clear(&list.visible)
-	frustum := emath.frustum_from_matrix(projection * camera.view_matrix(view))
+	frustum := emath.frustum_from_matrix(projection * camera.view_rotation(view))
 	for &entry in list.items {
 		item := &entry.item
-		bounds := emath.transform_sphere_matrix(item.mesh.bounds, item.transform)
+		bounds := emath.transform_sphere_matrix(item.mesh.bounds, entry.transform)
 		if !emath.sphere_in_frustum(frustum, bounds) {
 			continue
 		}
@@ -257,7 +264,7 @@ build_draw_batches :: proc(list: ^Draw_List, batching: bool) -> Error {
 
 	for &entry in list.visible {
 		batch := &list.batches[entry.batch]
-		list.instances[batch.first + batch.count] = pack_instance(entry.item.transform)
+		list.instances[batch.first + batch.count] = pack_instance(entry.transform)
 		batch.count += 1
 	}
 

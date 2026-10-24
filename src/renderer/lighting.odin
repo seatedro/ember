@@ -9,6 +9,7 @@ MAX_DIRECTIONAL_LIGHTS :: 4
 
 Point_Light :: struct {
 	position:  emath.Vec3,
+	origin:    emath.Vec3d,
 	color:     emath.Vec3,
 	intensity: f32,
 	range:     f32,
@@ -71,7 +72,13 @@ Lighting_Uniforms :: struct {
 )
 
 @(private)
-pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Error) {
+pack_lighting :: proc(
+	lighting: Lighting,
+	view_origin: emath.Vec3d,
+) -> (
+	data: Lighting_Uniforms,
+	err: Error,
+) {
 	if len(lighting.point_lights) > MAX_POINT_LIGHTS ||
 	   len(lighting.directional_lights) > MAX_DIRECTIONAL_LIGHTS {
 		return {}, .Invalid_Capacity
@@ -118,8 +125,13 @@ pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Erro
 			}
 		}
 
+		offset := light.origin - view_origin
+		position: [3]f32
+		for axis in 0 ..< 3 {
+			position[axis] = f32(offset[axis] + f64(light.position[axis]))
+		}
 		data.point_lights[i] = {
-			position_range  = {light.position.x, light.position.y, light.position.z, light.range},
+			position_range  = {position.x, position.y, position.z, light.range},
 			color_intensity = {light.color.x, light.color.y, light.color.z, light.intensity},
 		}
 	}
@@ -161,7 +173,9 @@ pack_lighting :: proc(lighting: Lighting) -> (data: Lighting_Uniforms, err: Erro
 				return {}, .Invalid_Usage
 			}
 		}
-		data.shadow_matrix = lighting.shadow.view_projection
+		data.shadow_matrix =
+			lighting.shadow.view_projection *
+			emath.translation(emath.to_vec3(view_origin - lighting.shadow.origin))
 		data.shadow_bias = {
 			lighting.shadow_settings.bias,
 			lighting.shadow_settings.slope_bias,

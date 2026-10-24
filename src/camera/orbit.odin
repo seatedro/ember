@@ -4,7 +4,7 @@ import emath "../core/math"
 import "core:math"
 
 Orbit :: struct {
-	target:   emath.Vec3,
+	target:   emath.Vec3d,
 	yaw:      f32,
 	pitch:    f32,
 	distance: f32,
@@ -17,7 +17,8 @@ from_orbit :: proc(orbit: Orbit) -> Camera {
 	orientation := emath.quaternion_normalize(yaw * pitch)
 
 	return Camera {
-		position = orbit.target + emath.quaternion_rotate(orientation, {0, 0, orbit.distance}),
+		position = orbit.target +
+		emath.to_vec3d(emath.quaternion_rotate(orientation, {0, 0, orbit.distance})),
 		orientation = orientation,
 	}
 }

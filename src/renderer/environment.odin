@@ -151,7 +151,7 @@ Capture_Draw :: proc(
 capture_cubemap :: proc(
 	renderer: ^Renderer,
 	target: ^Render_Target,
-	position: emath.Vec3,
+	position: emath.Vec3d,
 	near, far: f32,
 	draw: Capture_Draw,
 	userdata: rawptr = nil,

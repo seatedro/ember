@@ -1,5 +1,6 @@
 package renderer
 
+import "../camera"
 import emath "../core/math"
 import "core:math"
 import "core:testing"
@@ -101,4 +102,64 @@ test_batches_preserve_materials_and_transparency :: proc(t: ^testing.T) {
 		testing.expect_value(t, list.batches[i].first, i)
 		testing.expect_value(t, list.batches[i].count, 1)
 	}
+}
+
+@(test)
+test_far_items_draw_relative_to_the_camera :: proc(t: ^testing.T) {
+	far := emath.Vec3d{4.5e12, -2.25e12, 1.5e12}
+	list := create_draw_list()
+	defer destroy_draw_list(&list)
+	testing.expect(
+		t,
+		add_draw(&list, {transform = emath.translation({1.25, 0.5, 0}), origin = far}) == .None,
+	)
+	testing.expect(
+		t,
+		add_draw(
+			&list,
+			{transform = emath.translation({1.25, 0.5, -2}), origin = far, order = .Transparent},
+		) ==
+		.None,
+	)
+
+	view := camera.Camera {
+		position    = far + {4.75, 0.5, 3},
+		orientation = 1,
+	}
+	testing.expect(t, sort_draw_list(&list, view) == .None)
+	expected := [2]emath.Vec3{{-3.5, 0, -3}, {-3.5, 0, -5}}
+	for entry, i in list.items {
+		moved := emath.Vec3{entry.transform[0, 3], entry.transform[1, 3], entry.transform[2, 3]}
+		testing.expect_value(t, moved, expected[i])
+		testing.expect_value(t, entry.depth, expected[i].z)
+	}
+}
+
+@(test)
+test_far_lights_and_shadows_follow_the_view_origin :: proc(t: ^testing.T) {
+	far := emath.Vec3d{4.5e12, 0, 0}
+	lights := [1]Point_Light {
+		{position = {0.5, 2, 0}, origin = far, color = {1, 1, 1}, intensity = 1, range = 10},
+	}
+	shadow := Shadow_Map {
+		view_projection = emath.identity(),
+		origin          = far + {-1, 0, 0},
+		ready           = true,
+	}
+	sun := [1]Directional_Light{{direction = {0, 1, 0}, color = {1, 1, 1}, intensity = 1}}
+	data, err := pack_lighting(
+		{
+			point_lights = lights[:],
+			directional_lights = sun[:],
+			shadow = &shadow,
+			shadow_settings = {enabled = true},
+		},
+		far + {2.5, 1, 0},
+	)
+	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, data.point_lights[0].position_range, [4]f32{-2, 1, 0, 10})
+
+	surface_from_camera := emath.Vec4{-2.5, -1, 0, 1}
+	from_shadow_origin := data.shadow_matrix * surface_from_camera
+	testing.expect_value(t, from_shadow_origin, emath.Vec4{1, 0, 0, 1})
 }

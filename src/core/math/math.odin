@@ -2,6 +2,15 @@ package ember_math
 
 import stdmath "core:math"
 Vec3 :: distinct [3]f32
+Vec3d :: distinct [3]f64
+
+to_vec3d :: proc(v: Vec3) -> Vec3d {
+	return {f64(v[0]), f64(v[1]), f64(v[2])}
+}
+
+to_vec3 :: proc(v: Vec3d) -> Vec3 {
+	return {f32(v[0]), f32(v[1]), f32(v[2])}
+}
 
 /*
 	dot - Computes the dot product of two 3D vectors.

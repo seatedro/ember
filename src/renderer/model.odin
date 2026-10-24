@@ -248,11 +248,13 @@ add_model :: proc(
 	model: ^Model,
 	pose: ^Model_Pose,
 	transform: emath.Mat4,
+	origin := emath.Vec3d{},
 ) -> Error {
 	for part in model.parts {
 		item := Draw_Item {
 			mesh     = model.meshes[part.mesh],
 			material = model.materials[part.material],
+			origin   = origin,
 		}
 		if part.skin == assets.NO_INDEX {
 			item.pipeline = shading.double_sided if part.double_sided else shading.single_sided
@@ -596,7 +598,11 @@ create_skinned_submesh :: proc(
 }
 
 @(private)
-compose :: proc(translation: emath.Vec3, rotation: emath.Quaternion, scale: emath.Vec3) -> emath.Mat4 {
+compose :: proc(
+	translation: emath.Vec3,
+	rotation: emath.Quaternion,
+	scale: emath.Vec3,
+) -> emath.Mat4 {
 	result := emath.rotation_matrix(rotation)
 	for column in 0 ..< 3 {
 		for row in 0 ..< 3 {
